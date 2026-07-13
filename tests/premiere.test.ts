@@ -987,6 +987,16 @@ describe("audio timeline insertion collision gate", () => {
     );
   });
 
+  it("prefers the full media duration over unset In/Out points on a fresh import", async () => {
+    // 갓 임포트한 클립은 In/Out이 미설정 sentinel(큰 음수)이라, getMedia().duration을 우선 써야 한다.
+    const duration = await audioProjectItemDurationSeconds({
+      getMedia: async () => ({ duration: Promise.resolve({ seconds: 12.5 }) }),
+      getInPoint: async () => ({ seconds: -400000 }),
+      getOutPoint: async () => ({ seconds: -400000 }),
+    }, "audio");
+    assert.equal(duration, 12.5);
+  });
+
   it("allows clips adjacent to both insertion boundaries and commits once", async () => {
     const sequence = sequenceProbe([trackItem(0, 5), trackItem(7, 9)]);
     const transaction = transactionCounter();

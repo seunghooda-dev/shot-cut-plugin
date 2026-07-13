@@ -706,11 +706,29 @@ const AUDIO_INSERT_TIME_EPSILON = 1e-6;
 
 export async function audioProjectItemDurationSeconds<TMediaType>(
   clipProjectItem: {
+    getMedia?(): Promise<{ duration?: unknown } | null | undefined>;
     getInPoint(mediaType: TMediaType): Promise<unknown>;
     getOutPoint(mediaType: TMediaType): Promise<unknown>;
   },
   audioMediaType: TMediaType,
 ): Promise<number> {
+  // 갓 임포트한 클립은 In/Out 포인트가 미설정 sentinel(큰 음수)이라 트림 길이로 쓸 수 없다(Host 실측 확인).
+  // 전체 미디어 길이 getMedia().duration을 우선 사용한다 — 비동기 getter라 await하면 TickTime을 준다.
+  if (typeof clipProjectItem.getMedia === "function") {
+    // 갓 만든 파일은 미디어 분석이 import보다 늦어 duration이 잠깐 무효일 수 있어, 유효해질 때까지 짧게 재시도한다.
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      try {
+        const media = await clipProjectItem.getMedia();
+        const durationSeconds = media ? tickTimeSeconds(await media.duration, Number.NaN) : Number.NaN;
+        if (Number.isFinite(durationSeconds) && durationSeconds > 0 && durationSeconds <= 86_400) {
+          return durationSeconds;
+        }
+      } catch {
+        // 재시도 후에도 안 되면 아래 In/Out 폴백으로 진행한다.
+      }
+      await wait(150);
+    }
+  }
   let inPoint: unknown;
   let outPoint: unknown;
   try {
