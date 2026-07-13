@@ -2606,9 +2606,11 @@ textarea {
   grid-template-columns: minmax(230px, 0.72fr) minmax(0, 1.28fr);
 }
 
+/* Premiere 26.3 UXP에서 flex 아이템(.reference-board) 안의 grid가 0×0으로 붕괴하는
+   Host 버그(§25-b/§26) 때문에 .form-grid와 동일하게 flex-wrap 기반으로 구성한다. */
 .reference-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   align-content: start;
   gap: 8px;
   min-height: 310px;
@@ -2621,10 +2623,12 @@ textarea {
 }
 
 .reference-list > .empty-state {
-  grid-column: 1 / -1;
+  flex-basis: 100%;
 }
 
 .reference-card {
+  flex: 1 1 138px;
+  max-width: 100%;
   align-items: stretch;
   flex-direction: column;
   padding: 7px;
@@ -3577,8 +3581,8 @@ input[type="color"],
     max-width: 210px;
   }
 
-  .reference-list {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  .reference-card {
+    flex-basis: 120px;
   }
 
   .history-heading {
