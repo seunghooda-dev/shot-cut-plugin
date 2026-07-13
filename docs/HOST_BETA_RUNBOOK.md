@@ -717,3 +717,22 @@ CDP 검증(`cdt-thumb-ai-1b.mjs`, 새 dist reload):
 - [ ] 선택 클립에 모션 키프레임 실제 적용 확인(§25-l)
 - [ ] 5d 자동 덕킹: 오디오 클립 Volume>Level 키프레임 쓰기 가용성 + dB→Level 값 매핑 탐침(활성 시퀀스+오디오 클립 필요, §25-j). **이 매핑이 검증 안 된 채로 Host 코드를 쌓지 않기로 함** — 실 클립 없이는 미검증 코드만 늘어남.
 - [ ] gap-3 STT 완주(출력 폴더 지정 후 실제 전사, §25-k)
+
+## 27. Host 링크 복구 후 실 Premiere 검증 재개(2026-07-14 새벽)
+
+사용자가 한밤에 깨어 Premiere를 재실행("실제 host 테스트 및 모든 가능한 테스트 진행", 이후 "승인 필요하면 무조건 허용"). 재실행만으로는 UDT↔Premiere 개발자 브리지가 곧장 안 붙었으나(포트 OPEN·앱 클라이언트 미등록), 백그라운드 감시자(`cdt-watch.mjs`)가 부팅 완료 t+58s에 `client=1 appId=premierepro` 재등록을 감지해 자동 재개. 활성 프로젝트 `ShortFlow_HostSmoke_20260712`는 열렸으나 **시퀀스 0개**(재실행 시 미저장 스모크 시퀀스 소멸) — `project.createSequenceFromMedia`/`importFiles`/`TrackItemSelection`로 테스트 시퀀스를 프로그램적으로 구성해 검증했다.
+
+### 27-a. 레퍼런스 보드 카드 0×0 붕괴 — 실버그 발견·수정·Host 검증(`67817a8`)
+재실행 후 회귀 스모크가 레퍼런스 탭에서 0×0 입력 3개(`reference-source/notes/tags-editor`)를 잡았다. 조상 추적 결과 부모 `.reference-board`(284px)는 정상인데 자식 `.reference-list`(`display:grid`, `repeat(auto-fill, minmax(138px,1fr))`)가 0×0으로 붕괴 — **flex 아이템 안의 grid가 트랙을 해석 못해 붕괴하는 UXP 버그**(§25-b `.form-grid`와 동일 계열, 단 다른 탭 그리드는 정상이라 보편 버그 아님). 항목이 있을 때만 나타나(카드가 있어야) 이전 감사에서 놓친 것. **수정**: `.form-grid` 선례대로 `flex-wrap`+`.reference-card { flex: 1 1 138px }`. **Host 검증(fresh 로드)**: 리스트 254×350, 카드 236×332, 편집기 220×34~44, 0×0 잔존 0, 콘솔 0.
+- **오탐 주의**: 같은 스모크에서 voice/brand/thumbnail이 전 입력 0×0으로 뜬 건 **탭 전환 리플로우가 300ms 안에 안 끝난 측정 아티팩트**. 1초 정착 후 2라운드 재측정에서 전부 ✅(패널 display:block, 폭 284). 스모크의 탭 전환 대기(300ms)가 UXP엔 부족 — 실버그는 레퍼런스뿐.
+
+### 27-b. 클립 모션 키프레임 — Host 전용 버그 2건 발견·수정·엔드투엔드 검증(`31e5c71`)
+gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용자 게이트"였다(§25-l). 이제 API로 시퀀스+클립을 만들어 실제 적용을 구동하니 **토스트는 "적용했습니다"인데 키프레임이 0개**였다. CDP introspect로 두 버그를 특정:
+1. **위치 값 형식**: `keyframeValue(await position.getStartValue())`가 `{x,y}`가 아니라 **`[x,y]` array-like PointF**(keys `["0","1","length"]`)를 돌려준다(실측). `buildClipMotionActions`는 `"x" in restValue`로 검사해 항상 "위치 값 형식 인식 못함"→0액션. `readPointF`(양쪽 형식 정규화) 헬퍼 추가, `centeredPosition`도 경유시켜 **reframe 중앙정렬의 동일 잠재 버그도 수정**.
+2. **time-varying 활성화 누락**: `createAddKeyframeAction`은 파라미터가 time-varying이어야 동작한다. 이전 세션의 "addKeyframe가 자동 활성화" 가정은 틀렸고 `createSetTimeVaryingAction(true)`가 실재·필수. 없으면 트랜잭션은 성공 커밋되나 키프레임이 전부 드롭. position/opacity 키프레임 앞에 `createSetTimeVaryingAction(true)` 선행 액션 추가.
+- **Host 실측 검증**: 깨끗한 9:16 클립(`host-smoke-assets/shortflow_host_smoke_9x16.mp4`로 `createSequenceFromMedia`) → 모션 UI 적용 → **Position 16 + Opacity 16 키프레임, isTimeVarying true**(fresh 세션 `getKeyframeListAsTickTimes`로 확정), 콘솔 0.
+- **키프레임 버그 감사**: `createAddKeyframeAction` 사용처 전수 확인 — 펀치인 scale(premiere.ts:2151)은 이미 `createSetTimeVaryingAction(true)` 선행(§20에서 검증됨), 모션만 누락이었다. `createSetValueAction`(정적 값) 경로는 setTimeVarying 불필요. **모션만 버그, 수정 완료.**
+- 유닛 커버리지: `readPointF`(`{x,y}`/`[x,y]`/malformed) + `centeredPosition` array-like 케이스 추가. 게이트 1584→**1588/1588**.
+
+### 27-c. 재사용 CDP 스크립트(이번 세션 추가, 스크래치패드)
+`cdt-watch.mjs`(앱 클라이언트 재등록 감시·발견 시 exit0), `cdt-host-state.mjs`(활성 프로젝트/시퀀스/클립/선택), `cdt-motion-setup.mjs`(9:16 임포트→`createSequenceFromMedia`→선택), `cdt-motion-apply.mjs`(UI 적용+isTimeVarying 전후), `cdt-motion-check.mjs`(fresh 세션 키프레임 카운트). **핵심 패턴**: `awaitPromise` 신뢰 불가 → 비동기 ppro 호출은 전역 stash 후 폴링, 인라인 `.style` 변경 후 측정도 동기 리플로우 안 돼 stale(수정은 CSS 파일→fresh 리로드로 검증). Selection API는 `ppro.TrackItemSelection.createEmptySelection(cb)`+`sel.addItem`+`seq.setSelection`.
