@@ -346,8 +346,9 @@ strong {
 .tab-list {
   display: none;
   flex-wrap: wrap;
-  gap: 5px;
-  padding: 7px;
+  align-content: flex-start;
+  gap: 4px;
+  padding: 6px;
   border-top: 1px solid var(--line-subtle);
 }
 
@@ -358,19 +359,19 @@ strong {
 .nav-tab {
   position: relative;
   display: flex;
-  flex: 1 1 130px;
-  min-width: 110px;
+  flex: 1 1 84px;
+  min-width: 76px;
   align-items: center;
   justify-content: center;
-  min-height: 46px;
-  padding: 4px 7px;
+  min-height: 38px;
+  padding: 3px 5px;
   border: 1px solid var(--line-subtle);
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--bg-raised);
   color: var(--text-secondary);
-  font-size: var(--fs-md);
+  font-size: 13px;
   font-weight: 600;
-  line-height: 1.16;
+  line-height: 1.14;
   text-align: center;
   white-space: normal;
   overflow-wrap: break-word;
@@ -3485,9 +3486,7 @@ input[type="color"],
   }
 
   .nav-tab {
-    min-height: 44px;
-    min-width: 74px;
-    padding: 4px 5px;
+    min-width: 72px;
   }
 
   .status-grid {
