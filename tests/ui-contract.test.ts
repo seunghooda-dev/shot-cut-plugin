@@ -573,6 +573,14 @@ function assertCssContracts(css: string): void {
   assert.match(css, /\.asset-browser\s*\{[^}]*flex:\s*2\s+1\s+320px\s*;/s);
   assert.match(css, /\.speech-workspace\s*\{[^}]*display:\s*flex\s*;[^}]*flex-wrap:\s*wrap\s*;/s);
   assert.match(css, /\.speech-card\s*\{[^}]*flex:\s*1\s+1\s+320px\s*;[^}]*min-width:\s*0\s*;/s);
+  // 레퍼런스 보드 카드 0×0 붕괴 회귀 방지(§27-a): 리스트는 flex-wrap, 카드는 flex-basis를 유지한다.
+  assert.match(css, /\.reference-list\s*\{[^}]*display:\s*flex\s*;[^}]*flex-wrap:\s*wrap\s*;/s);
+  assert.match(css, /\.reference-card\s*\{[^}]*flex:\s*1\s+1\s+138px\s*;/s);
+  // UXP Premiere는 grid auto-fill/auto-fit 컨테이너를 0폭으로 붕괴시킨다 — 목록은 flex-wrap으로 배치한다.
+  assert.ok(
+    !/auto-fill|auto-fit/.test(css),
+    "styles.css must not use grid auto-fill/auto-fit (collapses to 0px in Premiere UXP; use flex-wrap)",
+  );
   assert.match(css, /@media\s*\(max-width:\s*900px\)\s*\{[\s\S]*?\.asset-browser\s*\{[^}]*order:\s*-1\s*;/s);
   assert.match(css, /@media\s*\(max-width:\s*500px\)\s*\{[\s\S]*?\.app-header\s*\{[^}]*min-height:\s*48px\s*;[^}]*padding-top:\s*8px\s*;[^}]*padding-bottom:\s*8px\s*;/s);
   assert.match(css, /@media\s*\(max-width:\s*500px\)\s*\{[\s\S]*?\.sequence-status\s*\{[^}]*padding-top:\s*7px\s*;[^}]*padding-bottom:\s*7px\s*;/s);
