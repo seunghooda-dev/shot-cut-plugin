@@ -81,6 +81,23 @@ export function bind(
 
 let tabsInitialized = false;
 
+function tabLabel(tab: HTMLElement): string {
+  return (tab.textContent ?? "").replace(/^\s*\d+\s*/u, "").trim() || "메뉴";
+}
+
+// 현재 섹션 라벨을 접이식 내비 토글에 반영하고, 클릭/초기화(focus=false)일 때는 내비를 접는다.
+// 키보드 화살표 이동(focus=true) 중에는 펼친 상태를 유지해 계속 탐색할 수 있게 한다.
+function updateNavToggle(activeTab: HTMLElement, collapse: boolean): void {
+  const nav = document.querySelector<HTMLElement>(".workflow-nav");
+  if (!nav) return;
+  const label = nav.querySelector<HTMLElement>(".nav-toggle-label");
+  if (label) label.textContent = tabLabel(activeTab);
+  if (collapse) {
+    nav.classList.remove("is-expanded");
+    nav.querySelector(".nav-toggle")?.setAttribute("aria-expanded", "false");
+  }
+}
+
 function activateWorkflowTab(tab: HTMLButtonElement, focus = false): void {
   const tabs = [...document.querySelectorAll<HTMLButtonElement>(".nav-tab[data-tab]")];
   const panels = [...document.querySelectorAll<HTMLElement>(".workflow-panel[data-panel]")];
@@ -97,6 +114,7 @@ function activateWorkflowTab(tab: HTMLButtonElement, focus = false): void {
     panel.classList.toggle("is-active", active);
     panel.hidden = !active;
   }
+  updateNavToggle(tab, !focus);
   if (focus) tab.focus();
 }
 
@@ -117,6 +135,13 @@ export function setupTabs(): void {
     event.preventDefault();
     activateWorkflowTab(tab);
   }, true);
+
+  const navToggle = document.getElementById("nav-toggle");
+  navToggle?.addEventListener("click", () => {
+    const nav = navToggle.closest<HTMLElement>(".workflow-nav");
+    const expanded = nav?.classList.toggle("is-expanded") ?? false;
+    navToggle.setAttribute("aria-expanded", String(expanded));
+  });
 
   document.addEventListener("keydown", (event: KeyboardEvent) => {
     const tab = workflowTabFromEvent(event);

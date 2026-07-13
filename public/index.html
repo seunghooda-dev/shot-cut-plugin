@@ -69,7 +69,18 @@
       </section>
 
       <nav class="workflow-nav" aria-label="ShortFlow 작업 메뉴">
-        <div class="tab-list" role="tablist" aria-orientation="horizontal">
+        <button
+          id="nav-toggle"
+          class="nav-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="workflow-tab-list"
+        >
+          <span class="nav-toggle-icon" aria-hidden="true">☰</span>
+          <span class="nav-toggle-label">QC</span>
+          <span class="nav-toggle-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div id="workflow-tab-list" class="tab-list" role="tablist" aria-orientation="horizontal">
           <button
             id="tab-qc"
             class="nav-tab is-active"
