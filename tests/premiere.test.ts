@@ -23,6 +23,7 @@ import {
   planClipPunchKeyframes,
   prepareInsertAssetPreflight,
   punchApplicabilityWarning,
+  readPointF,
   readSequenceStatus,
   removeVerifiedClonedSequenceFromProject,
   sameMediaPath,
@@ -514,7 +515,33 @@ describe("keyframeValue", () => {
   });
 });
 
+describe("readPointF", () => {
+  it("reads the {x,y} object shape", () => {
+    assert.deepEqual(readPointF({ x: 960, y: 540 }), { x: 960, y: 540 });
+  });
+
+  it("reads the [x,y] array-like PointF shape the Host actually returns", () => {
+    // 실제 Premiere Host의 Motion 위치 값은 {x,y}가 아니라 index 0/1을 가진 array-like다.
+    assert.deepEqual(readPointF([960, 540]), { x: 960, y: 540 });
+    const arrayLike = { 0: 12, 1: 34, length: 2 } as unknown;
+    assert.deepEqual(readPointF(arrayLike), { x: 12, y: 34 });
+  });
+
+  it("rejects malformed or non-finite points", () => {
+    assert.equal(readPointF(null), null);
+    assert.equal(readPointF({ x: 1 }), null);
+    assert.equal(readPointF([1]), null);
+    assert.equal(readPointF([Number.NaN, 2]), null);
+    assert.equal(readPointF("nope"), null);
+  });
+});
+
 describe("centeredPosition", () => {
+  it("centers an [x,y] array-like Host position (reframe center + clip motion path)", () => {
+    assert.deepEqual(centeredPosition([960, 540], 1080, 1920), { x: 540, y: 960 });
+    assert.deepEqual(centeredPosition([0.25, 0.75], 1080, 1920), { x: 0.5, y: 0.5 });
+  });
+
   it("centers pixel-coordinate Motion positions on the target frame", () => {
     assert.deepEqual(centeredPosition({ x: 960, y: 540 }, 1080, 1920), {
       x: 540,

@@ -248,24 +248,26 @@ export function keyframeValue(value: unknown): unknown {
   return outer;
 }
 
+/**
+ * Premiere Motion의 위치 값은 Host에서 {x,y} 객체가 아니라 [x,y] array-like PointF로 오는
+ * 경우가 있어(실측 확인), 양쪽 형식을 모두 읽어 {x,y}로 정규화한다. 인식 불가면 null.
+ */
+export function readPointF(value: unknown): { x: number; y: number } | null {
+  if (typeof value !== "object" || value === null) return null;
+  const record = value as { x?: unknown; y?: unknown; 0?: unknown; 1?: unknown };
+  const x = Number("x" in record ? record.x : record[0]);
+  const y = Number("y" in record ? record.y : record[1]);
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+}
+
 export function centeredPosition(
   value: unknown,
   targetWidth: number,
   targetHeight: number,
 ): { x: number; y: number } | null {
+  const point = readPointF(value);
   if (
-    typeof value !== "object"
-    || value === null
-    || !("x" in value)
-    || !("y" in value)
-  ) {
-    return null;
-  }
-  const x = Number((value as { x: unknown }).x);
-  const y = Number((value as { y: unknown }).y);
-  if (
-    !Number.isFinite(x)
-    || !Number.isFinite(y)
+    !point
     || !Number.isFinite(targetWidth)
     || !Number.isFinite(targetHeight)
     || targetWidth <= 0
@@ -273,7 +275,7 @@ export function centeredPosition(
   ) {
     return null;
   }
-  const normalized = Math.abs(x) <= 2 && Math.abs(y) <= 2;
+  const normalized = Math.abs(point.x) <= 2 && Math.abs(point.y) <= 2;
   return normalized
     ? { x: 0.5, y: 0.5 }
     : { x: targetWidth / 2, y: targetHeight / 2 };
@@ -1632,20 +1634,20 @@ async function buildClipMotionActions(
     // 이미 위치 키프레임이 있는 클립은 기존 애니메이션을 파괴하지 않도록 건너뛴다.
     return { actions: [], warning: "위치 키프레임이 이미 있는 클립은 기존 애니메이션을 보존했습니다." };
   }
-  const restValue = keyframeValue(await position.getStartValue());
-  if (typeof restValue !== "object" || restValue === null || !("x" in restValue) || !("y" in restValue)) {
+  const restPoint = readPointF(keyframeValue(await position.getStartValue()));
+  if (!restPoint) {
     return { actions: [], warning: "위치 값 형식을 인식하지 못한 클립을 건너뛰었습니다." };
   }
-  const restX = Number((restValue as { x: unknown }).x);
-  const restY = Number((restValue as { y: unknown }).y);
-  if (!Number.isFinite(restX) || !Number.isFinite(restY)) {
-    return { actions: [], warning: "위치 값을 읽지 못한 클립을 건너뛰었습니다." };
-  }
+  const restX = restPoint.x;
+  const restY = restPoint.y;
   const normalized = Math.abs(restX) <= 2 && Math.abs(restY) <= 2;
   const horizontal = options.direction === "left" || options.direction === "right";
   const slideAmount = normalized ? 1 : horizontal ? frameWidth : frameHeight;
 
   const actions: ActionFactory[] = [];
+  // 키프레임을 추가하기 전에 파라미터를 time-varying으로 전환해야 한다. Host 실측 결과 이 액션이
+  // 없으면 createAddKeyframeAction이 무시되어 트랜잭션 커밋은 성공하지만 키프레임이 남지 않는다.
+  actions.push(() => position.createSetTimeVaryingAction(true));
   for (const sample of samples) {
     const point = slidePosition(restX, restY, options.direction, sample.progress, slideAmount);
     actions.push(() => {
@@ -1659,6 +1661,7 @@ async function buildClipMotionActions(
     const opacity = await findOpacityParam(item);
     const opacityHasKeyframes = opacity && typeof opacity.isTimeVarying === "function" && opacity.isTimeVarying();
     if (opacity && !opacityHasKeyframes && (typeof opacity.areKeyframesSupported !== "function" || (await opacity.areKeyframesSupported()))) {
+      actions.push(() => opacity.createSetTimeVaryingAction(true));
       for (const sample of samples) {
         const value = motionOpacity(sample.progress);
         actions.push(() => {
