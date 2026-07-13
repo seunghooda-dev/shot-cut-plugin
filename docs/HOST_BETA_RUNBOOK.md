@@ -695,3 +695,25 @@ CDP 검증(`cdt-thumb-ai-1b.mjs`, 새 dist reload):
 - 남은 5d(자동 덕킹): 발화 구간 볼륨 엔벨로프 + 오디오 클립 Volume>Level 키프레임 적용. **키프레임 쓰기 가용성 미탐침** — 활성 시퀀스+오디오 클립 필요. 없으면(Canvas 패턴) 덕킹 계획을 마커/리포트로 출력.
 
 **실제 음악 테스트로 드러난 알고리즘 버그·수정(2026-07-13)**: 사용자가 실제 곡(`Shining.mp3` → ffmpeg로 모노 44.1kHz WAV 변환)으로 테스트하자 옛 `detectBeats`(중앙값-IOI 방식)가 **BPM 0(불명확)** 을 반환했다 — 서브비트 온셋이 많은 실제 음악에서 IOI 변동계수가 커 템포를 못 찾음. 합성 클릭에만 맞던 것. **수정**: 온셋 강도(에너지 플럭스, DC 제거) 엔벨로프의 **자기상관**으로 우세 템포를 찾고, 피크/평균 비 ≥ 4로 비음악(노이즈·발화)을 거부, BPM에서 비트 그리드 생성. 실측으로 노이즈 3.60·발화류 3.89 < 음악(Shining 4.72)로 게이트 분리 확인. Host CDP(`cdt-shining.mjs`): **Shining.wav → 78 BPM, 252비트, 콘솔 0** (로컬 분석과 일치). 고속 템포(150)는 정수-lag 양자화로 옥타브 폴딩(74.5)될 수 있으나 음악 BPM 도구엔 허용. **MP3 자체는 여전히 미지원**(UXP에 디코더 없음) — 카드에서 "WAV만 지원" 안내, 사용자가 WAV로 변환하거나 후속으로 순수 JS MP3 디코더 도입 검토.
+
+## 26. 야간 자율 작업(/goal) — 게이트 전용 버그 헌트·하드닝(2026-07-13 심야)
+
+사용자가 "내일 아침 6시까지 승인 없이 가능한 작업 전부 진행" 지시. 이 시간대엔 **실 Premiere Host CDP 핸드셰이크가 불안정**(UDT 14001 포트는 OPEN이나 "Premiere 앱 클라이언트를 찾지 못했습니다")해 Host 검증이 불가능했고, 유료 API 호출(이미지·영상·STT 생성)은 사용자 수면 중이라 회피했다. 따라서 **게이트(`npm run check`)로만 검증되는 순수 로직·크래시 하드닝**에 한정했다.
+
+**발견·수정한 실버그 3건(모두 커밋·양쪽 remote 푸시, 게이트 그린 유지)**:
+- `3f756da` **UXP null `.value` 크래시 클래스를 소스에서 방어**: `src/ui.ts`의 `valueOf`가 `control.value ?? ""`를 반환하도록. UXP는 비었거나 사용자가 건드리기 전 `<input>/<select>.value`로 **null**을 돌려줄 수 있어, 이후 `.trim()/.normalize()` 호출이 크래시했다(연결 테스트 입력에서 실제 재현). 근본 원인 클래스.
+- `22b1e07` **`numberOf` 빈 입력→fallback**: `Number("")===0`이라 빈 숫자 입력이 0으로 잘못 읽히던 것을, 빈 문자열이면 fallback을 쓰도록.
+- `3ee819d` **모션 키프레임 클로버링 방지**: `applyClipMotion`이 이미 위치/불투명 키프레임이 있는 클립의 기존 애니메이션을 덮어쓰지 않도록 `isTimeVarying()` 가드 추가(있으면 보존 경고 후 skip).
+
+**커버리지 보강**: `f89ef2f` `parseWavPcm` 8/24/32비트 정수 + 64비트 float 디코더 분기 테스트(부호 확장 포함).
+
+**`.value` 크래시 클래스 전수 스윕(코드만, 이번 세션)**: `src/**`의 모든 직접 `.value` 읽기를 추적한 결과 **잔존 인스턴스 0** 확인. 안전한 이유별 분류 — 인라인 `?? ""`(reference-gen·final-qc reason·subtitle `value()`), 조기 null 체크(`if (!code) throw` — final-qc 예외코드), `typeof === "string"` 체크(speech TTS 글자수), 소비자가 `unknown` 타입 + 정규화기(`normalizedText`가 subtitle `editWord`를, `notesValue`/`sourceValue`가 reference `updateMetadata`를 흡수). subtitle-controller 947행은 `editor?.value ?? ""`, 964행은 `editor.value`로 표면상 불일치하나 둘 다 `normalizedText`의 `unknown` 가드로 안전 — 고장난 게 아니라 건드리지 않음.
+
+**게이트 최종 확인**: `npm run check` — typecheck+lint+build 통과 후 **테스트 1584/1584 pass, 0 fail**. 커밋된 HEAD(`22b1e07`) 그린 확정.
+
+**아침에 사용자 눈이 필요한 항목(게이트로는 못 닫음, 실 Premiere 필요)**:
+- [ ] 썸네일 AI 편집 해피패스(네이티브 파일 피커 — CDT로 못 몲, §25-h)
+- [ ] 레퍼런스 Sora 영상 생성 실제 유료 호출 1회(비용 발생, §20)
+- [ ] 선택 클립에 모션 키프레임 실제 적용 확인(§25-l)
+- [ ] 5d 자동 덕킹: 오디오 클립 Volume>Level 키프레임 쓰기 가용성 + dB→Level 값 매핑 탐침(활성 시퀀스+오디오 클립 필요, §25-j). **이 매핑이 검증 안 된 채로 Host 코드를 쌓지 않기로 함** — 실 클립 없이는 미검증 코드만 늘어남.
+- [ ] gap-3 STT 완주(출력 폴더 지정 후 실제 전사, §25-k)
