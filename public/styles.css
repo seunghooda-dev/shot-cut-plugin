@@ -1006,6 +1006,20 @@ textarea {
   gap: 8px;
 }
 
+/* 폴더/파일 선택 상태 표시: 미선택은 흐리게, 선택되면 강조색·굵게·체크마크로 한눈에 띄게 한다. */
+.path-value {
+  color: var(--text-muted);
+}
+
+.path-value.is-set {
+  color: var(--accent-bright);
+  font-weight: 600;
+}
+
+.path-value.is-set::before {
+  content: "✓ ";
+}
+
 .file-picker-row {
   display: flex;
   align-items: center;

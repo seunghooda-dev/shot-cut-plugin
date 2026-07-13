@@ -31,7 +31,7 @@ import {
   type SpeechWriteResult,
 } from "./speech-files";
 import type { PluginSettings } from "./settings";
-import { bind, checkedOf, element, numberOf, setText, valueOf } from "./ui";
+import { bind, checkedOf, element, numberOf, setPathValue, setText, valueOf } from "./ui";
 
 export interface SpeechControllerTranscript {
   name: string;
@@ -335,7 +335,7 @@ export class SpeechController {
     if (folder) this.outputFolders.set(kind, { ...folder });
     else this.outputFolders.delete(kind);
     const name = folder?.name || "선택되지 않음";
-    setText(`${kind}-output-name`, name, folder?.nativePath || name);
+    setPathValue(`${kind}-output-name`, name, Boolean(folder), folder?.nativePath || name);
     this.options.updateSettings(kind === "tts"
       ? { ttsOutputName: folder?.name ?? "", ttsOutputToken: folder?.token ?? "" }
       : { sttOutputName: folder?.name ?? "", sttOutputToken: folder?.token ?? "" });
@@ -376,7 +376,7 @@ export class SpeechController {
     this.transcriptValue = null;
     element<HTMLTextAreaElement>("stt-result-output").value = "";
     element<HTMLButtonElement>("stt-copy-btn").disabled = true;
-    setText("stt-source-name", `${this.source.name} · ${(this.source.size / 1_048_576).toFixed(1)}MB`, this.source.nativePath);
+    setPathValue("stt-source-name", `${this.source.name} · ${(this.source.size / 1_048_576).toFixed(1)}MB`, true, this.source.nativePath);
     setText("stt-result-meta", "입력 파일이 준비되었습니다. 원고·자막 생성을 실행해 주세요.");
     this.options.onSourceChange?.();
     this.options.onActivity?.(`STT 입력 선택: ${this.source.name}`);
@@ -407,9 +407,10 @@ export class SpeechController {
     this.transcriptValue = null;
     element<HTMLTextAreaElement>("stt-result-output").value = "";
     element<HTMLButtonElement>("stt-copy-btn").disabled = true;
-    setText(
+    setPathValue(
       "stt-source-name",
       `${media.name} · ${(bytes.byteLength / 1_048_576).toFixed(1)}MB`,
+      true,
       media.name,
     );
     this.options.onSourceChange?.();

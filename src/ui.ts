@@ -55,6 +55,16 @@ export function setValue(id: string, value: string | number): void {
   if (target) target.value = String(value);
 }
 
+// 경로/파일 선택 상태 표시. 선택되면 .is-set 클래스로 강조색·체크마크가 붙어 한눈에 띈다.
+export function setPathValue(id: string, value: string, isSet: boolean, title?: string): void {
+  const target = optionalElement<HTMLElement>(id);
+  if (!target) return;
+  target.textContent = value;
+  // 일부 목 DOM에는 classList가 없어 방어한다(실 Host UXP DOM에는 존재).
+  if (typeof target.classList?.toggle === "function") target.classList.toggle("is-set", isSet);
+  if (title !== undefined) target.setAttribute("title", title);
+}
+
 export function setChecked(id: string, checked: boolean): void {
   const target = optionalElement<HTMLInputElement>(id);
   if (target) target.checked = checked;
