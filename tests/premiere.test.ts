@@ -577,6 +577,39 @@ describe("centeredPosition", () => {
   });
 });
 
+describe("buildClipMotionActions keyframe source contract", () => {
+  // createAddKeyframeAction는 파라미터가 time-varying이어야 동작한다(Host 실측). 이 선행 활성화가
+  // 빠지면 트랜잭션은 성공해도 키프레임이 전부 드롭되므로 소스 순서를 강제로 고정한다.
+  // (기존 소스 검사 테스트와 동일하게 파일 읽기는 it 실행 시점에 수행한다.)
+  const motionBody = (): string => {
+    const source = readFileSync(path.resolve(__dirname, "../../src/premiere.ts"), "utf8");
+    const start = source.indexOf("async function buildClipMotionActions");
+    const end = source.indexOf("export async function applyClipMotion", start);
+    return start >= 0 && end > start ? source.slice(start, end) : "";
+  };
+
+  it("enables time-varying before adding keyframes", () => {
+    const body = motionBody();
+    assert.ok(body.length > 0, "buildClipMotionActions body not found");
+    // 실제 호출 형태로 검사한다(bare 단어는 위 주석에도 등장하므로 오탐을 피한다).
+    assert.ok(body.includes("createAddKeyframeAction(keyframe)"), "expected keyframe-adding actions");
+    assert.ok(
+      body.indexOf("createSetTimeVaryingAction(true)") >= 0
+        && body.indexOf("createSetTimeVaryingAction(true)") < body.indexOf("createAddKeyframeAction(keyframe)"),
+      "createSetTimeVaryingAction(true) must precede createAddKeyframeAction",
+    );
+  });
+
+  it("enables time-varying for both position and opacity params", () => {
+    const enables = motionBody().split("createSetTimeVaryingAction(true)").length - 1;
+    assert.ok(enables >= 2, `expected position + opacity time-varying enables, found ${enables}`);
+  });
+
+  it("reads the clip position through readPointF (handles the Host [x,y] shape)", () => {
+    assert.match(motionBody(), /readPointF\(keyframeValue\(await position\.getStartValue\(\)\)\)/u);
+  });
+});
+
 describe("zeroBasedTrackIndex", () => {
   it("preserves valid zero-based API indices", () => {
     assert.equal(zeroBasedTrackIndex(0), 0);
