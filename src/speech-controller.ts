@@ -492,28 +492,30 @@ export class SpeechController {
       this.setAudioPreview(result.bytes, result.mimeType);
       await this.options.onTtsOutput?.(written, snapshot.request, result);
       if (!this.operationIsCurrent(lifecycleRevision)) return;
+      let inserted = false;
       if (snapshot.insert) {
         if (!await this.contextIsCurrent(contextKey, lifecycleRevision)) {
           this.options.onWarning?.("활성 프로젝트 또는 시퀀스가 변경되어 TTS 파일과 미리듣기만 보존하고 타임라인 삽입은 건너뛰었습니다.");
-          return;
-        }
-        try {
-          await this.host.importAndInsertAsset(written.nativePath, {
-            videoTrackIndex: 0,
-            audioTrackIndex: snapshot.audioTrackIndex,
-            displayName: written.name,
-            expectedContextKey: contextKey,
-          });
-        } catch (error) {
-          if (errorCode(error) === "HOST_CONTEXT_CHANGED") {
-            this.options.onWarning?.("활성 프로젝트 또는 시퀀스가 변경되어 TTS 파일과 미리듣기만 보존하고 타임라인 삽입은 건너뛰었습니다.");
-            return;
+        } else {
+          try {
+            await this.host.importAndInsertAsset(written.nativePath, {
+              videoTrackIndex: 0,
+              audioTrackIndex: snapshot.audioTrackIndex,
+              displayName: written.name,
+              expectedContextKey: contextKey,
+            });
+            inserted = true;
+          } catch (error) {
+            // 음성 생성·저장·미리듣기는 이미 끝났으므로 타임라인 삽입 실패로 전체 작업을 실패시키지 않는다.
+            const reason = errorCode(error) === "HOST_CONTEXT_CHANGED"
+              ? "활성 프로젝트 또는 시퀀스가 변경됨"
+              : error instanceof Error ? error.message : String(error);
+            this.options.onWarning?.(`TTS 음성을 생성·저장했지만 타임라인 삽입은 건너뛰었습니다: ${reason}`);
           }
-          throw error;
         }
       }
       if (!this.operationIsCurrent(lifecycleRevision)) return;
-      this.options.onActivity?.(`TTS 생성 완료: ${written.name}${snapshot.insert ? " · 타임라인 삽입" : ""}`);
+      this.options.onActivity?.(`TTS 생성 완료: ${written.name}${inserted ? " · 타임라인 삽입" : ""}`);
     } finally {
       button.disabled = false;
       this.ttsRunning = false;
@@ -527,7 +529,9 @@ export class SpeechController {
     try {
       audio.src = preview.url;
       audio.hidden = false;
-      audio.load();
+      // Premiere UXP의 <audio>에는 HTMLMediaElement.load()가 없어 호출하면 던진다. src 설정만으로
+      // 재생 준비가 되므로, 지원하는 환경에서만 명시적으로 다시 로드한다.
+      if (typeof audio.load === "function") audio.load();
       this.previewObjectUrl = preview.revoke ? preview.url : "";
       if (previousObjectUrl && globalThis.URL?.revokeObjectURL) {
         globalThis.URL.revokeObjectURL(previousObjectUrl);

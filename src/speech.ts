@@ -204,7 +204,10 @@ function defaultApiKeyProvider(): () => Promise<string> {
     } catch {
       throw new SpeechApiError("NO_SECURE_STORAGE", "Premiere Pro UXP 보안 저장소를 사용할 수 없습니다.");
     }
-    const key = await readOpenAIApiKey(host.secureStorage as SecureStorageLike);
+    // 이 Premiere UXP에서 secureStorage는 uxp.storage.secureStorage에 있다(uxp.secureStorage는 undefined).
+    // 이미지/텍스트 AI(ai.ts)와 동일하게 두 위치를 모두 확인하지 않으면 TTS/STT가 키를 못 읽는다.
+    const secureStorage = host?.secureStorage ?? host?.storage?.secureStorage;
+    const key = await readOpenAIApiKey(secureStorage as SecureStorageLike);
     return key;
   };
 }

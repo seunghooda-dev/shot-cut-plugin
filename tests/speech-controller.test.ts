@@ -628,7 +628,7 @@ describe("SpeechController request snapshots and Mock Host", () => {
 });
 
 describe("SpeechController stale/failure cleanup", () => {
-  it("downgrades an internal context-change insert rejection but preserves other insert failures", async () => {
+  it("keeps any failed timeline insert non-fatal since the audio is already generated and saved", async () => {
     const warnings: string[] = [];
     const contextHarness = controllerHarness({
       runTts: async () => ttsResult(),
@@ -642,11 +642,18 @@ describe("SpeechController stale/failure cleanup", () => {
     assert.ok(warnings.some((message) => message.includes("타임라인 삽입")));
     contextHarness.controller.dispose();
 
-    const failureHarness = controllerHarness({ runTts: async () => ttsResult() });
+    // 음성은 이미 생성·저장됐으므로, context 변경이 아닌 삽입 오류도 전체 작업을 실패시키지 않고 경고만 남긴다.
+    const failureWarnings: string[] = [];
+    const failureHarness = controllerHarness({
+      runTts: async () => ttsResult(),
+      onWarning: (message) => failureWarnings.push(message),
+    });
     failureHarness.host.insertError = new Error("insert rejected");
     await failureHarness.controller.initialize();
-    await assert.rejects(() => internals(failureHarness.controller).generateTts(), /insert rejected/u);
+    await internals(failureHarness.controller).generateTts();
     assert.equal(failureHarness.files.ttsWrites.length, 1);
+    assert.equal(failureHarness.host.inserted.length, 0);
+    assert.ok(failureWarnings.some((message) => message.includes("insert rejected")));
     assert.equal(failureHarness.dom.getElementById("tts-generate-btn")?.disabled, false);
     failureHarness.controller.dispose();
   });
