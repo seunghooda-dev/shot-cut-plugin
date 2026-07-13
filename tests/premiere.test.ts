@@ -533,6 +533,9 @@ describe("readPointF", () => {
     assert.equal(readPointF([1]), null);
     assert.equal(readPointF([Number.NaN, 2]), null);
     assert.equal(readPointF("nope"), null);
+    // strict: 문자열 좌표는 강제변환하지 않고 거부(safe-zone 방어 계약 보존).
+    assert.equal(readPointF({ x: "5", y: 6 }), null);
+    assert.equal(readPointF(["5", 6]), null);
   });
 });
 
@@ -1405,6 +1408,16 @@ describe("Safe Zone Motion alignment", () => {
     });
     assert.equal(translateSafeZonePosition({ x: 0, y: 0 }, 0.1, 0.1, 1080, 1920), null);
     assert.equal(translateSafeZonePosition({ x: "540", y: 960 }, 0.1, 0.1, 1080, 1920), null);
+  });
+
+  it("translates the [x,y] array-like PointF that the real Host returns", () => {
+    // 실제 Premiere가 위치를 [x,y] 배열로 주므로 safe-zone 정렬도 이 형식을 읽어야 한다.
+    assert.deepEqual(translateSafeZonePosition([540, 960], 0.1, -0.2, 1080, 1920), {
+      x: 648, y: 576, space: "pixels",
+    });
+    assert.deepEqual(translateSafeZonePosition([0.4, 0.5], 0.1, -0.2, 1080, 1920), {
+      x: 0.5, y: 0.3, space: "normalized",
+    });
   });
 
   it("preserves relative layout by adding one delta instead of assigning one shared center", () => {

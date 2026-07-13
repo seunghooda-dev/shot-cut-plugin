@@ -255,9 +255,11 @@ export function keyframeValue(value: unknown): unknown {
 export function readPointF(value: unknown): { x: number; y: number } | null {
   if (typeof value !== "object" || value === null) return null;
   const record = value as { x?: unknown; y?: unknown; 0?: unknown; 1?: unknown };
-  const x = Number("x" in record ? record.x : record[0]);
-  const y = Number("y" in record ? record.y : record[1]);
-  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+  const rawX = "x" in record ? record.x : record[0];
+  const rawY = "y" in record ? record.y : record[1];
+  if (typeof rawX !== "number" || !Number.isFinite(rawX)) return null;
+  if (typeof rawY !== "number" || !Number.isFinite(rawY)) return null;
+  return { x: rawX, y: rawY };
 }
 
 export function centeredPosition(
@@ -2247,17 +2249,15 @@ export function translateSafeZonePosition(
   frameHeight: number,
 ): SafeZoneTranslatedPoint | null {
   if (
-    !value || typeof value !== "object" ||
     typeof deltaX !== "number" || !Number.isFinite(deltaX) ||
     typeof deltaY !== "number" || !Number.isFinite(deltaY) ||
     !Number.isFinite(frameWidth) || frameWidth <= 0 || !Number.isFinite(frameHeight) || frameHeight <= 0
   ) return null;
-  const candidate = value as Record<string, unknown>;
-  if (typeof candidate.x !== "number" || !Number.isFinite(candidate.x) || typeof candidate.y !== "number" || !Number.isFinite(candidate.y)) {
-    return null;
-  }
-  const x = candidate.x;
-  const y = candidate.y;
+  // Host의 위치 값은 {x,y} 또는 [x,y] array-like로 오므로 readPointF로 정규화한다(모션과 동일 버그 계열).
+  const point = readPointF(value);
+  if (!point) return null;
+  const x = point.x;
+  const y = point.y;
   const inUnitSquare = x >= 0 && x <= 1 && y >= 0 && y <= 1;
   const hasFraction = Math.abs(x - Math.round(x)) > 1e-9 || Math.abs(y - Math.round(y)) > 1e-9;
   if (inUnitSquare && !hasFraction) return null;
