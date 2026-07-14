@@ -985,3 +985,5 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 - **49-d 18 업로드 패키지(`97cdf58`)**: 순수 `planUploadPackage`(SRT·유튜브 메타·썸네일 SVG·권리 리포트·README 구성 계획, 빠짐 안내, 유닛 3) + export 탭 버튼(폴더 선택→일괄 저장). **E2E**: 실폴더 생성 — README/rights.md/rights.json/subtitles.srt 4파일 + "빠짐 2건" 안내 정확.
 - **49-e 15 다국어 패키지 v1**: 순수 `multilang`(대상 6개 언어·파일명·매니페스트, 유닛 3) + 자막 탭 언어 체크박스·"다국어 SRT 내보내기". 번역은 기존 translate 파이프라인(runSubtitleAI→validateAiSubtitleResponse — cueId·타이밍 보존 강제)을 **원본 불변**으로 재사용, 언어별 실패 격리. **E2E(실 AI)**: 영어 1개 언어 — `.en.srt` 실번역("Complaints about foul odors…", 타이밍 동일)+매니페스트 생성, 콘솔 0. TTS 더빙·언어별 썸네일은 계획대로 v2 유예.
 - 게이트 1750→**1766**(+16: 스냅샷 10·업로드 3·다국어 3). 최종 회귀 `host:smoke:full` **6/6**.
+
+- **49-f 최종 CCX**: `beta:evidence:verified` — 게이트 1766/1766 → 262,788B, SHA-256 `d7e22d63d00e8dd4098d4f53589707e56d0dcf90f3c93641dbc776c9c1b32922` (§46-d의 36a94311… 대체, USER_GUIDE 동기화).
