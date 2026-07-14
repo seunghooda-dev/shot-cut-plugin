@@ -13,6 +13,7 @@ import {
   choosePersistentFolder,
   createShort,
   createShortsFromMarkers,
+  writeShortsMarkers,
   errorMessage,
   exportCover,
   exportVideo,
@@ -884,14 +885,36 @@ function renderAutoCutCandidates(): void {
   });
 }
 
+// 자동 컷 후보 중 체크된 세그먼트를 읽는다(생성·마커 표시 공용).
+function selectedAutoCutSegments(): HighlightCutSegment[] {
+  const container = optionalElement<HTMLElement>("auto-cut-candidates");
+  if (!container) return [];
+  return Array.from(container.querySelectorAll<HTMLInputElement>("input[data-cut-index]:checked"))
+    .map((checkbox) => autoCutSegments[Number(checkbox.dataset.cutIndex)])
+    .filter((segment): segment is HighlightCutSegment => Boolean(segment));
+}
+
+// 선택한 후보 구간을 타임라인에 #sf 마커로 표시한다(생성 전 검토용, 기존 마커 검색과 연결).
+async function handleAutoCutMarkers(): Promise<void> {
+  const selected = selectedAutoCutSegments();
+  if (selected.length === 0) {
+    toast("마커로 표시할 구간을 하나 이상 선택해 주세요.", "warning");
+    return;
+  }
+  const count = await busy.during("자동 컷 구간을 타임라인 마커로 표시하고 있습니다…", () =>
+    writeShortsMarkers(selected.map((segment) => ({
+      start: segment.start,
+      end: segment.end,
+      title: segment.title,
+      reason: segment.reason,
+    }))));
+  activity.add("success", `자동 컷 마커 ${count}개를 타임라인에 표시했습니다.`);
+  toast(`${count}개 구간을 #sf 마커로 표시했습니다. QC 탭 '마커 검색'으로 검토·생성할 수 있습니다.`, "success");
+}
+
 // 선택한 후보 구간을 각각 새 숏폼 시퀀스로 일괄 생성(기존 createShortsFromMarkers 재사용).
 async function handleAutoCutGenerate(): Promise<void> {
-  const container = optionalElement<HTMLElement>("auto-cut-candidates");
-  const selected = container
-    ? Array.from(container.querySelectorAll<HTMLInputElement>("input[data-cut-index]:checked"))
-        .map((checkbox) => autoCutSegments[Number(checkbox.dataset.cutIndex)])
-        .filter((segment): segment is HighlightCutSegment => Boolean(segment))
-    : [];
+  const selected = selectedAutoCutSegments();
   if (selected.length === 0) {
     toast("생성할 구간을 하나 이상 선택해 주세요.", "warning");
     return;
@@ -1271,6 +1294,7 @@ function bindCoreEvents(): void {
   bind("create-short-btn", "click", guarded(() => markersQcPanel.createShort(), "숏폼 생성 실패"));
   bind("auto-cut-scan-btn", "click", guarded(handleAutoCutScan, "AI 자동 컷 분석 실패"));
   bind("auto-cut-generate-btn", "click", guarded(handleAutoCutGenerate, "자동 컷 생성 실패"));
+  bind("auto-cut-markers-btn", "click", guarded(handleAutoCutMarkers, "자동 컷 마커 표시 실패"));
   bind("learn-capture-original-btn", "click", guarded(async () => handleLearnCaptureOriginal(), "학습 원본 지정 실패"));
   bind("learn-from-short-btn", "click", guarded(handleLearnFromShort, "숏폼으로 학습 실패"));
   bind("learn-clear-btn", "click", guarded(async () => handleLearnClear(), "학습 초기화 실패"));

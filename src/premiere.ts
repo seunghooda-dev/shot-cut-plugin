@@ -2026,6 +2026,52 @@ export async function addStoryMarkers(hookSeconds: number, ctaSeconds: number): 
   return actions.length;
 }
 
+export interface ShortsMarkerInput {
+  start: number;
+  end: number;
+  title: string;
+  reason: string;
+}
+
+// 자동 컷 후보 구간을 활성 시퀀스에 #sf 코멘트 마커로 표시한다. 이름에 "#sf"가 들어가
+// 기존 scanShortMarkers가 인식하므로, QC 탭 '마커 검색'으로 검토 후 일괄 생성할 수 있다.
+export async function writeShortsMarkers(segments: ShortsMarkerInput[]): Promise<number> {
+  if (!Array.isArray(segments) || segments.length === 0) {
+    throw new ShortFlowError("NO_MARKERS_TO_ADD", "타임라인에 표시할 자동 컷 구간이 없습니다.");
+  }
+  const { project, sequence } = await getActiveContext();
+  const sequenceEnd = await safeTime(sequence, "getEndTime", 0);
+  const cap = sequenceEnd > 0 ? sequenceEnd : Number.POSITIVE_INFINITY;
+  const markerCollection = await ppro.Markers.getMarkers(sequence);
+  const commentMarkerType = ppro.Marker.MARKER_TYPE_COMMENT;
+  const actions: ActionFactory[] = [];
+  for (const segment of segments) {
+    if (!segment || !Number.isFinite(segment.start) || !Number.isFinite(segment.end)) continue;
+    const start = Math.max(0, Math.min(cap, segment.start));
+    const end = Math.max(start, Math.min(cap, segment.end));
+    const duration = end - start;
+    if (!(duration > 0)) continue;
+    const order = String(actions.length + 1).padStart(2, "0");
+    const title = String(segment.title ?? "").trim().slice(0, 80);
+    const name = `#sf ${order}${title ? ` ${title}` : ""}`.slice(0, 120);
+    const comment = String(segment.reason ?? "").trim().slice(0, 500);
+    actions.push(() => markerCollection.createAddMarkerAction(
+      name,
+      commentMarkerType,
+      ppro.TickTime.createWithSeconds(start),
+      ppro.TickTime.createWithSeconds(duration),
+      comment,
+    ));
+  }
+  if (actions.length === 0) {
+    throw new ShortFlowError("NO_MARKERS_TO_ADD", "유효한 자동 컷 구간이 없습니다.");
+  }
+  if (!commitActionFactories(project, actions, "ShortFlow: 자동 컷 마커 표시")) {
+    throw new ShortFlowError("MARKER_COMMIT_FAILED", "자동 컷 마커를 추가하지 못했습니다.");
+  }
+  return actions.length;
+}
+
 function assertAutomationRanges(
   ranges: readonly TimeRange[],
   label: string,
