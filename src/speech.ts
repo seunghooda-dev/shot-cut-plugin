@@ -528,7 +528,11 @@ export class SpeechApiClient {
     if (!STT_MODELS.includes(request.model)) throw new SpeechApiError("INVALID_INPUT", "지원하지 않는 STT 모델입니다.");
     const filename = validateSttFilename(request.filename, request.mimeType);
     const form = new FormData();
-    form.append("file", new Blob([request.bytes.slice().buffer], { type: request.mimeType || "application/octet-stream" }), filename);
+    // 대용량(수십 MB) 업로드에서 전체 복사를 피한다 — 바이트가 버퍼 전체면 그대로 쓰고, 부분 뷰일 때만 복사.
+    const uploadBuffer = (request.bytes.byteOffset === 0 && request.bytes.byteLength === request.bytes.buffer.byteLength
+      ? request.bytes.buffer
+      : request.bytes.slice().buffer) as ArrayBuffer;
+    form.append("file", new Blob([uploadBuffer], { type: request.mimeType || "application/octet-stream" }), filename);
     form.append("model", request.model);
     const language = normalizedLanguage(request.language);
     const prompt = cleanSttPrompt(request.prompt);

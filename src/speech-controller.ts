@@ -146,7 +146,11 @@ function bytesToBase64(bytes: Uint8Array): string {
 function previewUrl(bytes: Uint8Array, mimeType: string): { url: string; revoke: boolean } {
   const Url = globalThis.URL as typeof URL | undefined;
   if (Url?.createObjectURL && typeof Blob === "function") {
-    const blob = new Blob([bytes.slice().buffer], { type: mimeType });
+    // 대용량 원본(수십 MB WAV)에서 전체 복사를 피한다 — 버퍼 전체면 그대로, 부분 뷰일 때만 복사.
+    const buffer = (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+      ? bytes.buffer
+      : bytes.slice().buffer) as ArrayBuffer;
+    const blob = new Blob([buffer], { type: mimeType });
     return { url: Url.createObjectURL(blob), revoke: true };
   }
   return { url: `data:${mimeType};base64,${bytesToBase64(bytes)}`, revoke: false };
@@ -380,7 +384,7 @@ export class SpeechController {
     if (!this.operationIsCurrent(lifecycleRevision) || selectionRevision !== this.sourceSelectionRevision) return;
     this.source = {
       ...selected,
-      bytes: selected.bytes.slice(),
+      bytes: selected.bytes,
     };
     this.sourceRevision += 1;
     this.transcriptValue = null;
@@ -402,9 +406,10 @@ export class SpeechController {
     if (!extension) {
       throw new Error("추출한 오디오 형식을 STT 입력으로 인식하지 못했습니다.");
     }
-    const bytes = media.bytes.slice();
+    // 시퀀스 추출 오디오는 수십 MB — 읽기 전용 경로이므로 복사 없이 참조를 공유한다(웹뷰 메모리 보호).
+    const bytes = media.bytes;
     this.source = {
-      entry: { name: media.name, nativePath: media.name, isFile: true, read: async () => bytes.slice() },
+      entry: { name: media.name, nativePath: media.name, isFile: true, read: async () => bytes },
       name: media.name,
       nativePath: media.name,
       extension,
@@ -458,7 +463,7 @@ export class SpeechController {
     if (!isSttModel(model)) throw new Error("STT 모델 설정이 올바르지 않습니다.");
     return {
       request: {
-        bytes: source.bytes.slice(),
+        bytes: source.bytes,
         filename: source.name,
         mimeType: source.mimeType,
         model,
@@ -576,7 +581,9 @@ export class SpeechController {
       if (!this.operationIsCurrent(lifecycleRevision)) return;
       const outputFolder = snapshot.outputFolder ?? await this.ensureFolder("stt");
       if (!this.operationIsCurrent(lifecycleRevision)) return;
-      const providerRequest: SttRequest = { ...snapshot.request, bytes: snapshot.request.bytes.slice() };
+      // 바이트는 읽기 전용으로만 소비되므로 요청·재시도마다 복사하지 않는다 — 수십 MB 원본이
+      // 여러 벌 살아 있으면 UXP 웹뷰가 메모리 부족으로 죽는다(20분 오디오 실측).
+      const providerRequest: SttRequest = { ...snapshot.request };
       const callProvider = (request: SttRequest): Promise<SttResult> =>
         this.options.runStt?.(request) ?? this.client().transcribe(request);
       let effectiveModel = providerRequest.model;
@@ -584,13 +591,13 @@ export class SpeechController {
       // 한 번 폴백하면 남은 청크도 whisper-1을 유지한다.
       const callWithFallback = async (request: SttRequest): Promise<SttResult> => {
         try {
-          return await callProvider({ ...request, model: effectiveModel, bytes: request.bytes.slice() });
+          return await callProvider({ ...request, model: effectiveModel });
         } catch (error) {
           if ((isEmptyTranscriptError(error) || isSttTimeoutError(error)) && effectiveModel !== "whisper-1") {
             const cause = isSttTimeoutError(error) ? "시간 초과" : "빈 원고";
             this.options.onActivity?.(`${effectiveModel} STT가 ${cause}로 실패해 whisper-1로 다시 시도합니다.`);
             effectiveModel = "whisper-1";
-            return callProvider({ ...request, model: "whisper-1", bytes: request.bytes.slice() });
+            return callProvider({ ...request, model: "whisper-1" });
           }
           throw error;
         }
