@@ -1193,6 +1193,27 @@ textarea {
   border-radius: 6px;
 }
 
+.multilang-export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.multilang-langs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: var(--fs-2xs);
+}
+
+.multilang-langs label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .learn-corpus-row {
   display: flex;
   align-items: center;

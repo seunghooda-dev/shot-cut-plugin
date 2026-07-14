@@ -89,11 +89,13 @@ import {
   type AssetRightsInput,
   type AssetRightsRecord,
 } from "./src/asset-rights";
-import { SubtitleController, type SubtitleAiRequest, type SubtitleAnalysisRequest } from "./src/subtitle-controller";
+import { SubtitleController, validateAiSubtitleResponse, type SubtitleAiRequest, type SubtitleAnalysisRequest } from "./src/subtitle-controller";
+import { MULTILANG_TARGETS, buildMultilangManifest, multilangManifestFileName, multilangSrtFileName } from "./src/multilang";
 import { resolveAutomationTranscript, subtitleDocumentToAutomationTranscript } from "./src/automation-transcript";
 import { buildSrt, createSubtitleDocument, parseSrt, type SubtitleDocument } from "./src/subtitles";
 import { buildPremiereTranscript } from "./src/transcript-export";
 import { planUploadPackage } from "./src/upload-package";
+import { loadSubtitleSnapshots, removeSubtitleSnapshot, saveSubtitleSnapshot } from "./src/subtitle-snapshots";
 import { cloneSamplesForReusedTimes, lumaGrid, parseBmp24, planFrameSampling } from "./src/frame-diff";
 import { loadCachedSpans, saveCachedSpans } from "./src/vision-cache";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus, removeStyleExample } from "./src/style-corpus";
@@ -1586,6 +1588,112 @@ async function handleAttachTranscript(): Promise<void> {
   toast("텍스트 패널에 첨부했습니다. 캡션이 필요하면 텍스트 패널의 '캡션 만들기'를 사용하세요.", "success", 7000);
 }
 
+// 자막 스냅샷 목록 렌더 — 라벨·시각·큐 수와 복원/삭제 버튼(문구는 전부 textContent — 주입 방지 하우스 룰).
+function renderSubtitleSnapshotList(): void {
+  const container = optionalElement<HTMLElement>("subtitle-snapshot-list");
+  if (!container) return;
+  clearChildren(container); // UXP replaceChildren 스테일 버그 회피(§25-b)
+  const projectKey = subtitleController?.document.projectKey ?? "";
+  const snapshots = projectKey ? loadSubtitleSnapshots(projectKey) : [];
+  if (snapshots.length === 0) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  snapshots.forEach((snapshot) => {
+    const row = document.createElement("div");
+    row.className = "learn-corpus-row";
+    const label = document.createElement("span");
+    label.textContent = `${snapshot.label} · ${snapshot.createdAt.slice(11, 16)} · 큐 ${snapshot.document.cues.length}개`;
+    const actions = document.createElement("span");
+    const restoreBtn = document.createElement("button");
+    restoreBtn.type = "button";
+    restoreBtn.className = "text-button";
+    restoreBtn.textContent = "복원";
+    restoreBtn.addEventListener("click", () => {
+      const active = subtitleController;
+      if (!active) return;
+      active.setDocument(snapshot.document, true);
+      activity.add("success", `자막 스냅샷 복원 · ${snapshot.label}`);
+      toast("스냅샷을 복원했습니다. 되돌리려면 ↶ 되돌리기를 누르세요.", "success");
+    });
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "text-button";
+    removeBtn.textContent = "삭제";
+    removeBtn.addEventListener("click", () => {
+      removeSubtitleSnapshot(snapshot.projectKey, snapshot.id);
+      renderSubtitleSnapshotList();
+      activity.add("info", `자막 스냅샷 삭제 · ${snapshot.label}`);
+    });
+    actions.append(restoreBtn, removeBtn);
+    row.append(label, actions);
+    container.append(row);
+  });
+}
+
+// 현재 자막 문서를 버전 스냅샷으로 저장한다(프로젝트 키당 최대 10개 — 로드맵 17).
+function handleSaveSubtitleSnapshot(): void {
+  const controller = subtitleController;
+  if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다.");
+  const doc = controller.document;
+  if (doc.cues.length === 0) throw new Error("저장할 자막이 없습니다. STT 또는 SRT를 먼저 불러오세요.");
+  saveSubtitleSnapshot(doc, "");
+  renderSubtitleSnapshotList();
+  activity.add("success", `자막 스냅샷 저장 · 큐 ${doc.cues.length}개`);
+  toast("현재 자막을 스냅샷으로 저장했습니다.", "success");
+}
+
+// 다국어 패키지 v1 — 선택 언어마다 원본 불변 번역을 돌려 언어별 SRT + 매니페스트를 폴더에 저장한다(로드맵 15).
+async function handleMultilangExport(): Promise<void> {
+  const controller = subtitleController;
+  if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다.");
+  const doc = controller.document;
+  if (doc.cues.length === 0) throw new Error("먼저 자막을 불러오세요(STT 또는 SRT).");
+  const selectedCodes = Array.from(document.querySelectorAll<HTMLInputElement>("input[data-multilang]"))
+    .filter((checkbox) => checkbox.checked)
+    .map((checkbox) => checkbox.dataset.multilang ?? "");
+  const targets = MULTILANG_TARGETS.filter((target) => selectedCodes.includes(target.code));
+  if (targets.length === 0) {
+    toast("내보낼 언어를 하나 이상 선택해 주세요.", "warning");
+    return;
+  }
+  ensureAiConsent("다국어 자막 번역");
+  const uxpRoot = require("uxp") as any;
+  const lfs = uxpRoot?.storage?.localFileSystem;
+  const formats = uxpRoot?.storage?.formats;
+  if (typeof lfs?.getFolder !== "function") throw new Error("폴더 선택 기능을 사용할 수 없습니다.");
+  const parent = await lfs.getFolder();
+  if (!parent) return; // 사용자 취소
+  const baseName = valueOf("name-input") || "ShortFlow";
+  const maxChars = Number(valueOf("subtitle-max-chars-input")) || 19;
+  const results: Array<{ code: string; koreanName: string; file: string; cueCount: number }> = [];
+  const failures: Array<{ code: string; koreanName: string; error: string }> = [];
+  await busy.during(`다국어 번역 중… (${targets.length}개 언어)`, async () => {
+    for (const [index, target] of targets.entries()) {
+      setText("busy-message", `${index + 1}/${targets.length} · ${target.koreanName} 번역 중…`);
+      try {
+        const request: SubtitleAiRequest = { action: "translate", document: doc, maxChars, targetLanguage: target.label };
+        const payload = await runSubtitleAI(request);
+        const validated = validateAiSubtitleResponse(payload, request);
+        const name = multilangSrtFileName(baseName, target.code);
+        const entry = await parent.createFile(name, { overwrite: true });
+        await entry.write(buildSrt(validated), { format: formats?.utf8 });
+        results.push({ code: target.code, koreanName: target.koreanName, file: name, cueCount: validated.cues.length });
+      } catch (error) {
+        failures.push({ code: target.code, koreanName: target.koreanName, error: errorMessage(error) });
+      }
+    }
+    const timestamp = new Date().toISOString().replace(/[-:]/gu, "").slice(0, 15);
+    const manifest = await parent.createFile(multilangManifestFileName(baseName), { overwrite: true });
+    await manifest.write(buildMultilangManifest(baseName, timestamp, results, failures), { format: formats?.utf8 });
+  });
+  const summary = `다국어 SRT · 성공 ${results.length} · 실패 ${failures.length}`;
+  activity.add(failures.length > 0 ? "warning" : "success", summary);
+  failures.forEach((failure) => activity.add("error", `${failure.koreanName}: ${failure.error}`));
+  toast(`${summary}. 매니페스트를 확인해 주세요.`, failures.length > 0 ? "warning" : "success", 6000);
+}
+
 // 업로드 패키지 내보내기 — 자막 SRT·유튜브 메타·썸네일 SVG·권리 리포트를 폴더 하나로 묶는다(로드맵 18).
 async function handleExportUploadPackage(): Promise<void> {
   const uxpRoot = require("uxp") as any;
@@ -2005,6 +2113,8 @@ function bindCoreEvents(): void {
   bind("learn-pair-btn", "click", guarded(handleLearnPair, "스타일 쌍 등록 실패"));
   bind("subtitle-attach-transcript-btn", "click", guarded(handleAttachTranscript, "트랜스크립트 첨부 실패"));
   bind("upload-package-btn", "click", guarded(handleExportUploadPackage, "업로드 패키지 내보내기 실패"));
+  bind("subtitle-snapshot-save-btn", "click", guarded(async () => handleSaveSubtitleSnapshot(), "자막 스냅샷 저장 실패"));
+  bind("multilang-export-btn", "click", guarded(handleMultilangExport, "다국어 SRT 내보내기 실패"));
   bind("learn-clear-btn", "click", guarded(async () => handleLearnClear(), "학습 초기화 실패"));
   bind("scan-markers-btn", "click", guarded(() => markersQcPanel.scanMarkers(), "마커 검색 실패"));
   bind("batch-create-btn", "click", guarded(() => markersQcPanel.batchCreate(), "일괄 생성 실패"));
@@ -2070,6 +2180,7 @@ async function bootstrap(): Promise<void> {
   applySettingsToUI();
   bindCoreEvents();
   renderLearnStatus();
+  renderSubtitleSnapshotList();
   diagnosticsPanel.render(null);
   await assetBrowserPanel.initialize();
   renderAssetRights(null);

@@ -1258,6 +1258,7 @@
                 <button id="subtitle-import-btn" class="secondary-button" type="button">SRT/Whisper JSON 불러오기</button>
                 <button id="subtitle-export-btn" class="secondary-button" type="button" disabled>SRT 내보내기</button>
                 <button id="subtitle-attach-transcript-btn" class="secondary-button" type="button" title="현재 자막을 활성 시퀀스의 Premiere 텍스트 패널 트랜스크립트로 첨부합니다. 캡션이 필요하면 텍스트 패널의 '캡션 만들기'를 이어서 사용하세요.">텍스트 패널로 보내기</button>
+                <button id="subtitle-snapshot-save-btn" class="secondary-button" type="button" title="현재 자막 문서를 버전 스냅샷으로 저장합니다(프로젝트당 최대 10개). 아래 목록에서 언제든 복원할 수 있습니다.">스냅샷 저장</button>
               </div>
               <div class="button-cluster subtitle-history-actions">
                 <button id="subtitle-undo-btn" class="text-button" type="button" disabled aria-label="자막 편집 되돌리기">↶ 되돌리기</button>
@@ -1269,6 +1270,8 @@
                 <button id="subtitle-reflow-btn" class="secondary-button" type="button" disabled>긴 자막 나누기</button>
               </div>
             </div>
+
+            <div id="subtitle-snapshot-list" class="learn-corpus-list" hidden></div>
 
             <div class="subtitle-ai-toolbar" aria-label="AI 자막 도구">
               <div class="subtitle-ai-copy">
@@ -1289,6 +1292,18 @@
                 <button id="subtitle-ai-outline-btn" class="secondary-button" type="button" disabled>편집 구성안</button>
                 <button id="subtitle-ai-youtube-btn" class="secondary-button" type="button" disabled>유튜브 메타데이터</button>
               </div>
+            </div>
+
+            <div class="multilang-export" aria-label="다국어 자막 패키지">
+              <div class="multilang-langs">
+                <label><input type="checkbox" data-multilang="en" checked /> 영어</label>
+                <label><input type="checkbox" data-multilang="ja" /> 일본어</label>
+                <label><input type="checkbox" data-multilang="zh" /> 중국어(간체)</label>
+                <label><input type="checkbox" data-multilang="es" /> 스페인어</label>
+                <label><input type="checkbox" data-multilang="id" /> 인도네시아어</label>
+                <label><input type="checkbox" data-multilang="vi" /> 베트남어</label>
+              </div>
+              <button id="multilang-export-btn" class="secondary-button" type="button" title="선택한 언어마다 현재 자막을 AI 번역해 언어별 SRT와 매니페스트를 폴더에 저장합니다. 원본 자막은 바뀌지 않습니다.">다국어 SRT 내보내기</button>
             </div>
 
             <div

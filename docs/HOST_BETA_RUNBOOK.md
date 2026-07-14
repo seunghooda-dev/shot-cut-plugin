@@ -974,3 +974,14 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 - **48-a Canvas(썸네일 래스터)**: `getContext('2d')`가 객체를 돌려주지만 **스텁** — fillText/fillRect는 있으나 `toDataURL`/`getImageData`/`toBlob` 전부 "is not a function", OffscreenCanvas·createImageBitmap·ImageData도 없음. 픽셀을 꺼낼 방법이 없어 §14 판정 유지(SVG 폴백).
 - **48-b MOGRT 소스 텍스트**: "소스 텍스트" 파라미터가 실재하고 createSetValueAction도 있지만, **값 타입이 JS로 구성 불가** — getStartValue는 null, getValueAtTime은 "not supported for these value types", `createKeyframe(x)`는 문자열·숫자·불리언·객체·빈 인자 전부 "Illegal Parameter type"(같은 세션에서 위치 파라미터는 PointF로 정상 생성 — 방법론 검증됨). 실쓰기 커밋 시도도 동일 에러, 전후 픽셀 diff 0.0000. §37 판정 유지(텍스트 마커 + 트랜스크립트→캡션 우회).
 - **48-c 캡션 생성 명령 통로**: `ppro.Application`은 version뿐, Metadata/Properties에도 캡션 관련 동사 없음. §42-a 판정 유지('캡션 만들기' 1클릭).
+
+## 49. 로드맵 14~18 후속 기능 배치 (2026-07-15)
+
+사용자 지시 "4번 진행"(로드맵 후속). 계획은 `docs/01-plan/features/roadmap-followups.plan.md`.
+
+- **49-a 14 스마트 리프레임·피사체 추적**: 기존 구현(§38·§41·§44·§47)으로 충족 — ROADMAP에 각주.
+- **49-b 16 썸네일 변형 일괄 내보내기(`99872d1`)**: `exportVariants` — 저장된 변형(최대 3종)을 라벨별 SVG 파일로 한 번에 저장. 유닛 1(파일명 `_A/_B.svg`·빈 변형 스킵). 폴더·쓰기 경로는 §37-c에서 실증된 공용 헬퍼 재사용.
+- **49-c 17 자막 버전 스냅샷(`97cdf58`+)**: 순수 스토어 `subtitle-snapshots`(서브에이전트 작성 — 키당 10·전체 60, validateSubtitleDocument/cloneSubtitleDocument 재사용, 유닛 10) + 자막 탭 "스냅샷 저장" 버튼·목록·복원(setDocument(recordHistory=true)로 언두 가능)·삭제. **E2E**: 2큐 저장 → 3큐로 교체 → 복원 클릭 → 큐 2행 복귀·로그 정확.
+- **49-d 18 업로드 패키지(`97cdf58`)**: 순수 `planUploadPackage`(SRT·유튜브 메타·썸네일 SVG·권리 리포트·README 구성 계획, 빠짐 안내, 유닛 3) + export 탭 버튼(폴더 선택→일괄 저장). **E2E**: 실폴더 생성 — README/rights.md/rights.json/subtitles.srt 4파일 + "빠짐 2건" 안내 정확.
+- **49-e 15 다국어 패키지 v1**: 순수 `multilang`(대상 6개 언어·파일명·매니페스트, 유닛 3) + 자막 탭 언어 체크박스·"다국어 SRT 내보내기". 번역은 기존 translate 파이프라인(runSubtitleAI→validateAiSubtitleResponse — cueId·타이밍 보존 강제)을 **원본 불변**으로 재사용, 언어별 실패 격리. **E2E(실 AI)**: 영어 1개 언어 — `.en.srt` 실번역("Complaints about foul odors…", 타이밍 동일)+매니페스트 생성, 콘솔 0. TTS 더빙·언어별 썸네일은 계획대로 v2 유예.
+- 게이트 1750→**1766**(+16: 스냅샷 10·업로드 3·다국어 3). 최종 회귀 `host:smoke:full` **6/6**.
