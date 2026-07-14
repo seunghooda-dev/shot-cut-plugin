@@ -864,3 +864,6 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 ### 36-b. 뉴스 스타일 레이아웃 — 크롭 없음·상하 텍스트 밴드(`802d7b1`)
 사용자 실전 샘플(JTV 숏폼: 16:9 원본 가운데 + 위 훅/아래 맥락 텍스트) 반영. 자동 컷 생성에 "뉴스 스타일" 체크박스 — fit 강제(크롭·비전·추적 전부 스킵, 비용 0), 훅·제목을 각 숏폼에 `#텍스트 상단(훅)`/`#텍스트 하단(맥락)` 마커로 자동 삽입(`writeTextGuideMarkers`). **Host 검증**: NewsStyle 생성 → 프레임 = 샘플과 동일 레터박스 배치, 마커 2개 문구 확인, 콘솔 0(`cdt-news-mode.mjs`).
 - **텍스트 완전 자동화의 Host 한계(탐색 확정)**: 이 빌드 UXP는 MOGRT 내부 텍스트 파라미터 미노출(trackItem에 getMogrtComponent 없음, 컴포넌트 체인은 불투명도/모션/벡터모션뿐). `ppro.TextSegments.importFromJSON/exportToJSON`과 `SequenceEditor.insertMogrtFromPath`는 실재(삽입 Host 확인) — **후속 경로**: 프리미어 네이티브 텍스트 그래픽 클립(문자 도구)이 Source Text를 TextSegments로 노출하는지 사용자와 검증 → 되면 템플릿 클립 복제+문구 교체로 완전 자동.
+
+### 36-c. JTV 3단 텍스트 구조 반영(`d252368`)
+사용자 기준 채널(youtube.com/@Jtvnews2021/shorts) 포맷 = 상단 노랑 인용 훅 / 하단 흰색 맥락 / 하단 노랑 펀치. shorts-plan의 hook이 세그먼트 변환에서 유실되던 것을 `HighlightCutSegment.hook`으로 관통시키고, 뉴스 스타일 마커를 3단으로 확장(상단 훅은 따옴표 정규화). 후보 카드에 훅 표시. **Host 확인**: NewsStyle 재생성 → 마커 3종에 실제 모델 훅 인용문·제목·근거 정확히 실림, 콘솔 0. 유닛 1712/1712.
