@@ -117,6 +117,7 @@ import {
   BusyState,
   bind,
   checkedOf,
+  clearChildren,
   numberOf,
   optionalElement,
   setChecked,
@@ -1497,7 +1498,7 @@ function renderLearnCorpusList(): void {
   const container = optionalElement<HTMLElement>("learn-corpus-list");
   if (!container) return;
   const corpus = loadStyleCorpus();
-  container.replaceChildren();
+  clearChildren(container); // UXP replaceChildren 스테일 버그 회피(§25-b)
   if (corpus.length === 0) {
     container.hidden = true;
     return;

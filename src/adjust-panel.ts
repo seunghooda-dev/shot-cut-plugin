@@ -7,7 +7,7 @@ import {
   updateShotPlanSpans,
   type ShotPlanRecord,
 } from "./shot-plan-store";
-import { optionalElement, setText, toast } from "./ui";
+import { clearChildren, optionalElement, setText, toast } from "./ui";
 
 export interface AdjustPanelOptions {
   /** 스팬을 시퀀스 키프레임으로 재적용한다(premiere.applyShotFocalAdjustment 주입). */
@@ -71,7 +71,7 @@ export function createAdjustPanel(options: AdjustPanelOptions): { refresh: () =>
     const select = optionalElement<HTMLSelectElement>("adjust-plan-select");
     if (!select) return;
     const previous = select.value;
-    select.replaceChildren();
+    clearChildren(select); // UXP replaceChildren 스테일 버그 회피(§25-b)
     for (const plan of plans) {
       const option = document.createElement("option");
       option.value = plan.sequenceName;
