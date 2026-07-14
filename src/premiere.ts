@@ -2226,6 +2226,31 @@ export async function writeShortsMarkers(segments: ShortsMarkerInput[]): Promise
   return actions.length;
 }
 
+// 지정 시퀀스에 텍스트 안내 마커를 넣는다(뉴스 레이아웃 — 상/하단 문구를 사용자가
+// 자기 타이틀 템플릿에 복붙할 수 있게). 이름에 #텍스트 접두사, 코멘트에 실제 문구.
+export async function writeTextGuideMarkers(
+  sequence: Sequence,
+  entries: Array<{ label: string; text: string; seconds: number }>,
+): Promise<number> {
+  const valid = (Array.isArray(entries) ? entries : [])
+    .filter((entry) => entry && Number.isFinite(entry.seconds) && String(entry.text ?? "").trim().length > 0);
+  if (valid.length === 0) return 0;
+  const { project } = await getActiveContext();
+  const markerCollection = await ppro.Markers.getMarkers(sequence);
+  const commentMarkerType = ppro.Marker.MARKER_TYPE_COMMENT;
+  const actions: ActionFactory[] = valid.map((entry) => () => markerCollection.createAddMarkerAction(
+    `#텍스트 ${String(entry.label).slice(0, 20)}`,
+    commentMarkerType,
+    ppro.TickTime.createWithSeconds(Math.max(0, entry.seconds)),
+    ppro.TickTime.createWithSeconds(2),
+    String(entry.text).trim().slice(0, 500),
+  ));
+  if (!commitActionFactories(project, actions, "ShortFlow: 텍스트 안내 마커")) {
+    throw new ShortFlowError("MARKER_COMMIT_FAILED", "텍스트 안내 마커를 추가하지 못했습니다.");
+  }
+  return actions.length;
+}
+
 // 발화 구간(덕킹 필요 구간)을 활성 시퀀스에 코멘트 마커로 표시한다. Level 키프레임 자동 적용이
 // 불가한 환경의 폴백 — 사용자가 이 구간에서 BGM 볼륨을 낮추면 된다. #sf가 없어 숏폼으로 안 잡힘.
 export async function writeDuckMarkers(ranges: Array<{ start: number; end: number }>): Promise<number> {

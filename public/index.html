@@ -512,6 +512,14 @@
             <div id="auto-cut-candidates" class="auto-cut-candidates" hidden></div>
             <div id="auto-cut-generate-row" class="form-actions auto-cut-generate-row" hidden>
               <p class="action-note">선택한 구간을 새 숏폼 시퀀스로 만들거나, 타임라인 마커로 먼저 표시해 검토할 수 있습니다(초점 리프레임 포함).</p>
+              <label class="checkbox-row" for="news-style-checkbox">
+                <input id="news-style-checkbox" name="newsStyle" type="checkbox" />
+                <span class="custom-checkbox" aria-hidden="true"></span>
+                <span>
+                  <strong>뉴스 스타일 (크롭 없음·상하 텍스트 밴드)</strong>
+                  <small>원본 비율을 유지해 가운데 배치하고, 훅·제목 문구를 #텍스트 마커로 넣습니다.</small>
+                </span>
+              </label>
               <button id="auto-cut-markers-btn" class="secondary-button" type="button">타임라인 마커로 표시</button>
               <button id="auto-cut-generate-btn" class="primary-button" type="button">선택 구간 생성</button>
             </div>

@@ -15,6 +15,7 @@ import {
   createShortsFromMarkers,
   writeShortsMarkers,
   writeDuckMarkers,
+  writeTextGuideMarkers,
   exportFrameToFolder,
   activeSequenceFrameSize,
   applyShotFocalPositionCorrection,
@@ -1161,8 +1162,10 @@ async function handleAutoCutGenerate(): Promise<void> {
     return;
   }
   ensureAiConsent("AI 자동 컷 생성");
+  // 뉴스 스타일: 크롭 없이 원본 비율(fit) 그대로 가운데 배치 — 인물 추적·비전이 불필요하다.
+  const newsStyle = checkedOf("news-style-checkbox");
   type SegmentFocalPlan = { spans?: FocalSpan[]; focal?: { x: number; y: number } };
-  const plans = await busy.during("컷별 인물 위치를 추적하고 있습니다…", async () => {
+  const plans = newsStyle ? selected.map(() => ({} as SegmentFocalPlan)) : await busy.during("컷별 인물 위치를 추적하고 있습니다…", async () => {
     const out: SegmentFocalPlan[] = [];
     for (const segment of selected) {
       const title = segment.title.slice(0, 24);
@@ -1207,6 +1210,10 @@ async function handleAutoCutGenerate(): Promise<void> {
     };
   });
   const shortOptions = createOptions();
+  if (newsStyle) {
+    // 크롭 금지: fit(레터박스)으로 원본 전체를 보여준다. 초점·스팬은 사용하지 않는다.
+    shortOptions.reframeMode = "fit";
+  }
   // 보정 패스에서 소스 종횡비가 필요하다 — 생성 전에(소스가 아직 active일 때) 캡처.
   let sourceDims: { width: number; height: number } | null = null;
   try {
@@ -1218,8 +1225,25 @@ async function handleAutoCutGenerate(): Promise<void> {
     createShortsFromMarkers(segments, shortOptions, (completed, total, name) => {
       setText("busy-message", `${completed}/${total} · ${name}`);
     }));
+  // 뉴스 스타일: 훅·제목 문구를 각 숏폼 시퀀스에 #텍스트 마커로 넣는다(상단=제목, 하단=근거).
+  if (newsStyle) {
+    for (let index = 0; index < segments.length; index += 1) {
+      const marker = `_${String(index + 1).padStart(2, "0")}_`;
+      const created = result.created.find((item) => item.sequenceName.includes(marker));
+      const source = selected[index];
+      if (!created || !source) continue;
+      try {
+        await writeTextGuideMarkers(created.sequence, [
+          { label: "상단(훅)", text: source.title, seconds: source.start },
+          { label: "하단(맥락)", text: source.reason || source.title, seconds: source.start + 0.5 },
+        ]);
+      } catch (error) {
+        activity.add("warning", `텍스트 마커 실패 · ${created.sequenceName.slice(0, 24)}: ${errorMessage(error)}`);
+      }
+    }
+  }
   // 측정 피드백 보정: 카메라 감독처럼 결과 프레임을 재측정해 얼굴이 정중앙에 오도록 초점을 교정한다.
-  if (sourceDims) {
+  if (sourceDims && !newsStyle) {
     try {
       const correctedCount = await busy.during("프레이밍을 재측정해 보정하고 있습니다…", () =>
         correctGeneratedShortFraming(result.created, segments, sourceDims!, shortOptions.width, shortOptions.height));
