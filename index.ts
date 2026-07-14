@@ -16,6 +16,7 @@ import {
   writeShortsMarkers,
   writeDuckMarkers,
   writeTextGuideMarkers,
+  buildHighlightReel,
   exportFrameToFolder,
   activeSequenceFrameSize,
   applyShotFocalPositionCorrection,
@@ -1159,6 +1160,42 @@ async function correctGeneratedShortFraming(
   return correctedShots;
 }
 
+// 선택한 후보 구간을 원본 비율 그대로 한 시퀀스에 시간순으로 이어붙인다(방송용 하이라이트 릴).
+// 세그먼트마다 릴 로컬 시각에 훅·제목 텍스트 마커를 넣는다.
+async function handleAutoCutReel(): Promise<void> {
+  const selected = selectedAutoCutSegments();
+  if (selected.length === 0) {
+    toast("릴로 이어붙일 구간을 하나 이상 선택해 주세요.", "warning");
+    return;
+  }
+  const baseName = valueOf("name-input") || "ShortFlow";
+  const result = await busy.during("하이라이트 릴을 만들고 있습니다…", () =>
+    buildHighlightReel(
+      selected.map((segment) => ({ start: segment.start, end: segment.end, title: segment.title })),
+      `${baseName}_하이라이트릴_169`,
+    ));
+  // 시간순 정렬된 릴 오프셋에 맞춰 세그먼트 문구 마커 삽입.
+  const ordered = selected.slice().sort((a, b) => a.start - b.start);
+  try {
+    const entries = result.reelOffsets.flatMap((offset, index) => {
+      const segment = ordered[index];
+      if (!segment) return [];
+      const hookText = segment.hook ? `"${segment.hook.replace(/^["']+|["']+$/gu, "")}"` : segment.title;
+      return [{ label: `${index + 1} ${segment.title.slice(0, 12)}`, text: hookText, seconds: offset }];
+    });
+    if (entries.length > 0) await writeTextGuideMarkers(result.sequence, entries);
+  } catch (error) {
+    activity.add("warning", `릴 텍스트 마커 실패: ${errorMessage(error)}`);
+  }
+  const warn = result.warnings.length > 0 ? ` · ${result.warnings.join(" ")}` : "";
+  activity.add(
+    result.warnings.length > 0 ? "warning" : "success",
+    `하이라이트 릴 생성 · ${result.insertedCount}개 구간 · ${formatDuration(result.totalSeconds)}${warn}`,
+  );
+  toast(`하이라이트 릴(${result.sequenceName})을 만들었습니다 · ${formatDuration(result.totalSeconds)}`, "success");
+  await refreshStatus(true);
+}
+
 // 선택한 후보 구간을 각각 새 숏폼 시퀀스로 일괄 생성(기존 createShortsFromMarkers 재사용).
 // 생성 전에 컷마다 인물 위치를 감지해, 그 인물이 프레임 중앙에 오도록 세그먼트별 초점을 적용한다.
 async function handleAutoCutGenerate(): Promise<void> {
@@ -1646,6 +1683,7 @@ function bindCoreEvents(): void {
   bind("auto-cut-scan-btn", "click", guarded(handleAutoCutScan, "AI 자동 컷 분석 실패"));
   bind("auto-cut-generate-btn", "click", guarded(handleAutoCutGenerate, "자동 컷 생성 실패"));
   bind("auto-cut-markers-btn", "click", guarded(handleAutoCutMarkers, "자동 컷 마커 표시 실패"));
+  bind("auto-cut-reel-btn", "click", guarded(handleAutoCutReel, "하이라이트 릴 생성 실패"));
   bind("learn-capture-original-btn", "click", guarded(async () => handleLearnCaptureOriginal(), "학습 원본 지정 실패"));
   bind("learn-from-short-btn", "click", guarded(handleLearnFromShort, "숏폼으로 학습 실패"));
   bind("learn-clear-btn", "click", guarded(async () => handleLearnClear(), "학습 초기화 실패"));

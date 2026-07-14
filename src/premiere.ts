@@ -2226,6 +2226,135 @@ export async function writeShortsMarkers(segments: ShortsMarkerInput[]): Promise
   return actions.length;
 }
 
+export interface ReelSegmentInput {
+  start: number;
+  end: number;
+  title?: string;
+}
+
+export interface ReelBuildResult {
+  sequence: Sequence;
+  sequenceName: string;
+  totalSeconds: number;
+  insertedCount: number;
+  // 각 세그먼트가 릴 안에서 시작하는 로컬 시각(마커 배치용).
+  reelOffsets: number[];
+  warnings: string[];
+}
+
+// 하이라이트 릴: 자동 컷 세그먼트들을 원본 비율 그대로 한 시퀀스에 시간순으로 이어붙인다
+// (방송용 16:9 3~4분 하이라이트). 핵심 API는 Host 프로브로 확정한
+// createInsertProjectItemAction(원본 ProjectItem, TickTime, vIdx, aIdx, false) —
+// 삽입 전에 projectItem의 in/out을 세그먼트 구간으로 설정하는 고전 기법을 쓴다(§37 프로브).
+export async function buildHighlightReel(
+  segments: ReelSegmentInput[],
+  reelName: string,
+): Promise<ReelBuildResult> {
+  const valid = (Array.isArray(segments) ? segments : [])
+    .filter((segment) => segment && Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.end > segment.start)
+    .slice()
+    .sort((a, b) => a.start - b.start);
+  if (valid.length === 0) {
+    throw new ShortFlowError("NO_MARKER_SEGMENTS", "릴로 이어붙일 구간이 없습니다.");
+  }
+  if (valid.length > 30) {
+    throw new ShortFlowError("TOO_MANY_SEGMENTS", "하이라이트 릴은 한 번에 최대 30개 구간까지입니다.");
+  }
+  const { project, sequence: source } = await getActiveContext();
+  const sourceFrame = await source.getFrameSize();
+  const sourceWidth = Math.round(Number(sourceFrame.width)) || 1920;
+  const sourceHeight = Math.round(Number(sourceFrame.height)) || 1080;
+
+  // 소스 미디어 projectItem: 활성 시퀀스 V1 첫 클립 이름과 같은 루트 미디어를 찾는다(내부 베타 관례 —
+  // 이 프로젝트는 파일 경로/이름 기반 식별). cast는 in/out 액션용이고, 삽입에는 원본 item을 쓴다.
+  const clipType = ppro.Constants?.TrackItemType?.CLIP ?? 1;
+  const firstTrack = await source.getVideoTrack(0);
+  const firstItems = firstTrack ? await firstTrack.getTrackItems(clipType, false) : [];
+  const firstName = firstItems.length > 0 ? String(await firstItems[0]!.getName?.() ?? "") : "";
+  const rootItem = await project.getRootItem();
+  const rootItems = await rootItem.getItems();
+  let rawItem: any = null;
+  let castItem: any = null;
+  for (const item of rootItems) {
+    const name = String(item?.name ?? "");
+    if (!firstName || name !== firstName) continue;
+    const cast = ppro.ClipProjectItem.cast(item);
+    if (!cast) continue;
+    try {
+      if (await cast.getMedia()) {
+        rawItem = item;
+        castItem = cast;
+        break;
+      }
+    } catch {
+      // 미디어 없는 항목은 건너뜀
+    }
+  }
+  if (!rawItem || !castItem) {
+    throw new ShortFlowError("NO_MEDIA_ITEM", "활성 시퀀스의 원본 미디어를 프로젝트에서 찾지 못했습니다.");
+  }
+
+  const reel = await project.createSequence(sanitizeSequenceName(reelName));
+  if (!reel) {
+    throw new ShortFlowError("SEQUENCE_CREATE_FAILED", "하이라이트 릴 시퀀스를 만들지 못했습니다.");
+  }
+  const warnings: string[] = [];
+  // 새 시퀀스 프레임을 소스와 일치시킨다(기본 프리셋이 다를 수 있음).
+  try {
+    await setSequenceFrame(project, reel, sourceWidth, sourceHeight);
+  } catch (error) {
+    warnings.push(`릴 프레임 설정 경고: ${errorMessage(error)}`);
+  }
+
+  const editor = ppro.SequenceEditor.getEditor(reel);
+  const reelOffsets: number[] = [];
+  let cursor = 0;
+  let inserted = 0;
+  for (const segment of valid) {
+    try {
+      const setIo = commitActionFactories(
+        project,
+        [() => castItem.createSetInOutPointsAction(
+          ppro.TickTime.createWithSeconds(segment.start),
+          ppro.TickTime.createWithSeconds(segment.end),
+        )],
+        "ShortFlow: 릴 구간 설정",
+      );
+      if (!setIo) throw new ShortFlowError("RANGE_COMMIT_FAILED", "구간 in/out 설정 실패");
+      const at = cursor;
+      const ok = commitActionFactories(
+        project,
+        [() => editor.createInsertProjectItemAction(rawItem, ppro.TickTime.createWithSeconds(at), 0, 0, false)],
+        "ShortFlow: 릴 구간 삽입",
+      );
+      if (!ok) throw new ShortFlowError("INSERT_COMMIT_FAILED", "구간 삽입 실패");
+      reelOffsets.push(at);
+      cursor += segment.end - segment.start;
+      inserted += 1;
+    } catch (error) {
+      warnings.push(`구간(${Math.round(segment.start)}s~) 삽입 실패: ${errorMessage(error)}`);
+    }
+  }
+  // 공유 projectItem의 in/out을 원복한다(다른 기능이 전체 미디어를 보도록).
+  try {
+    commitActionFactories(project, [() => castItem.createClearInOutPointsAction()], "ShortFlow: 릴 구간 해제");
+  } catch {
+    warnings.push("원본 미디어 in/out 해제에 실패했습니다. 프로젝트 패널에서 수동 해제해 주세요.");
+  }
+  if (inserted === 0) {
+    throw new ShortFlowError("INSERT_COMMIT_FAILED", "릴에 삽입된 구간이 없습니다.");
+  }
+  await project.setActiveSequence(reel);
+  return {
+    sequence: reel,
+    sequenceName: String(reel.name ?? reelName),
+    totalSeconds: cursor,
+    insertedCount: inserted,
+    reelOffsets,
+    warnings: [...new Set(warnings)],
+  };
+}
+
 // 지정 시퀀스에 텍스트 안내 마커를 넣는다(뉴스 레이아웃 — 상/하단 문구를 사용자가
 // 자기 타이틀 템플릿에 복붙할 수 있게). 이름에 #텍스트 접두사, 코멘트에 실제 문구.
 export async function writeTextGuideMarkers(
