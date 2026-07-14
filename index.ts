@@ -21,6 +21,8 @@ import {
   exportFrameToFolder,
   activeSequenceFrameSize,
   applyShotFocalPositionCorrection,
+  applyShotFocalAdjustment,
+  listSequenceNames,
   type ShortSegmentInput,
   errorMessage,
   exportCover,
@@ -89,6 +91,8 @@ import { addStyleExample, clearStyleCorpus, loadStyleCorpus } from "./src/style-
 import { computeDuckingEnvelope, duckLevelValueFromDb, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
 import { resolveSubjectFocal, type SubjectPoint } from "./src/subject-focus";
 import { annotateSpanTransitions, correctedFocalX, planSampleTimes, planShotFocalSpans, type FocalSpan, type TimedSubjectSample } from "./src/shot-focus";
+import { createAdjustPanel } from "./src/adjust-panel";
+import { updateShotPlanSpans, upsertShotPlan } from "./src/shot-plan-store";
 import {
   alignShortToOriginal,
   buildStyleExample,
@@ -524,6 +528,20 @@ const recoveryPanel = createRecoveryPanel({
   removeClone: removeVerifiedClonedSequence,
   onActivity: (level, message) => activity.add(level, message),
   onError: reportError,
+});
+
+const adjustPanel = createAdjustPanel({
+  applyAdjustment: (record, spans) => applyShotFocalAdjustment(
+    record.sequenceName,
+    spans,
+    record.target.width,
+    record.target.height,
+    record.source.width,
+    record.source.height,
+  ),
+  listSequenceNames,
+  runBusy: (message, task) => busy.during(message, task),
+  onActivity: (level, message) => activity.add(level, message),
 });
 
 function localDiagnosticsContext(): Record<string, unknown> {
@@ -1168,6 +1186,8 @@ async function correctGeneratedShortFraming(
         sourceDims.width,
         sourceDims.height,
       );
+      // 조정 패널의 기준이 실제 화면 상태(보정 후)와 일치하도록 저장된 계획도 갱신한다.
+      updateShotPlanSpans(shortResult.sequenceName, correctedSpans);
     }
   }
   return correctedShots;
@@ -1301,6 +1321,29 @@ async function handleAutoCutGenerate(): Promise<void> {
       }
     }
   }
+  // 프레이밍 계획 저장: 추적 모드로 만든 숏폼은 컷별 수동 조정(프레이밍 조정 패널)의 근거로 남긴다.
+  if (sourceDims && !newsStyle) {
+    for (let index = 0; index < segments.length; index += 1) {
+      const segment = segments[index]!;
+      const marker = `_${String(index + 1).padStart(2, "0")}_`;
+      const created = result.created.find((item) => item.sequenceName.includes(marker));
+      if (!created) continue;
+      const spans = segment.focalSpans
+        ?? (typeof segment.focalX === "number"
+          ? [{ start: segment.start, end: segment.end, x: segment.focalX, y: segment.focalY ?? 0.5 }]
+          : []);
+      if (spans.length === 0) continue;
+      upsertShotPlan({
+        sequenceName: created.sequenceName,
+        createdAt: new Date().toISOString(),
+        segment: { start: segment.start, end: segment.end, title: segment.name },
+        spans,
+        originalSpans: spans,
+        target: { width: shortOptions.width, height: shortOptions.height },
+        source: sourceDims,
+      });
+    }
+  }
   // 측정 피드백 보정: 카메라 감독처럼 결과 프레임을 재측정해 얼굴이 정중앙에 오도록 초점을 교정한다.
   if (sourceDims && !newsStyle) {
     try {
@@ -1311,6 +1354,7 @@ async function handleAutoCutGenerate(): Promise<void> {
       activity.add("warning", `프레이밍 보정을 건너뛰었습니다: ${errorMessage(error)}`);
     }
   }
+  adjustPanel.refresh();
   activity.add(
     result.failures.length ? "warning" : "success",
     `AI 자동 컷 일괄 생성 · 성공 ${result.created.length} · 실패 ${result.failures.length}`,

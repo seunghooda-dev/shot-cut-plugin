@@ -287,3 +287,39 @@ export function planSpanHoldWindows(
     return { start: round3(start), end: round3(end) };
   });
 }
+
+export interface FocalSpanAdjustment {
+  /** 초점 X 오프셋(-0.5..0.5). 양수 = 피사체 기준점을 오른쪽으로. */
+  dx: number;
+  /** 초점 Y 오프셋(-0.5..0.5). */
+  dy: number;
+  /** 기존 zoom에 곱하는 배율(0.5..2). 1 = 변화 없음. */
+  zoomScale: number;
+}
+
+/**
+ * 저장된 초점 스팬 전체에 사용자 조정(오프셋·줌 배율)을 적용한 새 스팬을 만든다.
+ * 시각·전환은 보존하고 x/y는 0..1로, 결과 zoom은 1..2로 클램프한다. 결정적 순수.
+ */
+export function adjustFocalSpans(
+  spans: readonly FocalSpan[],
+  adjustment: Partial<FocalSpanAdjustment>,
+): FocalSpan[] {
+  const dx = Number.isFinite(adjustment.dx) ? Math.min(0.5, Math.max(-0.5, adjustment.dx!)) : 0;
+  const dy = Number.isFinite(adjustment.dy) ? Math.min(0.5, Math.max(-0.5, adjustment.dy!)) : 0;
+  const zoomScale = Number.isFinite(adjustment.zoomScale) && adjustment.zoomScale! > 0
+    ? Math.min(2, Math.max(0.5, adjustment.zoomScale!))
+    : 1;
+  return (Array.isArray(spans) ? spans : []).map((span) => {
+    const baseZoom = typeof span.zoom === "number" && span.zoom > 1.01 ? span.zoom : 1;
+    const zoom = Math.min(2, Math.max(1, baseZoom * zoomScale));
+    return {
+      start: span.start,
+      end: span.end,
+      x: round3(clamp01(span.x + dx)),
+      y: round3(clamp01(span.y + dy)),
+      ...(zoom > 1.01 ? { zoom: round3(zoom) } : {}),
+      ...(span.transition ? { transition: span.transition } : {}),
+    };
+  });
+}

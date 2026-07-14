@@ -538,6 +538,40 @@
               </div>
               <p id="learn-status" class="autocut-learn-status">학습 예시 0개</p>
             </div>
+
+            <div class="autocut-learn adjust-framing">
+              <div class="autocut-learn-head">
+                <strong>프레이밍 조정 (생성된 숏폼)</strong>
+                <small>추적 모드로 생성한 숏폼의 초점을 컷 단위로 미세 조정해 키프레임을 다시 씁니다.</small>
+              </div>
+              <div class="form-grid">
+                <div class="field">
+                  <label for="adjust-plan-select">숏폼 선택</label>
+                  <div class="select-wrap">
+                    <select id="adjust-plan-select"></select>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="adjust-dx-input">초점 X 오프셋 <span id="adjust-dx-value">0.00</span></label>
+                  <input id="adjust-dx-input" type="range" min="-0.2" max="0.2" step="0.01" value="0" />
+                </div>
+                <div class="field">
+                  <label for="adjust-dy-input">초점 Y 오프셋 <span id="adjust-dy-value">0.00</span></label>
+                  <input id="adjust-dy-input" type="range" min="-0.2" max="0.2" step="0.01" value="0" />
+                </div>
+                <div class="field">
+                  <label for="adjust-zoom-input">줌 배율 <span id="adjust-zoom-value">1.00×</span></label>
+                  <input id="adjust-zoom-input" type="range" min="0.8" max="1.5" step="0.05" value="1" />
+                </div>
+              </div>
+              <div class="autocut-learn-actions">
+                <button id="adjust-apply-btn" class="primary-button" type="button" disabled>조정 재적용</button>
+                <button id="adjust-reset-btn" class="secondary-button" type="button" disabled>원본으로 복원</button>
+                <button id="adjust-remove-btn" class="secondary-button" type="button" disabled>계획 삭제</button>
+                <button id="adjust-refresh-btn" class="secondary-button" type="button">목록 새로고침</button>
+              </div>
+              <p id="adjust-info" class="autocut-learn-status">저장된 프레이밍 계획이 없습니다.</p>
+            </div>
           </div>
 
           <div class="settings-card motion-card">

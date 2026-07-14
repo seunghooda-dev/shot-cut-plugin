@@ -1896,6 +1896,7 @@ async function applyShotFocalPositionKeyframes(
   targetHeight: number,
   sourceWidth: number,
   sourceHeight: number,
+  baseScaleOverride?: number,
 ): Promise<{ changed: number; warnings: string[] }> {
   const valid = (Array.isArray(spans) ? spans : [])
     .filter((span) => span && Number.isFinite(span.start) && Number.isFinite(span.end) && span.end > span.start
@@ -1937,7 +1938,14 @@ async function applyShotFocalPositionKeyframes(
       const scale = params.scale;
       let baseScale = Number.NaN;
       let zoomUsable = false;
-      if (wantsZoom && scale && !(typeof scale.isTimeVarying === "function" && scale.isTimeVarying())) {
+      if (wantsZoom && scale && typeof baseScaleOverride === "number" && Number.isFinite(baseScaleOverride) && baseScaleOverride > 0) {
+        // 재조정 경로: 생성 때 이미 스케일 키프레임이 있어 isTimeVarying 가드를 넘어야 하고,
+        // 현재 키프레임 값은 zoom이 섞여 있어 기준이 못 되므로 기하로 계산한 기준값을 받는다.
+        if (!(typeof scale.areKeyframesSupported === "function") || await scale.areKeyframesSupported()) {
+          baseScale = baseScaleOverride;
+          zoomUsable = true;
+        }
+      } else if (wantsZoom && scale && !(typeof scale.isTimeVarying === "function" && scale.isTimeVarying())) {
         if (!(typeof scale.areKeyframesSupported === "function") || await scale.areKeyframesSupported()) {
           baseScale = Number(keyframeValue(await scale.getStartValue()));
           zoomUsable = Number.isFinite(baseScale) && baseScale > 0;
@@ -3256,6 +3264,47 @@ export async function applyShotFocalPositionCorrection(
     throw new ShortFlowError("REFRAME_COMMIT_FAILED", "샷 초점 보정을 적용하지 못했습니다.");
   }
   return { changed, warnings: [...new Set(warnings)] };
+}
+
+// 프로젝트의 시퀀스 이름 목록(컷별 조정 패널의 계획 정리·존재 확인용).
+export async function listSequenceNames(): Promise<string[]> {
+  const { project } = await getActiveContext();
+  const sequences = await project.getSequences();
+  return sequences.map((sequence) => String(sequence.name));
+}
+
+/**
+ * 생성된 숏폼 시퀀스에 사용자 조정 초점 스팬을 재적용한다(위치+스케일 키프레임 재기록).
+ * 생성 시점과 달리 스케일이 이미 키프레임 상태라, 기준 스케일은 fill 크롭 기하
+ * (max(target/source 비율)×100 — 생성 때 reframe이 설정한 값)로 계산해 넘긴다.
+ */
+export async function applyShotFocalAdjustment(
+  sequenceName: string,
+  spans: Array<{ start: number; end: number; x: number; y: number; zoom?: number; transition?: "cut" | "pan" }>,
+  targetWidth: number,
+  targetHeight: number,
+  sourceWidth: number,
+  sourceHeight: number,
+): Promise<{ changed: number; warnings: string[] }> {
+  assertPositiveDimensions(targetWidth, targetHeight);
+  assertPositiveDimensions(sourceWidth, sourceHeight);
+  const { project } = await getActiveContext();
+  const sequences = await project.getSequences();
+  const sequence = sequences.find((item) => String(item.name) === sequenceName);
+  if (!sequence) {
+    throw new ShortFlowError("SEQUENCE_NOT_FOUND", `시퀀스를 찾지 못했습니다: ${sequenceName}. 삭제됐다면 계획을 정리해 주세요.`);
+  }
+  const baseScale = Math.max(targetWidth / sourceWidth, targetHeight / sourceHeight) * 100;
+  return applyShotFocalPositionKeyframes(
+    project,
+    sequence,
+    spans,
+    targetWidth,
+    targetHeight,
+    sourceWidth,
+    sourceHeight,
+    baseScale,
+  );
 }
 
 export async function exportCover(outputFolder: any): Promise<string> {

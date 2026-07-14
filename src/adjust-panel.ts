@@ -1,0 +1,180 @@
+// 생성된 숏폼의 프레이밍(초점 X/Y·줌)을 컷 단위로 수동 조정·재적용하는 패널 모듈
+import { adjustFocalSpans, type FocalSpan } from "./shot-focus";
+import {
+  loadShotPlans,
+  pruneShotPlans,
+  removeShotPlan,
+  updateShotPlanSpans,
+  type ShotPlanRecord,
+} from "./shot-plan-store";
+import { optionalElement, setText, toast } from "./ui";
+
+export interface AdjustPanelOptions {
+  /** 스팬을 시퀀스 키프레임으로 재적용한다(premiere.applyShotFocalAdjustment 주입). */
+  applyAdjustment: (
+    record: ShotPlanRecord,
+    spans: FocalSpan[],
+  ) => Promise<{ changed: number; warnings: string[] }>;
+  /** 프로젝트의 현재 시퀀스 이름 목록(없어진 시퀀스 계획 정리용). */
+  listSequenceNames: () => Promise<string[]>;
+  runBusy: <T>(message: string, task: () => Promise<T>) => Promise<T>;
+  onActivity: (level: "info" | "success" | "warning" | "error", message: string) => void;
+}
+
+function sliderValue(id: string, fallback: number): number {
+  const input = optionalElement<HTMLInputElement>(id);
+  const value = input ? Number(input.value) : Number.NaN;
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function setSlider(id: string, value: number): void {
+  const input = optionalElement<HTMLInputElement>(id);
+  if (input) input.value = String(value);
+}
+
+function describePlan(plan: ShotPlanRecord): string {
+  const seconds = Math.round(plan.segment.end - plan.segment.start);
+  return `${plan.sequenceName} · ${plan.spans.length}샷 · ${seconds}초`;
+}
+
+export function createAdjustPanel(options: AdjustPanelOptions): { refresh: () => void } {
+  let plans: ShotPlanRecord[] = [];
+
+  const selectedPlan = (): ShotPlanRecord | null => {
+    const select = optionalElement<HTMLSelectElement>("adjust-plan-select");
+    if (!select || !select.value) return null;
+    return plans.find((plan) => plan.sequenceName === select.value) ?? null;
+  };
+
+  const renderValues = (): void => {
+    setText("adjust-dx-value", sliderValue("adjust-dx-input", 0).toFixed(2));
+    setText("adjust-dy-value", sliderValue("adjust-dy-input", 0).toFixed(2));
+    setText("adjust-zoom-value", `${sliderValue("adjust-zoom-input", 1).toFixed(2)}×`);
+  };
+
+  const renderInfo = (): void => {
+    const plan = selectedPlan();
+    if (!plan) {
+      setText("adjust-info", plans.length === 0
+        ? "저장된 프레이밍 계획이 없습니다. 자동 컷 생성(추적 모드) 후 사용할 수 있습니다."
+        : "조정할 숏폼을 선택해 주세요.");
+      return;
+    }
+    const zooms = plan.spans.filter((span) => typeof span.zoom === "number" && span.zoom > 1.01).length;
+    setText(
+      "adjust-info",
+      `${plan.segment.title || plan.sequenceName} · 샷 ${plan.spans.length}개(펀치인 ${zooms}) · 초점 x ${plan.spans.map((span) => span.x.toFixed(2)).join("→")}`,
+    );
+  };
+
+  const render = (): void => {
+    const select = optionalElement<HTMLSelectElement>("adjust-plan-select");
+    if (!select) return;
+    const previous = select.value;
+    select.replaceChildren();
+    for (const plan of plans) {
+      const option = document.createElement("option");
+      option.value = plan.sequenceName;
+      option.textContent = describePlan(plan);
+      select.appendChild(option);
+    }
+    if (previous && plans.some((plan) => plan.sequenceName === previous)) select.value = previous;
+    const disabled = plans.length === 0;
+    for (const id of ["adjust-apply-btn", "adjust-reset-btn", "adjust-remove-btn"]) {
+      const button = optionalElement<HTMLButtonElement>(id);
+      if (button) button.disabled = disabled;
+    }
+    renderValues();
+    renderInfo();
+  };
+
+  const refresh = (): void => {
+    plans = loadShotPlans();
+    render();
+  };
+
+  /** 프로젝트에 없는 시퀀스의 계획을 정리한 뒤 다시 그린다(실패 시 정리 없이 로드만). */
+  const refreshWithPrune = async (): Promise<void> => {
+    try {
+      const names = await options.listSequenceNames();
+      plans = pruneShotPlans(names);
+    } catch {
+      plans = loadShotPlans();
+    }
+    render();
+  };
+
+  const applySpans = async (plan: ShotPlanRecord, spans: FocalSpan[], label: string): Promise<void> => {
+    const result = await options.runBusy(`${label} 키프레임을 재적용하고 있습니다…`, () =>
+      options.applyAdjustment(plan, spans));
+    result.warnings.forEach((warning) => options.onActivity("warning", warning));
+    if (result.changed === 0) {
+      toast("적용된 클립이 없습니다. 시퀀스가 비어 있거나 삭제됐을 수 있습니다.", "warning");
+      return;
+    }
+    plans = updateShotPlanSpans(plan.sequenceName, spans);
+    render();
+    options.onActivity("success", `프레이밍 ${label} · ${plan.sequenceName} (클립 ${result.changed})`);
+    toast(`${label}했습니다. 프로그램 모니터에서 확인해 주세요.`, "success");
+  };
+
+  const handleApply = async (): Promise<void> => {
+    const plan = selectedPlan();
+    if (!plan) {
+      toast("조정할 숏폼을 먼저 선택해 주세요.", "warning");
+      return;
+    }
+    const adjusted = adjustFocalSpans(plan.spans, {
+      dx: sliderValue("adjust-dx-input", 0),
+      dy: sliderValue("adjust-dy-input", 0),
+      zoomScale: sliderValue("adjust-zoom-input", 1),
+    });
+    await applySpans(plan, adjusted, "조정");
+    setSlider("adjust-dx-input", 0);
+    setSlider("adjust-dy-input", 0);
+    setSlider("adjust-zoom-input", 1);
+    renderValues();
+  };
+
+  const handleReset = async (): Promise<void> => {
+    const plan = selectedPlan();
+    if (!plan) return;
+    await applySpans(plan, plan.originalSpans.map((span) => ({ ...span })), "원본 복원");
+    setSlider("adjust-dx-input", 0);
+    setSlider("adjust-dy-input", 0);
+    setSlider("adjust-zoom-input", 1);
+    renderValues();
+  };
+
+  const handleRemove = (): void => {
+    const plan = selectedPlan();
+    if (!plan) return;
+    plans = removeShotPlan(plan.sequenceName);
+    render();
+    options.onActivity("info", `프레이밍 계획 삭제 · ${plan.sequenceName}`);
+  };
+
+  optionalElement<HTMLButtonElement>("adjust-refresh-btn")?.addEventListener("click", () => {
+    void refreshWithPrune();
+  });
+  optionalElement<HTMLButtonElement>("adjust-apply-btn")?.addEventListener("click", () => {
+    void handleApply().catch((error) => {
+      options.onActivity("error", `프레이밍 조정 실패: ${error instanceof Error ? error.message : String(error)}`);
+      toast("프레이밍 조정에 실패했습니다. 활동 로그를 확인해 주세요.", "error");
+    });
+  });
+  optionalElement<HTMLButtonElement>("adjust-reset-btn")?.addEventListener("click", () => {
+    void handleReset().catch((error) => {
+      options.onActivity("error", `프레이밍 복원 실패: ${error instanceof Error ? error.message : String(error)}`);
+      toast("프레이밍 복원에 실패했습니다. 활동 로그를 확인해 주세요.", "error");
+    });
+  });
+  optionalElement<HTMLButtonElement>("adjust-remove-btn")?.addEventListener("click", handleRemove);
+  optionalElement<HTMLSelectElement>("adjust-plan-select")?.addEventListener("change", renderInfo);
+  for (const id of ["adjust-dx-input", "adjust-dy-input", "adjust-zoom-input"]) {
+    optionalElement<HTMLInputElement>(id)?.addEventListener("input", renderValues);
+  }
+
+  refresh();
+  return { refresh };
+}
