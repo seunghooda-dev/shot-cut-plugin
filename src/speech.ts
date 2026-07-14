@@ -120,6 +120,17 @@ export function isEmptyTranscriptError(error: unknown): boolean {
   return message.includes("빈 원고") || message.includes("EMPTY_RESPONSE");
 }
 
+// STT 요청 시간 초과 에러인지 판정한다. 느린 모델(diarize)이 긴 오디오에서 타임아웃하는 경우
+// 더 빠른 whisper-1로 폴백할지 결정하는 데 쓴다.
+export function isSttTimeoutError(error: unknown): boolean {
+  if (!error) return false;
+  if (error instanceof SpeechApiError && error.code === "TIMEOUT") return true;
+  const code = (error as { code?: unknown }).code;
+  if (code === "TIMEOUT") return true;
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return message.includes("시간이 초과") || message.includes("시간 초과");
+}
+
 function requiredString(value: unknown, label: string, maximum: number): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new SpeechApiError("INVALID_INPUT", `${label}을(를) 입력해 주세요.`);

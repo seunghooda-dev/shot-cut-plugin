@@ -11,6 +11,7 @@ import {
   SpeechApiClient,
   SpeechApiError,
   isEmptyTranscriptError,
+  isSttTimeoutError,
   readOpenAIApiKey,
   transcriptToSrt,
   validateSttResult,
@@ -782,5 +783,18 @@ describe("isEmptyTranscriptError", () => {
     assert.equal(isEmptyTranscriptError(new Error("네트워크 오류")), false);
     assert.equal(isEmptyTranscriptError(null), false);
     assert.equal(isEmptyTranscriptError(undefined), false);
+  });
+});
+
+describe("isSttTimeoutError", () => {
+  it("detects the SpeechApiError timeout code and message", () => {
+    assert.equal(isSttTimeoutError(new SpeechApiError("TIMEOUT", "AI 음성 요청 시간이 초과되었습니다.")), true);
+    assert.equal(isSttTimeoutError({ code: "TIMEOUT" }), true);
+    assert.equal(isSttTimeoutError(new Error("STT · 실패 AI 음성 요청 시간이 초과되었습니다.")), true);
+  });
+  it("does not match empty-transcript or unrelated errors", () => {
+    assert.equal(isSttTimeoutError(new SpeechApiError("EMPTY_RESPONSE", "AI가 빈 원고를 반환했습니다.")), false);
+    assert.equal(isSttTimeoutError(new Error("네트워크 오류")), false);
+    assert.equal(isSttTimeoutError(null), false);
   });
 });

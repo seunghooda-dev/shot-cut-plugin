@@ -8,6 +8,7 @@ import {
   SpeechApiClient,
   STT_MODELS,
   isEmptyTranscriptError,
+  isSttTimeoutError,
   TTS_MODELS,
   TTS_VOICES,
   type SttModel,
@@ -576,10 +577,12 @@ export class SpeechController {
       try {
         provided = await callProvider(providerRequest);
       } catch (error) {
-        // 기본 모델(diarize 등)이 빈 원고를 반환하면 whisper-1로 자동 재시도한다. 방송·다화자
-        // 오디오에서 diarize가 빈 결과를 내는 실측 사례 대비 — whisper-1은 화자 구분은 없지만 견고하다.
-        if (isEmptyTranscriptError(error) && providerRequest.model !== "whisper-1") {
-          this.options.onActivity?.(`${providerRequest.model} STT가 빈 원고를 반환해 whisper-1로 다시 시도합니다.`);
+        // 기본 모델(diarize 등)이 빈 원고를 반환하거나 시간 초과되면 whisper-1로 자동 재시도한다.
+        // 방송·다화자 오디오에서 diarize가 빈 결과·타임아웃을 내는 실측 사례 대비 — whisper-1은
+        // 화자 구분은 없지만 더 빠르고 견고하다.
+        if ((isEmptyTranscriptError(error) || isSttTimeoutError(error)) && providerRequest.model !== "whisper-1") {
+          const cause = isSttTimeoutError(error) ? "시간 초과" : "빈 원고";
+          this.options.onActivity?.(`${providerRequest.model} STT가 ${cause}로 실패해 whisper-1로 다시 시도합니다.`);
           effectiveModel = "whisper-1";
           provided = await callProvider({ ...providerRequest, model: "whisper-1", bytes: providerRequest.bytes.slice() });
         } else {
