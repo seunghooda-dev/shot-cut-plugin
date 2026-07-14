@@ -2,7 +2,7 @@
 
 > **Summary**: 자동 컷의 "판단"을 모델로 더 옮기는 `shorts-plan` 분석 액션(Phase 1)과, 사용자가 준 (원본+숏폼) 샘플에서 편집 스타일을 few-shot으로 학습하는 파이프라인(Phase 2). 파인튜닝이 아니라 예시 학습 — 샘플 몇 개로 즉시, 재학습 없이 스타일을 반영한다.
 >
-> **Project**: shortflow-studio · **Date**: 2026-07-14 · **Status**: 설계 (사용자: "샘플 학습 파이프라인까지 한번에")
+> **Project**: shortflow-studio · **Date**: 2026-07-14 · **Status**: P1 완료·게이트 green / P2 순수 코어(정렬·예시·few-shot 직렬화) 완료 / 남은 것: 스타일 코퍼스 저장 + "샘플로 학습" UI·STT 배선 + 코퍼스 주입 (사용자: "샘플 학습 파이프라인까지 한번에")
 
 ## 1. 배경·범위
 
@@ -76,11 +76,11 @@ interface StyleExample { transcript: string; chosen: Array<{ cueIds: string[]; h
 
 | 단계 | 내용 | 검증 |
 |---|---|---|
-| P1-a | `shorts-plan` 스키마·프롬프트·디스패치(openai-text) + 유니온/결과 변형 | 어댑터 유닛 |
-| P1-b | `segmentsFromModelPlan` 순수 + `validateAnalysisResponse` 확장 | 유닛 |
-| P1-c | `planAutoCuts` shorts-plan 우선·폴백 배선 | 유닛/타입 |
-| P2-a | `alignShortToOriginal` 순수 | 유닛 |
-| P2-b | `buildStyleExample`·코퍼스 저장·`distillStyleProfile` | 유닛 |
-| P2-c | UI "샘플로 학습" 흐름 + STT 배선 + 코퍼스 주입 | Host |
+| P1-a | `shorts-plan` 스키마·프롬프트·디스패치(openai-text) + 유니온/결과 변형 | ✅ 완료 `cfa4596` |
+| P1-b | `segmentsFromModelPlan` 순수 + `validateAnalysisResponse` 확장 | ✅ 유닛 11 `cfa4596` |
+| P1-c | `planAutoCuts` shorts-plan 우선·폴백 배선 | ✅ `cfa4596` |
+| P2-a | `alignShortToOriginal` 순수 | ✅ 유닛 6 `f99e5e4` |
+| P2-b | `buildStyleExample`·`formatStyleExamplesForPrompt` 순수 | ✅ 유닛 3 (본 커밋) / 코퍼스 저장·`distillStyleProfile`은 남음 |
+| P2-c | UI "샘플로 학습" 흐름 + STT 배선 + 코퍼스 주입(`planAutoCuts`의 styleExamples 슬롯) | 남음 (배선·Host) |
 
-각 단계 독립 게이트·커밋. Host 실AI는 자막 로드+유료라 사용자 게이트(관례).
+각 단계 독립 게이트·커밋. Host 실AI는 자막 로드+유료라 사용자 게이트(관례). **남은 것은 저장+UI+STT 배선(기계적)** — 순수 판단·학습 로직은 전부 완료·테스트됨.

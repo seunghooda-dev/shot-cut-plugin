@@ -1,7 +1,7 @@
 // alignShortToOriginal — 숏폼 전사를 원본 cueId로 역추적하는 순수 정렬 로직 테스트
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { alignShortToOriginal } from "../src/shorts-learning";
+import { alignShortToOriginal, buildStyleExample, formatStyleExamplesForPrompt } from "../src/shorts-learning";
 import type { SubtitleCue, SubtitleDocument } from "../src/subtitles";
 
 function cue(id: string, text: string): SubtitleCue {
@@ -54,5 +54,42 @@ describe("alignShortToOriginal", () => {
     const orig = original(12);
     const short = shortFrom(["alpha3 beta3", "alpha4 beta4"]);
     assert.deepEqual(alignShortToOriginal(orig, short), alignShortToOriginal(orig, short));
+  });
+});
+
+describe("buildStyleExample + formatStyleExamplesForPrompt", () => {
+  const timed: SubtitleDocument = {
+    version: 1,
+    projectKey: "timed",
+    cues: [
+      { cueId: "c0", start: 0, end: 5, text: "인트로.", enabled: true, hidden: false, words: [] },
+      { cueId: "c1", start: 5, end: 12, text: "핵심 순간 하나.", enabled: true, hidden: false, words: [] },
+      { cueId: "c2", start: 12, end: 20, text: "핵심 순간 둘.", enabled: true, hidden: false, words: [] },
+      { cueId: "c3", start: 20, end: 24, text: "마무리.", enabled: true, hidden: false, words: [] },
+    ],
+  };
+
+  it("turns aligned spans into a style example with duration and transcript", () => {
+    const example = buildStyleExample(timed, [{ cueIds: ["c1", "c2"] }], { title: "핵심 모음" });
+    assert.ok(example);
+    assert.equal(example!.chosen.length, 1);
+    assert.deepEqual(example!.chosen[0]!.cueIds, ["c1", "c2"]);
+    assert.equal(example!.chosen[0]!.title, "핵심 모음");
+    assert.equal(example!.chosen[0]!.durationSeconds, 15); // 20 - 5
+    assert.ok(example!.transcript.includes("[c1]") && example!.transcript.includes("[c2]"));
+    assert.ok(!example!.transcript.includes("[c0]"));
+  });
+
+  it("returns null when no span maps to real cues", () => {
+    assert.equal(buildStyleExample(timed, [{ cueIds: ["ghost"] }]), null);
+    assert.equal(buildStyleExample(timed, []), null);
+  });
+
+  it("formats examples into few-shot prompt text with cueIds and title", () => {
+    const example = buildStyleExample(timed, [{ cueIds: ["c1", "c2"] }], { title: "핵심 모음" })!;
+    const text = formatStyleExamplesForPrompt([example]);
+    assert.ok(text.includes("Chosen shorts"));
+    assert.ok(text.includes("\"c1\"") && text.includes("핵심 모음"));
+    assert.equal(formatStyleExamplesForPrompt([]), "");
   });
 });

@@ -96,3 +96,61 @@ export function alignShortToOriginal(
   }
   return { spans, coverage };
 }
+
+export interface StyleExampleChoice {
+  cueIds: string[];
+  title: string;
+  durationSeconds: number;
+}
+
+export interface StyleExample {
+  transcript: string;
+  chosen: StyleExampleChoice[];
+}
+
+/**
+ * 정렬 결과(원본에서 숏폼이 된 span들)를 few-shot 스타일 예시로 만든다.
+ * "이 전사에서 사용자는 이 cueId들을 이 제목·길이의 숏폼으로 골랐다"를 시연한다.
+ */
+export function buildStyleExample(
+  originalDoc: SubtitleDocument,
+  spans: AlignSpan[],
+  meta?: { title?: string },
+): StyleExample | null {
+  const byId = new Map(originalDoc.cues.map((cue) => [cue.cueId, cue]));
+  const chosen: StyleExampleChoice[] = [];
+  const included = new Set<string>();
+  for (const span of spans) {
+    const cues = span.cueIds
+      .map((id) => byId.get(id))
+      .filter((cue): cue is NonNullable<typeof cue> => Boolean(cue));
+    if (cues.length === 0) continue;
+    for (const cue of cues) included.add(cue.cueId);
+    const start = Math.min(...cues.map((cue) => cue.start));
+    const end = Math.max(...cues.map((cue) => cue.end));
+    chosen.push({
+      cueIds: cues.map((cue) => cue.cueId),
+      title: (typeof meta?.title === "string" && meta.title.trim() ? meta.title : cues[0]!.text).trim().slice(0, 60),
+      durationSeconds: Math.round((end - start) * 10) / 10,
+    });
+  }
+  if (chosen.length === 0) return null;
+  const lines: string[] = [];
+  for (const cue of originalDoc.cues) {
+    if (included.has(cue.cueId)) lines.push(`[${cue.cueId}] ${cue.text}`);
+  }
+  return { transcript: lines.join("\n"), chosen };
+}
+
+/** 스타일 예시들을 shorts-plan 프롬프트에 넣을 few-shot 텍스트로 직렬화한다. */
+export function formatStyleExamplesForPrompt(examples: StyleExample[]): string {
+  const blocks: string[] = [];
+  for (const example of examples) {
+    if (!example || !example.transcript || example.chosen.length === 0) continue;
+    const chosen = example.chosen
+      .map((choice) => `{"cueIds": ${JSON.stringify(choice.cueIds)}, "title": ${JSON.stringify(choice.title)}, "durationSeconds": ${choice.durationSeconds}}`)
+      .join(", ");
+    blocks.push(`Transcript:\n${example.transcript}\nChosen shorts: [${chosen}]`);
+  }
+  return blocks.join("\n\n");
+}
