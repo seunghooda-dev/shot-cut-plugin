@@ -30,7 +30,7 @@ import {
   type ThumbnailTextOverlay,
   type ThumbnailTransform,
 } from "./thumbnail";
-import { bind, clearChildren, element, valueOf } from "./ui";
+import { bind, clearChildren, element, optionalElement, renderEmptyState, toast, valueOf } from "./ui";
 
 export const THUMBNAIL_STORAGE_KEY = "shortflow.thumbnail.layers.v1";
 export const THUMBNAIL_OUTPUT_FOLDER_TOKEN_KEY = "shortflow.thumbnail.outputFolderToken.v1";
@@ -472,6 +472,8 @@ export class ThumbnailController {
   private readonly imageCache = new Map<string, Promise<CanvasImageLike>>();
   private readonly historyItems: ThumbnailHistoryItem[] = [];
   private stateValue: ThumbnailState = createThumbnailState();
+  // 썸네일 A/B: 저장한 변형(상태 스냅샷 + 렌더된 SVG)을 나란히 비교하고 하나를 골라 적용한다.
+  private variants: Array<{ id: string; label: string; state: ThumbnailState; svg: string }> = [];
   private initialized = false;
   private dragFromIndex = -1;
   private renderScheduled = false;
@@ -537,6 +539,7 @@ export class ThumbnailController {
     await this.restore();
     this.canvasLimitReason = this.detectCanvasLimit();
     this.syncUI();
+    this.renderVariants();
     try {
       await this.renderCanvas();
     } catch (error) {
@@ -680,6 +683,10 @@ export class ThumbnailController {
     bind("thumb-export-svg-btn", "click", () => this.guard(
       () => this.exportSvgFallback(),
       "썸네일 SVG fallback 저장 실패",
+    ));
+    bind("thumb-save-variant-btn", "click", () => this.guard(
+      () => this.saveVariant(),
+      "썸네일 변형 저장 실패",
     ));
     bind("thumb-ai-run-btn", "click", () => this.guard(
       () => this.runAI(),
@@ -1044,6 +1051,87 @@ export class ThumbnailController {
       );
       this.options.onActivity?.(`${fileName(entry) || name} SVG fallback 썸네일을 저장했습니다.`);
     });
+  }
+
+  // 임의의 썸네일 상태를 SVG 문자열로 렌더한다(A/B 변형 미리보기용). Host에서도 렌더되는 SVG를 쓴다.
+  private async renderStateToSvg(state: ThumbnailState): Promise<string> {
+    const hrefs = new Map<string, string>();
+    for (const layer of state.layers) {
+      hrefs.set(layer.id, await this.svgHrefForLayer(layer));
+    }
+    return renderThumbnailSvg(state, {
+      title: "ShortFlow thumbnail variant",
+      resolveImageHref: (_source, layer) => {
+        const href = hrefs.get(layer.id);
+        if (!href) throw new Error(`레이어 ${layer.id}의 SVG 이미지 경로를 찾지 못했습니다.`);
+        return href;
+      },
+    });
+  }
+
+  async saveVariant(): Promise<void> {
+    if (this.variants.length >= 3) {
+      toast("변형은 최대 3개까지 저장할 수 있습니다. 하나를 삭제한 뒤 다시 저장해 주세요.", "warning");
+      return;
+    }
+    const state = JSON.parse(JSON.stringify(this.stateValue)) as ThumbnailState;
+    const svg = await this.renderStateToSvg(state);
+    const label = String.fromCharCode(65 + this.variants.length);
+    this.variants.push({ id: `thumb-variant-${this.now()}-${this.variants.length}`, label, state, svg });
+    this.renderVariants();
+    this.options.onActivity?.(`썸네일 변형 ${label}를 저장했습니다.`);
+  }
+
+  useVariant(id: string): void {
+    const variant = this.variants.find((item) => item.id === id);
+    if (!variant) return;
+    this.stateValue = JSON.parse(JSON.stringify(variant.state)) as ThumbnailState;
+    this.syncUI();
+    this.options.onActivity?.(`변형 ${variant.label}를 현재 썸네일로 적용했습니다.`);
+  }
+
+  deleteVariant(id: string): void {
+    const index = this.variants.findIndex((item) => item.id === id);
+    if (index < 0) return;
+    this.variants.splice(index, 1);
+    this.variants.forEach((variant, order) => { variant.label = String.fromCharCode(65 + order); });
+    this.renderVariants();
+  }
+
+  private renderVariants(): void {
+    const container = optionalElement<HTMLElement>("thumb-variants");
+    if (!container) return;
+    clearChildren(container);
+    if (this.variants.length === 0) {
+      renderEmptyState(container, "저장된 변형이 없습니다", "현재 썸네일을 변형으로 저장해 나란히 비교하고 하나를 고르세요.");
+      return;
+    }
+    for (const variant of this.variants) {
+      const card = document.createElement("div");
+      card.className = "thumb-variant-card";
+      const heading = document.createElement("strong");
+      heading.className = "thumb-variant-label";
+      heading.textContent = `변형 ${variant.label}`;
+      const image = document.createElement("img");
+      image.className = "thumb-variant-preview";
+      image.src = `data:image/svg+xml;utf8,${encodeURIComponent(variant.svg)}`;
+      image.alt = `썸네일 변형 ${variant.label}`;
+      const actions = document.createElement("div");
+      actions.className = "thumb-variant-actions";
+      const use = document.createElement("button");
+      use.type = "button";
+      use.className = "secondary-button";
+      use.textContent = "이 변형 사용";
+      use.addEventListener("click", () => this.useVariant(variant.id));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "ghost-button";
+      remove.textContent = "삭제";
+      remove.addEventListener("click", () => this.deleteVariant(variant.id));
+      actions.append(use, remove);
+      card.append(heading, image, actions);
+      container.append(card);
+    }
   }
 
   private async writeExportFile(

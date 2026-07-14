@@ -703,6 +703,59 @@ strong {
   letter-spacing: -0.01em;
 }
 
+.section-hint {
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+}
+
+/* 썸네일 A/B 변형 비교 — grid는 UXP에서 붕괴하므로 flex-wrap으로 나란히 배치한다. */
+.thumb-variants-card .section-heading-copy {
+  flex-direction: column;
+  gap: 1px;
+}
+
+.thumb-variants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.thumb-variant-card {
+  display: flex;
+  flex: 1 1 150px;
+  min-width: 128px;
+  max-width: 240px;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+}
+
+.thumb-variant-label {
+  color: var(--accent-bright);
+  font-size: var(--fs-sm);
+}
+
+.thumb-variant-preview {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 4px;
+  background: #0f1014;
+  object-fit: contain;
+}
+
+.thumb-variant-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.thumb-variant-actions button {
+  flex: 1 1 auto;
+}
+
 .neutral-badge {
   padding: 3px 8px;
   border: 1px solid var(--line-strong);
