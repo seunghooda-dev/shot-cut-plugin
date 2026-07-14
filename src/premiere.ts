@@ -3107,13 +3107,40 @@ export async function exportVideo(options: ExportVideoOptions): Promise<string> 
   const exportType = options.mode === "queue"
     ? ppro.Constants.ExportType.QUEUE_TO_AME
     : ppro.Constants.ExportType.IMMEDIATELY;
-  const success = await manager.exportSequence(
+  const exportPromise: Promise<unknown> = Promise.resolve(manager.exportSequence(
     sequence,
     exportType,
     outputPath,
     presetPath,
     options.range === "entire",
-  );
+  ));
+  let success: unknown;
+  if (exportType === ppro.Constants.ExportType.IMMEDIATELY) {
+    // Host 실측(runbook 40): 장시간 즉시 렌더에서 exportSequence promise가 파일이 다 써진 뒤에도
+    // 해소되지 않는 경우가 있다(20분 시퀀스에서 무한 대기). 출력 파일이 나타나고 크기가 안정되면
+    // 완료로 간주하는 폴링과 race해 빠져나온다. 짧은 렌더는 promise가 먼저 이겨 기존과 동일.
+    const pollOutputStable = async (): Promise<true> => {
+      let previousSize = -1;
+      for (let attempt = 0; attempt < 600; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        try {
+          const entry = await options.outputFolder.getEntry?.(filename);
+          if (!entry) continue;
+          const metadata = await entry.getMetadata?.();
+          const size = Number(metadata?.size ?? 0);
+          if (size > 0 && size === previousSize) return true;
+          previousSize = size;
+        } catch {
+          previousSize = -1;
+        }
+      }
+      throw new ShortFlowError("EXPORT_FAILED", "내보내기 완료를 확인하지 못했습니다(시간 초과).");
+    };
+    success = await Promise.race([exportPromise, pollOutputStable()]);
+    // promise가 이겼는데 실패(false)면 그대로 실패 처리, 폴링이 이기면 true.
+  } else {
+    success = await exportPromise;
+  }
   if (!success) {
     throw new ShortFlowError("EXPORT_FAILED", "영상 내보내기 요청이 거부되었습니다. 프리셋과 출력 경로를 확인해 주세요.");
   }
