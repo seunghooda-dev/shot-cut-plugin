@@ -881,3 +881,12 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 - **시그니처 확정(프로브)**: `createInsertProjectItemAction(원본 ProjectItem, TickTime, vIdx, aIdx, false)` — **cast된 ClipProjectItem은 "Invalid parameter"로 거부, 원본 item이어야 함**(중요 발견). 삽입 구간은 `ClipProjectItem.createSetInOutPointsAction(in,out)`으로 projectItem을 트림하는 고전 기법 + 사용 후 `createClearInOutPointsAction` 원복. `project.createSequence(name)`으로 빈 시퀀스 생성 가능(기본 프리셋 트랙 V3/A4), 프레임은 `setSequenceFrame`으로 소스와 일치시킴. `project.deleteSequence`도 동작(프로브 시퀀스 정리에 사용).
 - **buildHighlightReel**: 세그먼트 시간순 정렬→구간별 트림 삽입(실패는 구간 단위 격리)→오프셋 반환→세그먼트별 릴 로컬 시각에 훅 인용 텍스트 마커. 이름 `{이름}_하이라이트릴_169`.
 - **E2E 검증**: 자동 컷 후보 3개 → 릴 생성 → **클립 3개(29.6+60+60=149.6s=02:29), 1920×1080, #텍스트 마커 3개(인용 훅)**, 콘솔 0(`cdt-reel-e2e.mjs`). 3~4분은 후보 선택 수로 제어.
+
+## 39. 마감 배치 — 정리·STT 재시도·자동 덕킹 완성·CCX(2026-07-14)
+
+추천 순서(A1→A2→B1→A3)대로 실행(`6baf0db`+`a16288d`).
+
+- **A1 정리**: `deleteSequence`로 구식 테스트 시퀀스 **29개 일괄 삭제**(실패 0). 보존 7: newswide_src·newswide_seg2·ShotTrack_3256_01/02·NewsStyle_8622_01·ReelE2E_4097_하이라이트릴_169·ShortFlow_9x16. "그래픽" 클립 4개는 createRemoveItemsAction 인자형 3종 모두 실패 → 수동 삭제 확정.
+- **A2 STT 재시도 축소**: diarize 타임아웃이 code TIMEOUT 정규식에 걸려 120s×3(~6분) 재시도 후 폴백되던 것 → `defaultTransientError`에 `retryable===false` 최우선 단락 + runStt 래퍼가 diarize 계열 타임아웃에 non-retryable 마킹(whisper-1 자신은 유지). 폴백 ~2분. 유닛 1.
+- **B1 자동 덕킹 완성(D-apply)**: **dB↔레벨 인코딩 실측 확정** — 오디오 클립 "볼륨(Internal Volume Mono)/레벨" 기본값 0.17782794 = 10^(-15/20) ⇒ `value = 10^((dB-15)/20)` (`duckLevelValueFromDb` 순수+유닛2). `applyDuckingLevelKeyframes`가 지정 트랙 클립들의 레벨에 엔벨로프를 클립-상대 키프레임으로 기록(키프레임 지원 areKeyframesSupported true 실측). 덕킹 버튼 = 실제 적용 우선(BGM 트랙 입력, 기본 A2) → 대상 없으면 마커 폴백. **Host E2E**: A1 대상 적용 → "클립 1 · 키프레임 6" 토스트, 레벨 timeVarying=true·키프레임 6 실측, 검증 후 원복(0dB), 콘솔 0(`cdt-duck-apply.mjs`). **마지막 미탐색 리스크 해소 — 5d 자동 덕킹 전체 완성.**
+- **A3 CCX 최종화**: `beta:evidence:verified` — 게이트 1715/1715 → `ShortFlow-Studio-1.0.0.ccx` 246,284B, **SHA-256 `367a8eb8c3fe5cc45066cd2f1594938478cae2294f91bd3208916efac83f5602`**, 증거 템플릿 `beta-evidence/ShortFlow_Beta_Evidence_20260714T124622Z.md`. (로컬 패키징 — Adobe 서명/심사 아님.)
