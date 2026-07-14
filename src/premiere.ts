@@ -3168,6 +3168,7 @@ export async function exportFrameToFolder(
   folderPath: string,
   maxWidth = 640,
   targetSequence?: Sequence,
+  format: "png" | "bmp" = "png",
 ): Promise<{ filename: string }> {
   if (!Number.isFinite(seconds) || seconds < 0) {
     throw new ShortFlowError("INVALID_RANGE", "프레임 시각이 올바르지 않습니다.");
@@ -3182,7 +3183,7 @@ export async function exportFrameToFolder(
   const scale = Math.min(1, Math.max(16, maxWidth) / width);
   const outWidth = Math.max(2, Math.round((width * scale) / 2) * 2);
   const outHeight = Math.max(2, Math.round((height * scale) / 2) * 2);
-  const filename = sanitizeFileName(`sf_frame_${exportTimestamp()}_${Math.round(seconds * 1000)}.png`);
+  const filename = sanitizeFileName(`sf_frame_${exportTimestamp()}_${Math.round(seconds * 1000)}.${format}`);
   const success = await ppro.Exporter.exportSequenceFrame(
     sequence,
     ppro.TickTime.createWithSeconds(seconds),

@@ -89,6 +89,8 @@ import { SubtitleController, type SubtitleAiRequest, type SubtitleAnalysisReques
 import { resolveAutomationTranscript, subtitleDocumentToAutomationTranscript } from "./src/automation-transcript";
 import { createSubtitleDocument, parseSrt, type SubtitleDocument } from "./src/subtitles";
 import { buildPremiereTranscript } from "./src/transcript-export";
+import { cloneSamplesForReusedTimes, lumaGrid, parseBmp24, planFrameSampling } from "./src/frame-diff";
+import { loadCachedSpans, saveCachedSpans } from "./src/vision-cache";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus, removeStyleExample } from "./src/style-corpus";
 import { computeDuckingEnvelope, duckLevelValueFromDb, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
 import { resolveSubjectFocal, type SubjectPoint } from "./src/subject-focus";
@@ -1066,6 +1068,18 @@ async function detectSegmentSubjectFocal(segment: HighlightCutSegment): Promise<
 async function detectSegmentShotSpans(segment: HighlightCutSegment): Promise<FocalSpan[] | null> {
   const api = frameDataFolderApi();
   if (!api) return null;
+  // 같은 (컨텍스트, 구간) 재생성이면 캐시된 스팬으로 비전 호출을 통째로 건너뛴다(§44).
+  let cacheKey = "";
+  try {
+    cacheKey = `${await readActiveContextKey()}|shot-spans|${segment.start.toFixed(2)}~${segment.end.toFixed(2)}`;
+    const cached = loadCachedSpans(cacheKey);
+    if (cached) {
+      activity.add("info", `샷 초점 캐시 재사용 · ${segment.title.slice(0, 24)} (${cached.length}개 샷, 비전 0회)`);
+      return cached;
+    }
+  } catch {
+    cacheKey = "";
+  }
   const controller = subtitleController;
   const cueMidpoints: number[] = [];
   if (controller) {
@@ -1077,8 +1091,28 @@ async function detectSegmentShotSpans(segment: HighlightCutSegment): Promise<Foc
   const times = planSampleTimes(segment.start, segment.end, cueMidpoints, { maxSamples: 14, minGapSeconds: 1.5 });
   if (times.length < 2) return null;
   const dataFolder = await api.fileSystem.getDataFolder();
-  let frames: Array<{ bytes: Uint8Array; time: number }> = [];
+  // 비전 프리필터: 초소형 BMP 휘도 비교로 "직전과 같은 그림" 샘플을 걸러낸다(§44).
+  // BMP 해석이 안 되는 프레임은 무조건 채택돼 필터가 실패해도 감지 범위는 줄지 않는다.
+  const gridEntries: Array<{ time: number; grid: Float64Array | null }> = [];
   for (const time of times) {
+    let grid: Float64Array | null = null;
+    try {
+      const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 64, undefined, "bmp");
+      const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+      const bmp = bytes ? parseBmp24(bytes) : null;
+      if (bmp) grid = lumaGrid(bmp);
+    } catch {
+      grid = null;
+    }
+    gridEntries.push({ time, grid });
+  }
+  const sampling = planFrameSampling(gridEntries);
+  if (sampling.reused.length > 0) {
+    activity.add("info", `프레임 프리필터 · ${segment.title.slice(0, 24)} → 비전 ${times.length}장 중 ${sampling.keptIndices.length}장만 전송`);
+  }
+  let frames: Array<{ bytes: Uint8Array; time: number }> = [];
+  for (const index of sampling.keptIndices) {
+    const time = gridEntries[index]!.time;
     try {
       const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 320);
       const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
@@ -1087,7 +1121,7 @@ async function detectSegmentShotSpans(segment: HighlightCutSegment): Promise<Foc
       // 샘플 하나 실패는 무시
     }
   }
-  if (frames.length < 2) return null;
+  if (frames.length === 0 || frames.length + sampling.reused.length < 2) return null;
   // 배치 요청 바이트 상한(어댑터 1.2MB)에 맞춰 초과 시 절반씩 솎는다.
   let total = frames.reduce((sum, frame) => sum + frame.bytes.byteLength, 0);
   while (total > 1_150_000 && frames.length > 4) {
@@ -1120,7 +1154,8 @@ async function detectSegmentShotSpans(segment: HighlightCutSegment): Promise<Foc
     }
     return out;
   };
-  let samples = await detectChunked(frames);
+  // 스킵된 시각에는 직전 채택 프레임의 감지값을 복제해 시간축 연속성을 유지한다.
+  let samples = cloneSamplesForReusedTimes(await detectChunked(frames), sampling.reused);
   let spans = planShotFocalSpans(samples, segment.start, segment.end);
   // 경계 스냅: 1차 경계는 샘플 간격 탓에 실제 컷과 최대 ±1초쯤 어긋날 수 있고, 그러면
   // 크롭 점프가 컷 밖에서 일어나 "튀는" 느낌을 준다. 경계 주변을 촘촘히(0.325s 간격 9장)
@@ -1154,6 +1189,7 @@ async function detectSegmentShotSpans(segment: HighlightCutSegment): Promise<Foc
   }
   // 경계 전환 주석: 버스트에서도 점프가 안 보이는 불확실 경계는 하드 점프 대신 짧은 팬.
   spans = annotateSpanTransitions(spans, samples);
+  if (spans.length > 0 && cacheKey) saveCachedSpans(cacheKey, spans);
   return spans.length > 0 ? spans : null;
 }
 
