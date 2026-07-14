@@ -167,6 +167,11 @@ export interface InsertAssetOptions {
   expectedContextKey?: string;
   /** Optional still-image duration in seconds, used for removable guide overlays. */
   durationSeconds?: number;
+  /**
+   * 호출부가 미리 계산한 오디오 길이(초). Premiere가 일부 오디오(예: OpenAI TTS WAV)의 길이를
+   * 오독하므로, 바이트를 가진 레이어가 직접 계산해 넘기면 그 값으로 삽입 범위를 검사한다.
+   */
+  audioDurationSeconds?: number;
 }
 
 export interface InsertAssetPreflight {
@@ -2732,7 +2737,11 @@ export async function importAndInsertAsset(
         "Premiere의 공개 오디오 미디어 형식 상수를 확인하지 못해 타임라인 삽입을 중단했습니다.",
       );
     }
-    audioDuration = await audioProjectItemDurationSeconds(clipProjectItem, audioMediaType);
+    const providedDuration = options.audioDurationSeconds;
+    audioDuration = typeof providedDuration === "number"
+      && Number.isFinite(providedDuration) && providedDuration > 0 && providedDuration <= 86_400
+      ? providedDuration
+      : await audioProjectItemDurationSeconds(clipProjectItem, audioMediaType);
   }
   await commitTimelineInsertAfterPreflight(
     async () => {

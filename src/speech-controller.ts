@@ -32,6 +32,7 @@ import {
 } from "./speech-files";
 import type { PluginSettings } from "./settings";
 import { bind, checkedOf, element, numberOf, setPathValue, setText, valueOf } from "./ui";
+import { parseWavPcm } from "./wav-pcm";
 
 export interface SpeechControllerTranscript {
   name: string;
@@ -499,11 +500,19 @@ export class SpeechController {
           this.options.onWarning?.("활성 프로젝트 또는 시퀀스가 변경되어 TTS 파일과 미리듣기만 보존하고 타임라인 삽입은 건너뛰었습니다.");
         } else {
           try {
+            // Premiere가 OpenAI TTS WAV의 길이를 오독하므로, 방금 만든 바이트에서 직접 계산해 넘긴다.
+            // (WAV이 아니면 parseWavPcm이 던지고, MP3 등은 Host의 getMedia 경로가 처리한다.)
+            let audioDurationSeconds: number | undefined;
+            try {
+              const pcm = parseWavPcm(result.bytes);
+              if (pcm.sampleRate > 0) audioDurationSeconds = pcm.samples.length / pcm.sampleRate;
+            } catch { /* 비 WAV 포맷은 Host 길이 감지로 폴백 */ }
             await this.host.importAndInsertAsset(written.nativePath, {
               videoTrackIndex: 0,
               audioTrackIndex: snapshot.audioTrackIndex,
               displayName: written.name,
               expectedContextKey: contextKey,
+              ...(audioDurationSeconds !== undefined ? { audioDurationSeconds } : {}),
             });
             inserted = true;
           } catch (error) {
