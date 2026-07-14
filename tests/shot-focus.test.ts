@@ -1,7 +1,7 @@
 // shot-focus — 샘플 시각 계획·샷 단위 초점 스팬 순수 로직 테스트
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { correctedFocalX, planSampleTimes, planShotFocalSpans } from "../src/shot-focus";
+import { annotateSpanTransitions, correctedFocalX, planSampleTimes, planShotFocalSpans, planSpanHoldWindows } from "../src/shot-focus";
 
 describe("planSampleTimes", () => {
   it("uses cue midpoints inside the segment and fills with a uniform grid", () => {
@@ -147,5 +147,43 @@ describe("correctedFocalX (측정 피드백 보정)", () => {
   it("returns the input for non-finite values", () => {
     assert.equal(correctedFocalX(Number.NaN, 0.3, 0.316), Number.NaN);
     assert.equal(correctedFocalX(0.5, Number.NaN, 0.316), 0.5);
+  });
+});
+
+describe("annotateSpanTransitions + planSpanHoldWindows (경계 전환)", () => {
+  const spans = [
+    { start: 0, end: 5, x: 0.5, y: 0.3 },
+    { start: 5, end: 10, x: 0.75, y: 0.3 },
+    { start: 10, end: 16, x: 0.5, y: 0.3 },
+  ];
+
+  it("marks a boundary as cut when a nearby sample jump exists, pan otherwise", () => {
+    // 경계 5 주변에 점프(4.8: 0.5 → 5.2: 0.75) 존재 → cut. 경계 10 주변엔 점프 샘플 없음 → pan.
+    const annotated = annotateSpanTransitions(spans, [
+      sample(4.8, 0.5), sample(5.2, 0.75), sample(12, 0.5),
+    ]);
+    assert.equal(annotated[0]!.transition, undefined); // 첫 스팬은 경계 없음
+    assert.equal(annotated[1]!.transition, "cut");
+    assert.equal(annotated[2]!.transition, "pan");
+  });
+
+  it("holds to the boundary minus epsilon for cut, and leaves pan leads on both sides", () => {
+    const annotated = annotateSpanTransitions(spans, [sample(4.8, 0.5), sample(5.2, 0.75)]);
+    const windows = planSpanHoldWindows(annotated);
+    // span0: 다음 경계(5)는 cut → end = 5-0.05
+    assert.deepEqual(windows[0], { start: 0, end: 4.95 });
+    // span1: 시작 cut → start=5 그대로, 다음 경계(10)는 pan → end = 10-0.25
+    assert.deepEqual(windows[1], { start: 5, end: 9.75 });
+    // span2: 시작 pan → start = 10+0.25 (10~10.25 사이 선형 보간 = 0.5초 팬)
+    assert.deepEqual(windows[2], { start: 10.25, end: 15.95 });
+  });
+
+  it("skips the pan lead when a span is too short", () => {
+    const shortSpans = [
+      { start: 0, end: 5, x: 0.5, y: 0.3 },
+      { start: 5, end: 5.5, x: 0.7, y: 0.3, transition: "pan" as const },
+    ];
+    const windows = planSpanHoldWindows(shortSpans);
+    assert.deepEqual(windows[1], { start: 5, end: 5.45 }); // 팬 생략, epsilon만
   });
 });

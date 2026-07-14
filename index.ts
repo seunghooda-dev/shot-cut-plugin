@@ -85,7 +85,7 @@ import { createSubtitleDocument, type SubtitleDocument } from "./src/subtitles";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus } from "./src/style-corpus";
 import { computeDuckingEnvelope, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
 import { resolveSubjectFocal, type SubjectPoint } from "./src/subject-focus";
-import { correctedFocalX, planSampleTimes, planShotFocalSpans, type FocalSpan, type TimedSubjectSample } from "./src/shot-focus";
+import { annotateSpanTransitions, correctedFocalX, planSampleTimes, planShotFocalSpans, type FocalSpan, type TimedSubjectSample } from "./src/shot-focus";
 import {
   alignShortToOriginal,
   buildStyleExample,
@@ -1033,39 +1033,52 @@ async function detectSegmentShotSpans(segment: HighlightCutSegment): Promise<Foc
       ...(typeof item.faceHeight === "number" ? { faceHeight: item.faceHeight } : {}),
       ...(typeof item.personCount === "number" ? { personCount: item.personCount } : {}),
     }));
-  let samples = toSamples(
-    await client.detectSubjectTimeline(frames.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" }))),
-    frames,
-  );
+  // 배치 감지(어댑터 상한 24장/1.2MB에 맞춰 12장씩 분할).
+  const detectChunked = async (
+    input: Array<{ bytes: Uint8Array; time: number }>,
+  ): Promise<TimedSubjectSample[]> => {
+    const out: TimedSubjectSample[] = [];
+    for (let offset = 0; offset < input.length; offset += 12) {
+      const chunk = input.slice(offset, offset + 12);
+      const detected = await client.detectSubjectTimeline(chunk.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" })));
+      out.push(...toSamples(detected, chunk));
+    }
+    return out;
+  };
+  let samples = await detectChunked(frames);
   let spans = planShotFocalSpans(samples, segment.start, segment.end);
-  // 경계 정밀화: 샷 경계(인접 샘플 중간) 지점의 프레임을 추가 샘플해 다시 계산하면
-  // 경계가 실제 컷에 절반씩 수렴한다. 내부 경계가 있을 때 1회만 수행.
+  // 경계 스냅: 1차 경계는 샘플 간격 탓에 실제 컷과 최대 ±1초쯤 어긋날 수 있고, 그러면
+  // 크롭 점프가 컷 밖에서 일어나 "튀는" 느낌을 준다. 경계 주변을 촘촘히(0.325s 간격 9장)
+  // 버스트 샘플해 재계산하면 경계가 실제 컷의 ±0.16s 안으로 수렴한다.
   const boundaries = spans.slice(0, -1).map((span) => span.end)
-    .filter((time) => time > segment.start + 0.2 && time < segment.end - 0.2);
-  if (boundaries.length > 0 && boundaries.length <= 6) {
-    const extraFrames: Array<{ bytes: Uint8Array; time: number }> = [];
-    for (const time of boundaries) {
-      try {
-        const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 320);
-        const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-        if (bytes) extraFrames.push({ bytes, time });
-      } catch {
-        // 경계 샘플 실패는 무시(1차 경계 유지)
+    .filter((time) => time > segment.start + 0.2 && time < segment.end - 0.2)
+    .slice(0, 4);
+  if (boundaries.length > 0) {
+    const burstFrames: Array<{ bytes: Uint8Array; time: number }> = [];
+    for (const boundary of boundaries) {
+      for (let step = -4; step <= 4; step += 1) {
+        const time = Math.round((boundary + step * 0.325) * 1000) / 1000;
+        if (time <= segment.start + 0.1 || time >= segment.end - 0.1) continue;
+        try {
+          const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 320);
+          const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+          if (bytes) burstFrames.push({ bytes, time });
+        } catch {
+          // 버스트 샘플 하나 실패는 무시
+        }
       }
     }
-    if (extraFrames.length > 0) {
+    if (burstFrames.length > 0) {
       try {
-        const refined = toSamples(
-          await client.detectSubjectTimeline(extraFrames.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" }))),
-          extraFrames,
-        );
-        samples = [...samples, ...refined];
+        samples = [...samples, ...await detectChunked(burstFrames)];
         spans = planShotFocalSpans(samples, segment.start, segment.end);
       } catch {
-        // 정밀화 실패 시 1차 스팬 유지
+        // 경계 스냅 실패 시 1차 스팬 유지
       }
     }
   }
+  // 경계 전환 주석: 버스트에서도 점프가 안 보이는 불확실 경계는 하드 점프 대신 짧은 팬.
+  spans = annotateSpanTransitions(spans, samples);
   return spans.length > 0 ? spans : null;
 }
 

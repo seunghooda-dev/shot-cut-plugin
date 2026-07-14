@@ -10,6 +10,7 @@ import {
   type ReframeMode,
   type ResolvedTimeRange,
 } from "./core";
+import { planSpanHoldWindows } from "./shot-focus";
 import type {
   ExportMode,
   ExportRange,
@@ -129,7 +130,7 @@ export interface CreateShortOptions {
   focalX?: number;
   focalY?: number;
   // 샷 단위 초점 스팬(소스 절대 초). 있으면 정적 초점 대신 위치 키프레임으로 카메라 컷을 따라간다.
-  focalSpans?: Array<{ start: number; end: number; x: number; y: number; zoom?: number }>;
+  focalSpans?: Array<{ start: number; end: number; x: number; y: number; zoom?: number; transition?: "cut" | "pan" }>;
   explicitRange?: { start: number; end: number };
 }
 
@@ -1890,7 +1891,7 @@ async function reframeSequence(
 async function applyShotFocalPositionKeyframes(
   project: Project,
   sequence: Sequence,
-  spans: Array<{ start: number; end: number; x: number; y: number; zoom?: number }>,
+  spans: Array<{ start: number; end: number; x: number; y: number; zoom?: number; transition?: "cut" | "pan" }>,
   targetWidth: number,
   targetHeight: number,
   sourceWidth: number,
@@ -1947,7 +1948,12 @@ async function applyShotFocalPositionKeyframes(
       }
       actions.push(() => position.createSetTimeVaryingAction(true));
       if (zoomUsable) actions.push(() => scale!.createSetTimeVaryingAction(true));
-      for (const span of valid) {
+      // 스팬별 hold 창: "cut" 경계는 경계-ε까지 붙여 즉시 점프(원본 컷에 정렬),
+      // "pan" 경계는 양쪽에 여유를 둬 선형 보간이 짧은 팬이 되게 한다(§35 부자연 점프 해소).
+      const holdWindows = planSpanHoldWindows(valid, { holdEpsilon: HOLD_EPSILON });
+      for (let spanIndex = 0; spanIndex < valid.length; spanIndex += 1) {
+        const span = valid[spanIndex]!;
+        const window = holdWindows[spanIndex]!;
         const zoom = zoomUsable && typeof span.zoom === "number" && span.zoom > 1.01 ? Math.min(2, span.zoom) : 1;
         const point = focalReframePosition(
           rawValue,
@@ -1960,8 +1966,7 @@ async function applyShotFocalPositionKeyframes(
           zoom,
         );
         if (!point) continue;
-        const holdEnd = Math.max(span.start, span.end - HOLD_EPSILON);
-        const times = span.start === holdEnd ? [span.start] : [span.start, holdEnd];
+        const times = window.start === window.end ? [window.start] : [window.start, window.end];
         for (const time of times) {
           actions.push(() => {
             const keyframe = position.createKeyframe(ppro.PointF(point.x, point.y));
@@ -2079,7 +2084,7 @@ export async function scanShortMarkers(defaultDuration: number): Promise<MarkerS
 export type ShortSegmentInput = MarkerSegment & {
   focalX?: number;
   focalY?: number;
-  focalSpans?: Array<{ start: number; end: number; x: number; y: number; zoom?: number }>;
+  focalSpans?: Array<{ start: number; end: number; x: number; y: number; zoom?: number; transition?: "cut" | "pan" }>;
 };
 
 export async function createShortsFromMarkers(
@@ -2916,7 +2921,7 @@ export async function activeSequenceFrameSize(): Promise<{ width: number; height
 // 스케일(zoom) 키프레임은 건드리지 않고 span.zoom을 위치 수학에만 반영해 불일치를 막는다.
 export async function applyShotFocalPositionCorrection(
   sequence: Sequence,
-  spans: Array<{ start: number; end: number; x: number; y: number; zoom?: number }>,
+  spans: Array<{ start: number; end: number; x: number; y: number; zoom?: number; transition?: "cut" | "pan" }>,
   targetWidth: number,
   targetHeight: number,
   sourceWidth: number,
@@ -2949,12 +2954,14 @@ export async function applyShotFocalPositionCorrection(
       const current: Keyframe = await position.getStartValue();
       const rawValue = keyframeValue(current);
       if (!readPointF(rawValue)) continue;
-      for (const span of valid) {
+      const holdWindows = planSpanHoldWindows(valid, { holdEpsilon: HOLD_EPSILON });
+      for (let spanIndex = 0; spanIndex < valid.length; spanIndex += 1) {
+        const span = valid[spanIndex]!;
+        const window = holdWindows[spanIndex]!;
         const zoom = typeof span.zoom === "number" && span.zoom > 1.01 ? Math.min(2, span.zoom) : 1;
         const point = focalReframePosition(rawValue, targetWidth, targetHeight, sourceWidth, sourceHeight, span.x, span.y, zoom);
         if (!point) continue;
-        const holdEnd = Math.max(span.start, span.end - HOLD_EPSILON);
-        for (const time of span.start === holdEnd ? [span.start] : [span.start, holdEnd]) {
+        for (const time of window.start === window.end ? [window.start] : [window.start, window.end]) {
           actions.push(() => {
             const keyframe = position.createKeyframe(ppro.PointF(point.x, point.y));
             keyframe.position = ppro.TickTime.createWithSeconds(time);

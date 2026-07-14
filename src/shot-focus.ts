@@ -17,6 +17,8 @@ export interface FocalSpan {
   y: number;
   /** 펀치인 배율(기본 1). 멀티인물 풀샷에서 화자를 키워 잡을 때 >1. */
   zoom?: number;
+  /** 이 스팬 "시작" 경계의 전환: cut=하드 점프(실제 컷 정렬), pan=짧은 팬(경계 불확실). */
+  transition?: "cut" | "pan";
 }
 
 export interface ShotFocalOptions {
@@ -218,4 +220,70 @@ export function correctedFocalX(
   const delta = offset * Math.min(1, Math.max(0, visibleFraction));
   const clamped = Math.min(maxCorrection, Math.max(-maxCorrection, delta));
   return round3(Math.min(1, Math.max(0, focalX + clamped)));
+}
+
+/**
+ * 각 스팬의 시작 경계가 실제 카메라 컷과 정렬됐는지 판정한다. 경계 주변 샘플에서
+ * 인접 x 점프(≥jumpThreshold)가 관측되면 "cut"(하드 점프 — 원본 컷에 묻힘),
+ * 아니면 "pan"(경계가 불확실 — 짧은 팬으로 부드럽게 이동). 첫 스팬은 경계가 없다.
+ */
+export function annotateSpanTransitions(
+  spans: readonly FocalSpan[],
+  samples: readonly TimedSubjectSample[],
+  options?: { jumpThreshold?: number; windowSeconds?: number },
+): FocalSpan[] {
+  const jumpThreshold = typeof options?.jumpThreshold === "number" && Number.isFinite(options.jumpThreshold)
+    ? Math.max(0.01, options.jumpThreshold)
+    : DEFAULT_SHOT_FOCAL_OPTIONS.jumpThreshold;
+  const window = typeof options?.windowSeconds === "number" && Number.isFinite(options.windowSeconds)
+    ? Math.max(0.1, options.windowSeconds)
+    : 0.8;
+  const ordered = (Array.isArray(samples) ? samples : [])
+    .filter((sample) => sample && Number.isFinite(sample.time) && Number.isFinite(sample.x))
+    .slice()
+    .sort((a, b) => a.time - b.time);
+  return spans.map((span, index) => {
+    if (index === 0) {
+      const rest = { ...span };
+      delete rest.transition; // 첫 스팬은 시작 경계가 없다.
+      return rest;
+    }
+    const boundary = span.start;
+    const near = ordered.filter((sample) => Math.abs(sample.time - boundary) <= window);
+    let cutSeen = false;
+    for (let i = 1; i < near.length; i += 1) {
+      if (Math.abs(near[i]!.x - near[i - 1]!.x) >= jumpThreshold) {
+        cutSeen = true;
+        break;
+      }
+    }
+    return { ...span, transition: cutSeen ? "cut" as const : "pan" as const };
+  });
+}
+
+/**
+ * 스팬별 hold 키프레임 시각 [start, end]을 계획한다. 경계 전환이 "pan"이면 경계 양쪽에
+ * panLead 만큼 여유를 둬 키프레임 사이 선형 보간이 짧은 팬이 되게 하고, "cut"(또는 미지정)
+ * 이면 홀드 끝을 경계-ε에 붙여 즉시 점프(원본 컷에 정렬)한다. 스팬이 짧으면 팬을 생략한다.
+ */
+export function planSpanHoldWindows(
+  spans: readonly FocalSpan[],
+  options?: { panLeadSeconds?: number; holdEpsilon?: number },
+): Array<{ start: number; end: number }> {
+  const panLead = typeof options?.panLeadSeconds === "number" && Number.isFinite(options.panLeadSeconds)
+    ? Math.max(0, options.panLeadSeconds)
+    : 0.25;
+  const holdEpsilon = typeof options?.holdEpsilon === "number" && Number.isFinite(options.holdEpsilon)
+    ? Math.max(0.01, options.holdEpsilon)
+    : 0.05;
+  return spans.map((span, index) => {
+    const next = spans[index + 1];
+    const duration = span.end - span.start;
+    const canPan = duration >= panLead * 2 + 0.2;
+    const inPan = span.transition === "pan" && canPan;
+    const outPan = next?.transition === "pan" && duration >= panLead * 2 + 0.2;
+    const start = span.start + (inPan ? panLead : 0);
+    const end = Math.max(start, span.end - (outPan ? panLead : holdEpsilon));
+    return { start: round3(start), end: round3(end) };
+  });
 }
