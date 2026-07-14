@@ -1073,6 +1073,11 @@ export class ThumbnailController {
     });
   }
 
+  /** 저장된 변형의 라벨·SVG 사본 목록(업로드 패키지 등 외부 소비용). */
+  listVariantExports(): Array<{ label: string; svg: string }> {
+    return this.variants.map((variant) => ({ label: variant.label, svg: variant.svg }));
+  }
+
   /** 저장된 변형 전체를 SVG 파일로 일괄 내보낸다(로드맵 16 — 수동 선택용, A/B 자동 판정 없음). */
   async exportVariants(): Promise<void> {
     if (this.variants.length === 0) {

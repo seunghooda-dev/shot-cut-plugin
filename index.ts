@@ -79,6 +79,8 @@ import { FinalQCController } from "./src/final-qc-controller";
 import type { FinalQCSnapshot } from "./src/final-qc";
 import {
   AssetRightsRegistry,
+  assetRightsReportToJSON,
+  assetRightsReportToMarkdown,
   createAssetRightsReport,
   createMissingAssetRightsRecord,
   createReferenceAssetRightsRecord,
@@ -89,8 +91,9 @@ import {
 } from "./src/asset-rights";
 import { SubtitleController, type SubtitleAiRequest, type SubtitleAnalysisRequest } from "./src/subtitle-controller";
 import { resolveAutomationTranscript, subtitleDocumentToAutomationTranscript } from "./src/automation-transcript";
-import { createSubtitleDocument, parseSrt, type SubtitleDocument } from "./src/subtitles";
+import { buildSrt, createSubtitleDocument, parseSrt, type SubtitleDocument } from "./src/subtitles";
 import { buildPremiereTranscript } from "./src/transcript-export";
+import { planUploadPackage } from "./src/upload-package";
 import { cloneSamplesForReusedTimes, lumaGrid, parseBmp24, planFrameSampling } from "./src/frame-diff";
 import { loadCachedSpans, saveCachedSpans } from "./src/vision-cache";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus, removeStyleExample } from "./src/style-corpus";
@@ -1583,6 +1586,52 @@ async function handleAttachTranscript(): Promise<void> {
   toast("텍스트 패널에 첨부했습니다. 캡션이 필요하면 텍스트 패널의 '캡션 만들기'를 사용하세요.", "success", 7000);
 }
 
+// 업로드 패키지 내보내기 — 자막 SRT·유튜브 메타·썸네일 SVG·권리 리포트를 폴더 하나로 묶는다(로드맵 18).
+async function handleExportUploadPackage(): Promise<void> {
+  const uxpRoot = require("uxp") as any;
+  const lfs = uxpRoot?.storage?.localFileSystem;
+  const formats = uxpRoot?.storage?.formats;
+  if (typeof lfs?.getFolder !== "function") throw new Error("폴더 선택 기능을 사용할 수 없습니다.");
+  const doc = subtitleController?.document ?? null;
+  const srt = doc && doc.cues.length > 0 ? buildSrt(doc) : null;
+  const analysis = subtitleController?.analysis ?? null;
+  const metadata = analysis && analysis.action === "youtube-metadata"
+    ? { title: analysis.title, description: analysis.description, tags: analysis.tags }
+    : null;
+  const thumbnails = thumbnailController?.listVariantExports() ?? [];
+  let rightsMarkdown: string | null = null;
+  let rightsJson: string | null = null;
+  try {
+    const report = createAssetRightsReport(currentAssetRightsRecords(await subtitleProjectKey()));
+    rightsMarkdown = assetRightsReportToMarkdown(report);
+    rightsJson = assetRightsReportToJSON(report);
+  } catch {
+    // 권리 리포트를 만들 수 없어도 패키지는 계속 만든다(README에 빠짐 안내).
+  }
+  const timestamp = new Date().toISOString().replace(/[-:]/gu, "").slice(0, 15);
+  const plan = planUploadPackage({
+    baseName: valueOf("name-input") || "ShortFlow",
+    timestamp,
+    srt,
+    metadata,
+    thumbnails,
+    rightsMarkdown,
+    rightsJson,
+  });
+  const parent = await lfs.getFolder();
+  if (!parent) return; // 사용자 취소
+  await busy.during("업로드 패키지를 저장하고 있습니다…", async () => {
+    const folder = await parent.createFolder(plan.folderName);
+    for (const file of plan.files) {
+      const entry = await folder.createFile(file.name, { overwrite: true });
+      await entry.write(file.content, { format: formats?.utf8 });
+    }
+  });
+  const missingNote = plan.missing.length > 0 ? ` · 빠짐 ${plan.missing.length}건(README 참고)` : "";
+  activity.add("success", `업로드 패키지 저장 · ${plan.folderName} · 파일 ${plan.files.length}개${missingNote}`);
+  toast(`업로드 패키지를 저장했습니다 (파일 ${plan.files.length}개${missingNote}).`, "success", 6000);
+}
+
 // 학습된 예시 목록을 그린다. 문구는 전부 textContent로만 넣는다(주입 방지 하우스 룰).
 function renderLearnCorpusList(): void {
   const container = optionalElement<HTMLElement>("learn-corpus-list");
@@ -1955,6 +2004,7 @@ function bindCoreEvents(): void {
   bind("learn-from-short-btn", "click", guarded(handleLearnFromShort, "숏폼으로 학습 실패"));
   bind("learn-pair-btn", "click", guarded(handleLearnPair, "스타일 쌍 등록 실패"));
   bind("subtitle-attach-transcript-btn", "click", guarded(handleAttachTranscript, "트랜스크립트 첨부 실패"));
+  bind("upload-package-btn", "click", guarded(handleExportUploadPackage, "업로드 패키지 내보내기 실패"));
   bind("learn-clear-btn", "click", guarded(async () => handleLearnClear(), "학습 초기화 실패"));
   bind("scan-markers-btn", "click", guarded(() => markersQcPanel.scanMarkers(), "마커 검색 실패"));
   bind("batch-create-btn", "click", guarded(() => markersQcPanel.batchCreate(), "일괄 생성 실패"));
