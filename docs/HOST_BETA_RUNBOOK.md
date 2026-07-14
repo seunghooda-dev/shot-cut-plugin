@@ -798,4 +798,10 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 - **E1**: `tests/*.wav`·`docs/.pdca-snapshots/` gitignore(커밋 노이즈 제거).
 - **C3 QA 감사**: 순수 로직(highlight-cut·shorts-plan·audio-silence·shorts-learning·premiere 리프레임/마커) 서브에이전트 읽기전용 감사 → 발견 사항 반영.
 
-**후순위(사용자 세션·승인·리스크)**: A3 실 STT→자동컷(유료 STT), A5 단일 파일-쌍 학습 UX, C1 다양한 소스 리프레임(중첩 시퀀스 Host 검증 필요), C2 리프레임 후 미세조정 UI, **D 자동 덕킹 apply(dB↔Premiere Level 매핑 Host 미탐색 — 리스크, 안 되면 덕킹 계획을 마커로 출력하는 폴백)**, B 실-AI 엔드투엔드, E2 CCX 최종화.
+**후순위(사용자 세션·승인·리스크)**: A3 실 STT→자동컷(유료 STT), A5 단일 파일-쌍 학습 UX, C1 다양한 소스 리프레임(중첩 시퀀스 Host 검증 필요), C2 리프레임 후 미세조정 UI, B 실-AI 엔드투엔드, E2 CCX 최종화.
+
+### 31-a. 추가 완료(같은 배치)
+- **C3 QA 감사 수정 3건**(`47a6ceb`): highlight-cut의 죽은 minDuration 옵션(필터 하드코딩 →`>= minDuration`), shorts-plan end가 겹치는 cue에서 잘림(→max-end cue), audio-silence `positive()`가 명시적 0 거부(→`>=0` 허용). 회귀 유닛 4. (감사에서 나머지 순수 함수는 결함 없음 확인.)
+- **A1 순수 통합**(`4d87f44`): `snapSegmentsToSilence` — 무음 gap이 주어지면 컷 경계 스냅. 남은 건 시퀀스 오디오 추출(Host)뿐.
+- **D 순수 계층 + 마커 폴백 완성**(`c110d64`·`aa7a0c6`): `speechSpansFromCues`·`duckRangesFromEnvelope` 순수(유닛4) + `writeDuckMarkers`로 발화 구간을 'BGM 덕킹' 마커로 표시(자막→발화→엔벨로프→덕킹범위→마커). Host Tier1 통과(버튼 254×34·콘솔0, `cdt-duck-smoke.mjs`). **Level 키프레임 자동 적용(dB↔Level 매핑)만 후속 리스크로 남음.**
+- 게이트 **1664/1664**. 이 배치 8커밋 전부 push.
