@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { computeDuckingEnvelope, type DuckKeyframe } from "../src/audio-ducking";
+import {
+  computeDuckingEnvelope,
+  duckRangesFromEnvelope,
+  speechSpansFromCues,
+  type DuckKeyframe,
+} from "../src/audio-ducking";
 
 function at(keyframes: readonly DuckKeyframe[], time: number): DuckKeyframe | undefined {
   return keyframes.find((keyframe) => Math.abs(keyframe.time - time) < 1e-3);
@@ -83,5 +88,37 @@ describe("computeDuckingEnvelope", () => {
     assert.deepEqual(at(kf, 4.5), { time: 4.5, gainDb: 0 }); // attack 0.5
     assert.deepEqual(at(kf, 5), { time: 5, gainDb: -20 });
     assert.deepEqual(at(kf, 7), { time: 7, gainDb: 0 }); // release 1 (6+1)
+  });
+});
+
+describe("speechSpansFromCues", () => {
+  it("keeps only visible, valid cues as speech spans", () => {
+    const spans = speechSpansFromCues([
+      { start: 0, end: 2, enabled: true, hidden: false },
+      { start: 2, end: 4, enabled: false, hidden: false }, // 비활성
+      { start: 4, end: 6, enabled: true, hidden: true }, // 숨김
+      { start: 8, end: 8, enabled: true, hidden: false }, // 0 길이
+      { start: 10, end: 13, enabled: true, hidden: false },
+    ]);
+    assert.deepEqual(spans, [{ start: 0, end: 2 }, { start: 10, end: 13 }]);
+  });
+
+  it("returns [] for empty or non-array input", () => {
+    assert.deepEqual(speechSpansFromCues([]), []);
+  });
+});
+
+describe("duckRangesFromEnvelope", () => {
+  it("extracts the ducked stretches from an envelope", () => {
+    const env = computeDuckingEnvelope([{ start: 10, end: 14 }], { start: 0, end: 30 });
+    const ranges = duckRangesFromEnvelope(env);
+    assert.equal(ranges.length, 1);
+    // 발화 10~14 주변의 덕된 구간 (base보다 낮은 부분)
+    assert.ok(ranges[0]!.start <= 10 + 1e-6 && ranges[0]!.end >= 14 - 1e-6, JSON.stringify(ranges[0]));
+  });
+
+  it("returns [] when nothing is ducked", () => {
+    assert.deepEqual(duckRangesFromEnvelope([{ time: 0, gainDb: 0 }, { time: 30, gainDb: 0 }]), []);
+    assert.deepEqual(duckRangesFromEnvelope([]), []);
   });
 });

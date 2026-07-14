@@ -115,3 +115,42 @@ export function computeDuckingEnvelope(
     gainDb: round(point.gainDb, 2),
   }));
 }
+
+export interface SpeechCueLike {
+  readonly start: number;
+  readonly end: number;
+  readonly enabled: boolean;
+  readonly hidden: boolean;
+}
+
+/** 자막 cue(보이는 것만)를 발화 구간으로 변환한다. computeDuckingEnvelope의 speech 입력. */
+export function speechSpansFromCues(cues: readonly SpeechCueLike[]): SpeechSpan[] {
+  const spans: SpeechSpan[] = [];
+  for (const cue of Array.isArray(cues) ? cues : []) {
+    if (!cue || !cue.enabled || cue.hidden) continue;
+    if (!isFiniteNumber(cue.start) || !isFiniteNumber(cue.end) || cue.end <= cue.start) continue;
+    spans.push({ start: cue.start, end: cue.end });
+  }
+  return spans;
+}
+
+/**
+ * 덕킹 엔벨로프에서 base보다 낮은(덕된) 구간을 뽑는다. Level 키프레임 적용이 불가한 Host에서는
+ * 이 구간을 마커로 표시해 "여기서 BGM을 낮추라"는 덕킹 계획을 제공하는 폴백으로 쓴다.
+ */
+export function duckRangesFromEnvelope(keyframes: readonly DuckKeyframe[], baseGainDb = 0): DuckRange[] {
+  const base = isFiniteNumber(baseGainDb) ? baseGainDb : 0;
+  const ranges: DuckRange[] = [];
+  let start: number | null = null;
+  for (const keyframe of Array.isArray(keyframes) ? keyframes : []) {
+    if (!keyframe || !isFiniteNumber(keyframe.time) || !isFiniteNumber(keyframe.gainDb)) continue;
+    const ducked = keyframe.gainDb < base - 1e-9;
+    if (ducked && start === null) {
+      start = keyframe.time;
+    } else if (!ducked && start !== null) {
+      if (keyframe.time > start) ranges.push({ start, end: keyframe.time });
+      start = null;
+    }
+  }
+  return ranges;
+}
