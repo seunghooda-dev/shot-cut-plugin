@@ -25,7 +25,9 @@
     "verify:speech:live": "node scripts/verify-speech-live.mjs --live",
     "verify:speech:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-local-whisper.ps1",
     "package:ccx": "npm run build && node scripts/package-ccx.mjs && npm run verify:release",
-    "package:ccx:force": "npm run build && node scripts/package-ccx.mjs --force && npm run verify:release"
+    "package:ccx:force": "npm run build && node scripts/package-ccx.mjs --force && npm run verify:release",
+    "host:smoke": "node scripts/host-smoke/run.mjs",
+    "host:smoke:full": "node scripts/host-smoke/run.mjs --full"
   },
   "devDependencies": {
     "@adobe/cc-ext-uxp-types": "^7.3.1",

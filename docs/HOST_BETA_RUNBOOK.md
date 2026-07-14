@@ -919,3 +919,14 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 - **42-c 트랜잭션 스코프 함정(최중요 교훈)**: `Transcript.importFromJSON(json)`으로 만든 TextSegments를 **트랜잭션 밖에서 생성해 두고** `createImportTextSegmentsAction`으로 커밋하면 **커밋은 true인데 실제로는 무효**(기존 빈 컨테이너까지 파괴돼 hasTranscript가 false로 뒤집힘). 반드시 `executeTransaction` 콜백 안에서 `createImportTextSegmentsAction(Transcript.importFromJSON(json), cast)`로 **한 번에 생성·소비**해야 한다. R7(밖 생성, 실패)·R8(안 생성, 성공) 대조로 판명 — 첫 E2E의 "단어 0개"가 이 함정이었다.
 - **42-d 기능 구현 — "텍스트 패널로 보내기"**: 순수 계층 `buildPremiereTranscript`(src/transcript-export.ts — SRT 내보내기와 같은 노출 규칙, 단어 타이밍 보존, 큐 마지막 단어 eos, 전부 숨김이면 큐 단위 강등, 언어/화자/uuid 주입 가능) + `attachTranscriptToActiveSequence`(premiere.ts — cast 검증, 42-c 규약 커밋, 교체 여부·단어 수 보고) + 자막 툴바 버튼(voice 탭). 사용자는 첨부 후 Premiere 텍스트 패널의 **'캡션 만들기' 1클릭**으로 스타일드 캡션 트랙을 얻는다 — Whisper STT(단어 타임스탬프) 품질을 Premiere 캡션 파이프라인에 그대로 연결.
 - **42-e Host E2E(통과)**: 스크래치 시퀀스 활성 → SRT 2큐 불러오기(피커 스텁) → 버튼 클릭 → 활동 로그 "트랜스크립트 첨부 · TrE2E2_tmp · **단어 7개**" → ppro 실측 `hasTranscript true`·`language ko-kr`·단어 [트랜스첨부,검증,첫,큐,둘째,큐,확인] 정확 일치, 정리(SRT·시퀀스 삭제) 후 콘솔 0(`cdt-transcript-e2e2.mjs`). 유닛 1734→1739(+5).
+
+## 43. Host 회귀 스모크 스위트 정식화 — scripts/host-smoke (2026-07-15)
+
+/goal 자율 배치 2번. 세션 스크래치패드에 흩어져 있던 CDP 검증 노하우를 저장소로 이관해, 앞으로 어떤 변경이든 실기 회귀를 한 명령으로 확인한다.
+
+- **명령**: `npm run host:smoke`(기본 티어, 비파괴) / `npm run host:smoke:full`(+자체 정리 E2E) / `node scripts/host-smoke/run.mjs --check <이름>`(단일). 전제: Premiere 실행 + UDT 서비스(14001).
+- **구조**: `lib.mjs`(UDT 프록시+CDP 접속, `evalAsyncProbe` 마커+폴링 헬퍼, `readActivityLog`) / `checks.mjs`(체크 정의) / `run.mjs`(러너 — **한 번 접속해 1회 재부팅 후 전 체크를 같은 세션에서 실행**, 실패 시 exit 1).
+- **footgun 방지책이 구조에 내장**: §40-d(원샷 재접속 폴링 금지 — 러너가 단일 세션 보장, Plugin.load 시 경고 출력), §25-b(복합 하위 셀렉터 금지 — 로그 읽기는 getElementById+children 순회 헬퍼), 백슬래시 이스케이프 금지 규칙(개행은 String.fromCharCode(10)) 주석 명문화.
+- **기본 티어 4종**: panel-boot(준비 로그+콘솔 0) · tab-sweep(12탭 전환, 부팅 직후 플레이크는 500ms 1회 재확인으로 흡수 — 첫 실행에서 export 탭 오탐 실측 후 보강) · host-context(프로젝트/시퀀스 접근) · ui-contract-live(핵심 요소 10종 실기 DOM 존재).
+- **full 티어 +2종**: subtitle-roundtrip(피커 스텁 SRT 2큐 — 자막 자동저장이 스모크 문서로 대체되는 부작용 명시) · transcript-attach(§42 E2E — 스크래치 시퀀스 생성→첨부→ppro 실측→삭제).
+- **실측**: full 6/6 통과 — tab 12/12, 시퀀스 8, 트랜스크립트 단어 6·ko-kr. 게이트 1739/1739 유지.
