@@ -917,6 +917,13 @@ function renderAutoCutCandidates(): void {
   });
 }
 
+// 자막이 없는 시퀀스용 원버튼: 시퀀스 오디오 STT로 자막을 만든 뒤 곧바로 자동 컷 스캔까지.
+async function handleAutoCutSttScan(): Promise<void> {
+  ensureAiConsent("AI 자동 컷");
+  await transcribeActiveSequence();
+  await handleAutoCutScan();
+}
+
 // 자동 컷 후보 중 체크된 세그먼트를 읽는다(생성·마커 표시 공용).
 function selectedAutoCutSegments(): HighlightCutSegment[] {
   const container = optionalElement<HTMLElement>("auto-cut-candidates");
@@ -1700,6 +1707,7 @@ function bindCoreEvents(): void {
   bind("qc-btn", "click", guarded(() => markersQcPanel.runQC(), "QC 실패"));
   bind("create-short-btn", "click", guarded(() => markersQcPanel.createShort(), "숏폼 생성 실패"));
   bind("auto-cut-scan-btn", "click", guarded(handleAutoCutScan, "AI 자동 컷 분석 실패"));
+  bind("auto-cut-stt-scan-btn", "click", guarded(handleAutoCutSttScan, "STT→자동 컷 실패"));
   bind("auto-cut-generate-btn", "click", guarded(handleAutoCutGenerate, "자동 컷 생성 실패"));
   bind("auto-cut-markers-btn", "click", guarded(handleAutoCutMarkers, "자동 컷 마커 표시 실패"));
   bind("auto-cut-reel-btn", "click", guarded(handleAutoCutReel, "하이라이트 릴 생성 실패"));
