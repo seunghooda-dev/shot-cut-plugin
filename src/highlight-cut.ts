@@ -121,22 +121,30 @@ function expandRange(cluster: number[], cues: CueMeta[], opt: HighlightCutOption
   return { lo, hi };
 }
 
-// 긴 cue 구간 [coreLo, coreHi]를 maxDuration 이내 윈도우로 나눈다. 가능하면 문장 끝에서 자른다.
+// 긴 cue 구간 [coreLo, coreHi]를 maxDuration 이내 윈도우로 나눈다.
+// 자를 곳은 아웃라인(주제) 경계 > 문장 끝 > 어쩔 수 없는 지점 순으로 고른다.
 function splitWindows(
   coreLo: number,
   coreHi: number,
   cues: CueMeta[],
+  outlineEndIdx: Set<number>,
   opt: HighlightCutOptions,
 ): Array<{ lo: number; hi: number }> {
   const windows: Array<{ lo: number; hi: number }> = [];
   let winLo = coreLo;
   for (let i = coreLo + 1; i <= coreHi; i += 1) {
     if (cues[i]!.end - cues[winLo]!.start <= opt.maxDuration) continue;
-    // i를 넣으면 max 초과 → i 이전에서 윈도우를 닫는다. [winLo, i-1] 안 마지막 문장 끝 우선.
-    let cutHi = i - 1;
+    // i를 넣으면 max 초과 → [winLo, i-1] 안에서 자를 곳을 고른다.
+    let cutHi = -1;
     for (let j = i - 1; j >= winLo; j -= 1) {
-      if (cues[j]!.sentenceEnd) { cutHi = j; break; }
+      if (outlineEndIdx.has(j)) { cutHi = j; break; }
     }
+    if (cutHi < 0) {
+      for (let j = i - 1; j >= winLo; j -= 1) {
+        if (cues[j]!.sentenceEnd) { cutHi = j; break; }
+      }
+    }
+    if (cutHi < winLo) cutHi = i - 1;
     if (cutHi < winLo) cutHi = winLo;
     windows.push({ lo: winLo, hi: cutHi });
     winLo = cutHi + 1;
@@ -251,6 +259,20 @@ export function planHighlightCuts(
   if (hlIndices.length === 0) return [];
   hlIndices.sort((a, b) => a - b);
 
+  // 아웃라인 세그먼트별 마지막 cue 인덱스 = 주제 경계. 긴 런 분할에서 우선 컷 지점으로 쓴다.
+  const outlineEndIdx = new Set<number>();
+  if (outline) {
+    for (const segment of outline) {
+      if (!segment || !Array.isArray(segment.cueIds)) continue;
+      let maxIdx = -1;
+      for (const id of segment.cueIds) {
+        const idx = indexById.get(id);
+        if (idx !== undefined && idx > maxIdx) maxIdx = idx;
+      }
+      if (maxIdx >= 0) outlineEndIdx.add(maxIdx);
+    }
+  }
+
   // 근접도(gap ≤ mergeGap)만으로 묶는다. 길이 제한은 아래 분할이 처리한다.
   const clusters: number[][] = [];
   let current: number[] | null = null;
@@ -271,7 +293,7 @@ export function planHighlightCuts(
       const { lo, hi } = expandRange(cluster, cues, opt);
       segments.push(buildSegmentFromRange(lo, hi, cluster, cues, reasonById, outline, opt));
     } else {
-      for (const window of splitWindows(coreLo, coreHi, cues, opt)) {
+      for (const window of splitWindows(coreLo, coreHi, cues, outlineEndIdx, opt)) {
         const inWindow = cluster.filter((i) => i >= window.lo && i <= window.hi);
         if (inWindow.length === 0) continue;
         segments.push(buildSegmentFromRange(window.lo, window.hi, inWindow, cues, reasonById, outline, opt));

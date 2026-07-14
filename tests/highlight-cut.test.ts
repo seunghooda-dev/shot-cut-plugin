@@ -165,6 +165,23 @@ describe("planHighlightCuts", () => {
     assert.ok(segments.some((s) => Math.abs(s.end - 60) < 1e-9), "한 구간은 문장 경계 60초에서 끝나야 함");
   });
 
+  it("prefers an outline (topic) boundary over a later sentence boundary when splitting", () => {
+    // 모든 cue가 문장 끝이지만, 아웃라인 경계(c20)에서 잘라 주제 응집을 우선해야 한다.
+    const doc = contiguousDoc(40); // cue i: start=2i, end=2i+2, 전부 "문장."
+    const highlights: SubtitleHighlight[] = [];
+    for (let i = 2; i <= 35; i += 1) highlights.push(hl(`c${i}`));
+    const outline: EditOutlineSegment[] = [
+      { order: 1, cueIds: Array.from({ length: 21 }, (_, i) => `c${i}`), label: "주제 A", reason: "전반부" },
+      { order: 2, cueIds: Array.from({ length: 19 }, (_, i) => `c${i + 21}`), label: "주제 B", reason: "후반부" },
+    ];
+    const segments = planHighlightCuts(doc, highlights, outline);
+    // 첫 분할은 아웃라인 경계 c20.end=42에서 끝나야 한다(더 늦은 문장 경계 대신).
+    assert.ok(segments.some((s) => Math.abs(s.end - 42) < 1e-9), `end 목록 ${segments.map((s) => s.end)}`);
+    // 그리고 그 구간의 제목은 겹치는 아웃라인 라벨을 쓴다.
+    const first = segments.find((s) => Math.abs(s.end - 42) < 1e-9)!;
+    assert.equal(first.title, "주제 A");
+  });
+
   it("snaps a mid-cue max-duration cut to the nearest word boundary", () => {
     // 한 cue(0~80초) 안에 10초 간격 단어 끝. max 55 → 55 이하 마지막 단어 끝 50에 스냅.
     const words = [];
