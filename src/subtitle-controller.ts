@@ -25,6 +25,7 @@ import {
   type SubtitleDocument,
 } from "./subtitles";
 import { parseWhisperJson } from "./whisper-subtitles";
+import { planHighlightCuts, type HighlightCutOptions, type HighlightCutSegment } from "./highlight-cut";
 
 export const DEFAULT_SUBTITLE_DOM_LIMIT = 300;
 export const MAX_SUBTITLE_DOM_LIMIT = 1_000;
@@ -820,6 +821,36 @@ export class SubtitleController {
     });
     // Render after runBusy clears isBusy so the seek buttons are not created disabled.
     this.renderAnalysisPanel();
+  }
+
+  /**
+   * AI 하이라이트+아웃라인 분석을 실행하고 자막 타임코드를 근거로 숏폼 컷 구간을 판단한다.
+   * 문서를 변경하지 않는 읽기 전용 경로. provider가 돌려준 값은 validateAnalysisResponse로
+   * 검증한 뒤에만 순수 판단 로직(planHighlightCuts)에 넘긴다(신뢰 경계 유지).
+   */
+  async planAutoCuts(options?: Partial<HighlightCutOptions>): Promise<HighlightCutSegment[]> {
+    if (!this.options.analysisProvider) throw new Error("AI 자막 분석 provider가 연결되지 않았습니다.");
+    if (this.documentValue.cues.length === 0) {
+      throw new Error("먼저 자막을 불러오세요. 자동 컷은 자막 타임코드를 근거로 구간을 판단합니다.");
+    }
+    let plan: HighlightCutSegment[] = [];
+    await this.runBusy("AI 자동 컷 분석", async () => {
+      const requestRevision = this.documentRevision;
+      const requestLoadGeneration = this.projectLoadGeneration;
+      const document = this.document;
+      const analyze = async (action: SubtitleAnalysisAction): Promise<SubtitleAnalysisResult> => {
+        const request: SubtitleAnalysisRequest = { action, document };
+        const payload = await this.options.analysisProvider?.(request);
+        this.assertAiRequestCurrent(requestRevision, requestLoadGeneration, document.projectKey);
+        return validateAnalysisResponse(payload, request);
+      };
+      const highlightResult = await analyze("interview-highlight");
+      const outlineResult = await analyze("edit-outline");
+      const highlights = highlightResult.action === "interview-highlight" ? highlightResult.highlights : [];
+      const outline = outlineResult.action === "edit-outline" ? outlineResult.segments : null;
+      plan = planHighlightCuts(document, highlights, outline, options);
+    });
+    return plan;
   }
 
   async flushAutosave(): Promise<void> {

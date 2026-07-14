@@ -758,3 +758,18 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 - **UI 렌더(올바른 `panel-short` 탭)**: `.focal-field` 254×133, `.focal-slider` 228×20, range `#focal-x-input` **200×20**(0×0 붕괴 없음), readout 82×17. 슬라이더 값 설정 시 라벨 `20% · 왼쪽`/`85% · 아래`, `localStorage.focalX=0.2 focalY=0.85` 반영, 콘솔 0. (초기 측정이 0×0으로 나온 건 기존 `cdt-createshort.mjs`가 create-short를 `qc` 탭으로 오인 — create-short는 실제 `panel-short`(`data-tab="short"`) 소속. 기존 create-short-btn·reframe-select도 같이 0×0이라 **제 CSS 회귀 아님**을 형제 비교로 확정.)
 - **실제 리프레임 위치**: 미디어에서 `ClipProjectItem.cast`+`createSequenceFromMedia`로 **키프레임 없는 깨끗한 9:16 시퀀스** 생성 → 타깃 1920×1080(16:9)·fill·`focalY=0.2`(상단)로 create-short → 클론 V1 클립 Motion position = **`posY=1.1481481790542603`, `posX=0.5`**, 콘솔 0. 순수 함수 예측(세로 오버플로 2.1605, shiftY=(0.5−0.2)×2.1605=0.6481, posY=0.5+0.6481=**1.1481**)과 **소수점까지 정확히 일치**. posX=0.5는 세로→가로라 가로 오버플로 0 → 수평 중앙 유지(focalX=0.5). 이로써 reframe의 position 기록 경로가 비키프레임 클립에서 실제로 클립을 움직이는 것까지 엔드투엔드 확정 — §27-e의 미관찰 공백을 메움.
 - 재사용 스크립트(스크래치패드): `cdt-focal-ui.mjs`(슬라이더 렌더·settings 반영), `cdt-focal-render.mjs`(올바른 탭 활성화 후 크기), `cdt-focal-clean.mjs`(캐스팅→깨끗한 시퀀스→리프레임→position 읽기). 테스트 아티팩트 시퀀스(`FocalClean_*`, `ShortFlow_9x16 2`)는 사용자 프로젝트에 잔존 — 기존 `SF_Motion_Test_*`와 함께 정리 대상(무해).
+
+## 29. AI 하이라이트 → 자동 컷 파이프라인 — 상용화 자동 판단(2026-07-14)
+
+사용자 요청 "자동 판단이 가능하게끔 구현 — 순수 함수(하이라이트+타임코드→구간) + 기존 일괄 생성 재사용 + Host 검증". 지금까지 컷 구간 근거는 전부 사람 신호(In/Out·선택·재생헤드·마커)였고 AI 분석은 `onSeek` 재생헤드 점프로만 연결돼 자동 컷 경로가 없었다(§28 답변). 이 기능이 그 한 가닥을 잇는다. 설계 `docs/02-design/features/highlight-auto-cut.design.md`.
+
+### 29-a. 구현
+- **순수 함수 `src/highlight-cut.ts` `planHighlightCuts(document, highlights, outline?, options?)`**: 자막 cue(타임코드)+`interview-highlight`(중요 cueId)+`edit-outline`(주제 그룹)을 랭킹된 숏폼 컷 후보로 변환. ① 보이는 cue 타임라인(문장 시작/끝 판정) ② 하이라이트 시간 근접 클러스터 ③ 목표 길이(min12/ideal30/max60초)로 앞뒤 확장·클램프 + 문장 경계 스냅 ④ 아웃라인 제목·가점 ⑤ 점수(밀도·훅·완결성·길이적합·아웃라인) ⑥ 겹침 제거(높은 점수 우선) ⑦ 상위 N. **결정적 순수**(같은 입력 같은 출력, I/O·host 없음).
+- **컨트롤러 `SubtitleController.planAutoCuts(options?)`**: 신뢰 경계 유지 — `analysisProvider` 포트로 두 분석 실행, provider 반환을 `validateAnalysisResponse`로 검증한 뒤에만 순수 함수에 넘김. 문서 미변경(읽기 전용, undo/autosave 없음). displayed `analysisResult` 미오염.
+- **index.ts 오케스트레이션**: `handleAutoCutScan`(consent→planAutoCuts→후보 렌더), `renderAutoCutCandidates`(AI 반환 제목·근거는 신뢰 불가라 `textContent`로만 주입 방지, 상위 5개 기본 체크), `handleAutoCutGenerate`(선택 후보→`MarkerSegment[]`→**기존 `createShortsFromMarkers` 그대로 재사용**→진행률·부분실패 보고). 숏폼 탭 `.autocut-card`.
+- 유닛 13개(빈 하이라이트→[]·근접 병합·짧은 확장·max 클램프·문장 스냅·아웃라인 제목/가점·겹침 제거·상한·점수순·결정성·옵션 역전 클램프·단일 초장 cue). 게이트 **1616/1616** green.
+
+### 29-b. Host 검증 — Tier1(카드·바인딩) 통과, 실제-AI 엔드투엔드는 사용자 게이트
+- **Tier1(무료, `cdt-autocut-ui.mjs`)**: 숏 탭에서 `.autocut-card` **284×221**, `#auto-cut-scan-btn` **238×34**(텍스트 정확), candidates 컨테이너 hidden(0×0), consent 반영, 콘솔 오류 0. 카드 렌더·이벤트 바인딩 정상. (자막 autosave 키가 이미 존재해 유료 AI 호출은 생략.)
+- **실제-AI 엔드투엔드는 자연히 사용자 게이트**: 자막 로드 경로(STT·SRT)가 전부 네이티브 피커라 CDP로 못 몰고, autosave 주입은 `deterministicHash`+`stableHash`+strict envelope 다중 재현이 필요해 취약. 대신 **모든 구성요소가 이미 독립 검증됨** — planHighlightCuts(유닛 13), `interview-highlight`·`edit-outline` 분석(이전 세션 실 200 응답 Host 검증, §25-f), `validateAnalysisResponse`(유닛), `createShortsFromMarkers`(기존 Host 검증 배치 경로). planAutoCuts는 이들을 잇는 얇은 글루(타입 검증됨)이고 Tier1이 UI 도달을 확인. Sora·썸네일 해피패스와 동일 관례(실 콘텐츠+유료 호출 필요 → 사용자 세션에서 검증).
+- **남은 사용자 게이트 검증**: 실제 자막 로드된 시퀀스에서 "AI 하이라이트로 자동 컷" → 실 분석 200 → 후보 랭킹 렌더 → 선택 생성으로 여러 숏폼(초점 리프레임 포함) 생성.

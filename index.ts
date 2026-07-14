@@ -1,4 +1,5 @@
-import { PROFILES, formatDuration } from "./src/core";
+import { PROFILES, formatDuration, type MarkerSegment } from "./src/core";
+import type { HighlightCutSegment } from "./src/highlight-cut";
 import { normalizeNativePath, type AssetItem } from "./src/asset-library";
 import { createAssetBrowserPanel } from "./src/asset-browser-panel";
 import { createMarkersQcPanel } from "./src/markers-qc-panel";
@@ -823,6 +824,91 @@ async function handleApplyClipMotion(): Promise<void> {
   );
 }
 
+let autoCutSegments: HighlightCutSegment[] = [];
+
+// AI 하이라이트+아웃라인 분석 → 자막 타임코드 근거로 숏폼 컷 후보를 랭킹해 제안한다.
+async function handleAutoCutScan(): Promise<void> {
+  ensureAiConsent("AI 자동 컷");
+  const controller = subtitleController;
+  if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다. 패널을 다시 열어 주세요.");
+  autoCutSegments = await controller.planAutoCuts({ maxDuration: syncSettingsFromUI().maxDuration });
+  renderAutoCutCandidates();
+  if (autoCutSegments.length === 0) {
+    activity.add("warning", "AI 자동 컷: 후보 0개");
+    toast("자동 컷 후보를 찾지 못했습니다. 하이라이트가 없거나 자막이 짧습니다.", "warning");
+    return;
+  }
+  activity.add("success", `AI 자동 컷: 후보 ${autoCutSegments.length}개 제안`);
+  toast(`자동 컷 후보 ${autoCutSegments.length}개를 제안했습니다. 원하는 구간을 골라 생성하세요.`, "success");
+}
+
+// AI가 돌려준 제목·근거는 신뢰할 수 없는 텍스트이므로 textContent로만 넣어 주입을 막는다.
+function renderAutoCutCandidates(): void {
+  const container = optionalElement<HTMLElement>("auto-cut-candidates");
+  const generateRow = optionalElement<HTMLElement>("auto-cut-generate-row");
+  if (!container) return;
+  container.replaceChildren();
+  const hasCandidates = autoCutSegments.length > 0;
+  container.hidden = !hasCandidates;
+  if (generateRow) generateRow.hidden = !hasCandidates;
+  autoCutSegments.forEach((segment, index) => {
+    const row = document.createElement("label");
+    row.className = "auto-cut-candidate";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = index < 5;
+    checkbox.dataset.cutIndex = String(index);
+    const body = document.createElement("div");
+    body.className = "auto-cut-candidate-body";
+    const title = document.createElement("strong");
+    title.textContent = `${index + 1}. ${segment.title}`;
+    const meta = document.createElement("small");
+    meta.textContent = `${formatDuration(segment.start)} – ${formatDuration(segment.end)} · ${Math.round(segment.duration)}초 · 점수 ${segment.score.toFixed(2)}`;
+    body.append(title, meta);
+    if (segment.reason) {
+      const reason = document.createElement("small");
+      reason.className = "auto-cut-reason";
+      reason.textContent = segment.reason;
+      body.append(reason);
+    }
+    row.append(checkbox, body);
+    container.append(row);
+  });
+}
+
+// 선택한 후보 구간을 각각 새 숏폼 시퀀스로 일괄 생성(기존 createShortsFromMarkers 재사용).
+async function handleAutoCutGenerate(): Promise<void> {
+  const container = optionalElement<HTMLElement>("auto-cut-candidates");
+  const selected = container
+    ? Array.from(container.querySelectorAll<HTMLInputElement>("input[data-cut-index]:checked"))
+        .map((checkbox) => autoCutSegments[Number(checkbox.dataset.cutIndex)])
+        .filter((segment): segment is HighlightCutSegment => Boolean(segment))
+    : [];
+  if (selected.length === 0) {
+    toast("생성할 구간을 하나 이상 선택해 주세요.", "warning");
+    return;
+  }
+  const segments: MarkerSegment[] = selected.map((segment, index) => ({
+    name: segment.title || `AutoCut_${index + 1}`,
+    comments: segment.reason,
+    start: segment.start,
+    end: segment.end,
+    duration: segment.duration,
+    index,
+  }));
+  const result = await busy.during("자동 컷 구간을 생성하고 있습니다…", () =>
+    createShortsFromMarkers(segments, createOptions(), (completed, total, name) => {
+      setText("busy-message", `${completed}/${total} · ${name}`);
+    }));
+  activity.add(
+    result.failures.length ? "warning" : "success",
+    `AI 자동 컷 일괄 생성 · 성공 ${result.created.length} · 실패 ${result.failures.length}`,
+  );
+  result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
+  toast(`${result.created.length}개 숏폼 시퀀스를 생성했습니다.`, result.failures.length ? "warning" : "success");
+  await refreshStatus(true);
+}
+
 async function handleExportVideo(): Promise<void> {
   syncSettingsFromUI();
   if (!finalQCController) throw new Error("최종 QC 게이트가 초기화되지 않았습니다. 플러그인 패널을 다시 열어 주세요.");
@@ -1120,6 +1206,8 @@ function bindCoreEvents(): void {
   bind("refresh-btn", "click", guarded(() => refreshStatus().then(() => undefined), "상태 새로고침 실패"));
   bind("qc-btn", "click", guarded(() => markersQcPanel.runQC(), "QC 실패"));
   bind("create-short-btn", "click", guarded(() => markersQcPanel.createShort(), "숏폼 생성 실패"));
+  bind("auto-cut-scan-btn", "click", guarded(handleAutoCutScan, "AI 자동 컷 분석 실패"));
+  bind("auto-cut-generate-btn", "click", guarded(handleAutoCutGenerate, "자동 컷 생성 실패"));
   bind("scan-markers-btn", "click", guarded(() => markersQcPanel.scanMarkers(), "마커 검색 실패"));
   bind("batch-create-btn", "click", guarded(() => markersQcPanel.batchCreate(), "일괄 생성 실패"));
   bind("add-story-markers-btn", "click", guarded(() => markersQcPanel.addStoryMarkers(), "스토리 마커 추가 실패"));

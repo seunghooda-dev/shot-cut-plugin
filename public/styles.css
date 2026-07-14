@@ -1088,6 +1088,57 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
+.auto-cut-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.auto-cut-candidate {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  cursor: pointer;
+}
+
+.auto-cut-candidate input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  padding: 0;
+  -webkit-appearance: auto;
+  appearance: auto;
+  accent-color: var(--accent);
+}
+
+.auto-cut-candidate-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.auto-cut-candidate-body strong {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
+
+.auto-cut-candidate-body small {
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
+}
+
+.auto-cut-reason {
+  color: var(--accent-bright);
+}
+
 .form-actions {
   justify-content: space-between;
   gap: 16px;
