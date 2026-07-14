@@ -946,13 +946,22 @@ async function detectSegmentSubjectFocal(segment: HighlightCutSegment): Promise<
   for (const time of times) {
     try {
       const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 640);
-      const entry = await dataFolder.getEntry(filename);
-      const data = await entry.read({ format: formats?.binary });
-      const bytes = data instanceof ArrayBuffer
-        ? new Uint8Array(data)
-        : ArrayBuffer.isView(data)
-          ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-          : null;
+      // exportSequenceFrame은 성공을 반환해도 파일이 디스크에 늦게 나타난다(Host 실측) — 재시도 대기.
+      let bytes: Uint8Array | null = null;
+      for (let attempt = 0; attempt < 12 && (!bytes || bytes.byteLength === 0); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        try {
+          const entry = await dataFolder.getEntry(filename);
+          const data = await entry.read({ format: formats?.binary });
+          bytes = data instanceof ArrayBuffer
+            ? new Uint8Array(data)
+            : ArrayBuffer.isView(data)
+              ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+              : null;
+        } catch {
+          bytes = null;
+        }
+      }
       if (!bytes || bytes.byteLength === 0) continue;
       points.push(await client.detectSubjectPoint({ bytes: bytes.slice(), mimeType: "image/png" }));
     } catch {
