@@ -371,6 +371,9 @@ function dayKey(timestamp: number): string {
 
 function defaultTransientError(error: unknown): boolean {
   const record = error && typeof error === "object" ? error as Record<string, unknown> : {};
+  // 명시적 non-retryable 마킹은 어떤 휴리스틱보다 우선한다(예: STT 타임아웃은 큐 재시도 대신
+  // 컨트롤러의 whisper-1 폴백이 처리하는 편이 빠르고 확실하다).
+  if (record.retryable === false) return false;
   const status = Number(record.status ?? 0);
   // A 429 is normally retryable (rate limit), but an error that explicitly marks
   // itself non-retryable (e.g. OpenAI insufficient_quota) must fail fast instead of

@@ -673,3 +673,16 @@ describe("events, redaction, persistence, and restore", () => {
     assert.equal(messages.some((message) => message.includes("sk-proj")), false);
   });
 });
+
+describe("explicit non-retryable marking", () => {
+  it("never retries an error marked retryable:false, even with a timeout-looking code", async () => {
+    let calls = 0;
+    const queue = new JobQueue(async () => {
+      calls += 1;
+      throw Object.assign(new Error("요청 시간 초과"), { code: "TIMEOUT", retryable: false });
+    }, { maxRetries: 3, sleep: async () => undefined });
+    const done = await queue.waitFor(queue.enqueue(request(1)).id);
+    assert.equal(done.state, "failed");
+    assert.equal(calls, 1); // 재시도 없이 1회로 종료 (STT 타임아웃 → whisper 폴백이 이어받음)
+  });
+});

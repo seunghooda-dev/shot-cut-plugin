@@ -63,7 +63,7 @@ import { AutomationController } from "./src/automation-controller";
 import { BrandKitController } from "./src/brand-kit-controller";
 import { AIQueueController } from "./src/ai-queue-controller";
 import { deterministicHash } from "./src/job-queue";
-import { SpeechApiClient } from "./src/speech";
+import { SpeechApiClient, isSttTimeoutError } from "./src/speech";
 import {
   renderSafeZoneGuideBmp,
   safeZoneGuideLabel,
@@ -2014,7 +2014,19 @@ async function bootstrap(): Promise<void> {
       },
       runStt: (request) => {
         const client = new SpeechApiClient({ endpoint: settings.aiEndpoint });
-        if (!aiQueueController) return client.transcribe(request);
+        // diarize 계열 타임아웃은 큐 재시도(120s×3≈6분) 대신 즉시 실패시켜 컨트롤러의
+        // whisper-1 폴백이 이어받게 한다. whisper-1 자신의 타임아웃은 폴백이 없으므로 재시도 유지.
+        const transcribe = async () => {
+          try {
+            return await client.transcribe(request);
+          } catch (error) {
+            if (isSttTimeoutError(error) && request.model !== "whisper-1" && error && typeof error === "object") {
+              (error as { retryable?: boolean }).retryable = false;
+            }
+            throw error;
+          }
+        };
+        if (!aiQueueController) return transcribe();
         return aiQueueController.run("stt", {
           model: request.model,
           language: request.language ?? "",
@@ -2022,7 +2034,7 @@ async function bootstrap(): Promise<void> {
           mediaSize: request.bytes.byteLength,
           mediaDigest: deterministicHash(request.bytes),
           promptHash: deterministicHash(request.prompt ?? ""),
-        }, () => client.transcribe(request), { estimateUnits: 2, cacheTtlMs: 0 });
+        }, transcribe, { estimateUnits: 2, cacheTtlMs: 0 });
       },
     });
     await speechController.initialize();
