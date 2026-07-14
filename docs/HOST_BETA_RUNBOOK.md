@@ -966,3 +966,11 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 - **47-b 조정 패널 프레임 미리보기(D-2 계획 잔여 단계)**: 선택한 숏폼의 첫 스팬 중앙 프레임을 카드에 표시. `exportSequenceFrameByName`(premiere.ts, 이름→시퀀스 핸들→기존 exportFrameToFolder 위임 180px) + 패널 포트 `exportPreviewFrame`(index.ts가 내보내기→바이트 읽기→임시 파일 삭제로 구현) + data:image/png;base64 `<img>`(§25-b 계열 UXP innerHTML 회피, 파형과 동일 패턴). 경합은 토큰 가드, 실패는 조용히 숨김(보조 기능).
 - **47-c UXP 발견**: select 옵션 재구성 후 **value가 자동 선택되지 않는다**(브라우저는 첫 옵션 자동 선택) — selectedPlan()이 null이 되어 미리보기·버튼이 전부 무반응이었다. 렌더 시 첫 계획을 명시 기본 선택으로 수정(§25-b 쿼크 목록에 추가할 것).
 - **E2E**: 계획 시드 → 새로고침 → **미리보기 실렌더(hidden=false, PNG base64 52KB)** → 원본 복원 클릭 "클립 1" 로그·미리보기 유지, 콘솔 0. 검증이 실시퀀스에 남긴 중앙(기본값) 위치 키프레임은 timeVarying 해제로 원복 확인([0.5,0.5] 정적). 게이트 1749/1749.
+
+## 48. 플랫폼 봉쇄 3건 재탐사 — 전부 봉쇄 유지 확정 (2026-07-15)
+
+사용자 지시("다른 해결 방법 조금 더 찾아보고 없으면 현행 유지")로 1라운드씩 재탐사. **결론: 3건 모두 봉쇄 유지, 현행 우회가 최선.**
+
+- **48-a Canvas(썸네일 래스터)**: `getContext('2d')`가 객체를 돌려주지만 **스텁** — fillText/fillRect는 있으나 `toDataURL`/`getImageData`/`toBlob` 전부 "is not a function", OffscreenCanvas·createImageBitmap·ImageData도 없음. 픽셀을 꺼낼 방법이 없어 §14 판정 유지(SVG 폴백).
+- **48-b MOGRT 소스 텍스트**: "소스 텍스트" 파라미터가 실재하고 createSetValueAction도 있지만, **값 타입이 JS로 구성 불가** — getStartValue는 null, getValueAtTime은 "not supported for these value types", `createKeyframe(x)`는 문자열·숫자·불리언·객체·빈 인자 전부 "Illegal Parameter type"(같은 세션에서 위치 파라미터는 PointF로 정상 생성 — 방법론 검증됨). 실쓰기 커밋 시도도 동일 에러, 전후 픽셀 diff 0.0000. §37 판정 유지(텍스트 마커 + 트랜스크립트→캡션 우회).
+- **48-c 캡션 생성 명령 통로**: `ppro.Application`은 version뿐, Metadata/Properties에도 캡션 관련 동사 없음. §42-a 판정 유지('캡션 만들기' 1클릭).
