@@ -57,8 +57,8 @@ export function segmentsFromModelPlan(
       ? Math.min(1, Math.max(0, short.score)) : 0.5;
     const title = (typeof short.title === "string" ? short.title.trim() : "").slice(0, 60)
       || `숏폼 ${built.length + 1}`;
-    const reason = ((typeof short.reason === "string" ? short.reason.trim() : "")
-      || (typeof short.hook === "string" ? short.hook.trim() : "")).slice(0, 200);
+    const hook = (typeof short.hook === "string" ? short.hook.trim() : "").slice(0, 120);
+    const reason = ((typeof short.reason === "string" ? short.reason.trim() : "") || hook).slice(0, 200);
 
     built.push({
       start,
@@ -67,6 +67,7 @@ export function segmentsFromModelPlan(
       cueIds: cues.map((cue) => cue.cueId),
       title,
       reason,
+      ...(hook ? { hook } : {}),
       score: Math.round(score * 1000) / 1000,
       highlightCount: cues.length,
     });

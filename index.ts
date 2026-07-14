@@ -893,6 +893,12 @@ function renderAutoCutCandidates(): void {
     const meta = document.createElement("small");
     meta.textContent = `${formatDuration(segment.start)} – ${formatDuration(segment.end)} · ${Math.round(segment.duration)}초 · 점수 ${segment.score.toFixed(2)}`;
     body.append(title, meta);
+    if (segment.hook) {
+      const hook = document.createElement("small");
+      hook.className = "auto-cut-reason";
+      hook.textContent = `훅: "${segment.hook}"`;
+      body.append(hook);
+    }
     if (segment.reason) {
       const reason = document.createElement("small");
       reason.className = "auto-cut-reason";
@@ -1233,9 +1239,12 @@ async function handleAutoCutGenerate(): Promise<void> {
       const source = selected[index];
       if (!created || !source) continue;
       try {
+        // JTV 스타일 3단: 상단 노랑 인용 훅 / 하단 흰색 맥락(제목) / 하단 노랑 펀치(근거).
+        const hookText = source.hook ? `"${source.hook.replace(/^["']+|["']+$/gu, "")}"` : source.title;
         await writeTextGuideMarkers(created.sequence, [
-          { label: "상단(훅)", text: source.title, seconds: source.start },
-          { label: "하단(맥락)", text: source.reason || source.title, seconds: source.start + 0.5 },
+          { label: "상단(훅·노랑)", text: hookText, seconds: source.start },
+          { label: "하단1(맥락·흰색)", text: source.title, seconds: source.start + 0.5 },
+          { label: "하단2(펀치·노랑)", text: source.reason || source.title, seconds: source.start + 1 },
         ]);
       } catch (error) {
         activity.add("warning", `텍스트 마커 실패 · ${created.sequenceName.slice(0, 24)}: ${errorMessage(error)}`);

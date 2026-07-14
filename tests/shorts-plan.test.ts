@@ -74,6 +74,12 @@ describe("segmentsFromModelPlan", () => {
     assert.equal(segments[0]!.score, 0.9);
   });
 
+  it("carries the hook through to the segment (news-layout top text)", () => {
+    const s = segmentsFromModelPlan(doc(10), [short(["c1", "c2"], 0.8, { hook: "충격 발언?", reason: "근거" })])[0]!;
+    assert.equal(s.hook, "충격 발언?");
+    assert.equal(s.reason, "근거"); // hook은 reason 폴백이 아니라 별도 보존
+  });
+
   it("returns [] for no shorts", () => {
     assert.deepEqual(segmentsFromModelPlan(doc(5), []), []);
   });

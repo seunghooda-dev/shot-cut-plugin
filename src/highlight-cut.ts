@@ -18,6 +18,8 @@ export interface HighlightCutSegment {
   cueIds: string[];
   title: string;
   reason: string;
+  /** 시작 훅 문구(인용형). shorts-plan이 채우며, 뉴스 레이아웃의 상단 텍스트로 쓴다. */
+  hook?: string;
   score: number;
   highlightCount: number;
 }
