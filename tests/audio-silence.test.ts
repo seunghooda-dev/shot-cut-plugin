@@ -80,3 +80,16 @@ describe("audio-silence", () => {
     assert.deepEqual(detectSilenceGaps(samples, rate), []);
   });
 });
+
+describe("planChunkBoundaries (STT split boundaries)", () => {
+  it("returns [] when the audio fits in one chunk", async () => {
+    const { planChunkBoundaries } = await import("../src/audio-silence");
+    assert.deepEqual(planChunkBoundaries(600, 660, []), []);
+  });
+  it("splits evenly and snaps each boundary to a nearby silence gap", async () => {
+    const { planChunkBoundaries } = await import("../src/audio-silence");
+    const snapped = planChunkBoundaries(1230, 660, [{ start: 610, end: 612 }]);
+    assert.deepEqual(snapped, [611]); // 목표 615 → gap 중심 611
+    assert.deepEqual(planChunkBoundaries(1230, 660, [{ start: 100, end: 102 }]), [615]); // 먼 gap은 무시
+  });
+});

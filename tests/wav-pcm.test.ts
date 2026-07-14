@@ -211,3 +211,18 @@ describe("parseWavPcm", () => {
     assert.throws(() => parseWavPcm(notWav), WavParseError);
   });
 });
+
+describe("encodeWavPcm16 (STT chunking encoder)", () => {
+  it("round-trips samples through parseWavPcm within quantization error", async () => {
+    const { encodeWavPcm16, parseWavPcm } = await import("../src/wav-pcm");
+    const rate = 16000;
+    const source = Float32Array.from({ length: rate }, (_v, i) => Math.sin((2 * Math.PI * 440 * i) / rate) * 0.5);
+    const wav = encodeWavPcm16(source, rate);
+    const parsed = parseWavPcm(wav);
+    assert.equal(parsed.sampleRate, rate);
+    assert.equal(parsed.samples.length, source.length);
+    let worst = 0;
+    for (let i = 0; i < source.length; i += 1) worst = Math.max(worst, Math.abs(parsed.samples[i]! - source[i]!));
+    assert.ok(worst <= 1 / 32767 + 1e-6, "worst " + worst);
+  });
+});

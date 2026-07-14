@@ -114,3 +114,36 @@ function sampleReader(
   if (bits === 32) return (o) => view.getInt32(o, true) / 2147483648;
   return null;
 }
+
+/**
+ * 모노 Float32 샘플을 16-bit PCM WAV 바이트로 인코드한다(STT 청킹용).
+ * parseWavPcm과 왕복 가능(±1/32768 양자화 오차).
+ */
+export function encodeWavPcm16(samples: ArrayLike<number>, sampleRate: number): Uint8Array {
+  const rate = Number.isFinite(sampleRate) && sampleRate > 0 ? Math.round(sampleRate) : 16000;
+  const count = samples.length;
+  const dataBytes = count * 2;
+  const buffer = new ArrayBuffer(44 + dataBytes);
+  const view = new DataView(buffer);
+  const writeAscii = (offset: number, text: string): void => {
+    for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+  writeAscii(0, "RIFF");
+  view.setUint32(4, 36 + dataBytes, true);
+  writeAscii(8, "WAVE");
+  writeAscii(12, "fmt ");
+  view.setUint32(16, 16, true); // fmt chunk size
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true); // byte rate
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bits
+  writeAscii(36, "data");
+  view.setUint32(40, dataBytes, true);
+  for (let i = 0; i < count; i += 1) {
+    const clamped = Math.max(-1, Math.min(1, Number(samples[i]) || 0));
+    view.setInt16(44 + i * 2, Math.round(clamped * 32767), true);
+  }
+  return new Uint8Array(buffer);
+}

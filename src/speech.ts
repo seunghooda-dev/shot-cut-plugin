@@ -614,3 +614,30 @@ export class SpeechApiClient {
     }
   }
 }
+
+/**
+ * 청크별 STT 결과를 하나로 병합한다(세그먼트 시각에 청크 시작 오프셋 반영).
+ * SRT는 비워 두고 validateSttResult가 정렬된 세그먼트로부터 재구성하게 한다. 순수 함수.
+ */
+export function mergeSttChunkResults(
+  parts: Array<{ offsetSeconds: number; text: string; segments: TranscriptSegment[] }>,
+  model: SttModel,
+): { text: string; segments: TranscriptSegment[]; srt: string; model: SttModel } {
+  const segments: TranscriptSegment[] = [];
+  const texts: string[] = [];
+  for (const part of Array.isArray(parts) ? parts : []) {
+    if (!part) continue;
+    const offset = Number.isFinite(part.offsetSeconds) ? part.offsetSeconds : 0;
+    const trimmed = typeof part.text === "string" ? part.text.trim() : "";
+    if (trimmed) texts.push(trimmed);
+    for (const segment of Array.isArray(part.segments) ? part.segments : []) {
+      if (!segment || !Number.isFinite(segment.start) || !Number.isFinite(segment.end)) continue;
+      segments.push({
+        ...segment,
+        start: segment.start + offset,
+        end: segment.end + offset,
+      });
+    }
+  }
+  return { text: texts.join(" "), segments, srt: "", model };
+}

@@ -9,6 +9,7 @@ import {
   STT_MODELS,
   isEmptyTranscriptError,
   isSttTimeoutError,
+  mergeSttChunkResults,
   TTS_MODELS,
   TTS_VOICES,
   type SttModel,
@@ -34,7 +35,8 @@ import {
 } from "./speech-files";
 import type { PluginSettings } from "./settings";
 import { bind, checkedOf, element, numberOf, setPathValue, setText, valueOf } from "./ui";
-import { parseWavPcm } from "./wav-pcm";
+import { encodeWavPcm16, parseWavPcm } from "./wav-pcm";
+import { detectSilenceGaps, planChunkBoundaries } from "./audio-silence";
 
 export interface SpeechControllerTranscript {
   name: string;
@@ -64,6 +66,8 @@ export interface SpeechControllerOptions {
   runStt?: (request: SttRequest) => Promise<SttResult>;
   hostAdapter?: SpeechHostAdapter;
   now?: () => number;
+  /** 이 길이(초)를 넘는 WAV는 무음 경계에서 분할 전사한다(whisper 25MB=약 13분 상한 대응). 기본 660s. */
+  sttChunkSeconds?: number;
 }
 
 interface TtsOperationSnapshot {
@@ -192,6 +196,7 @@ export class SpeechController {
   private readonly outputFolders = new Map<"tts" | "stt", SpeechOutputFolder>();
   private source: SpeechInputFile | null = null;
   private transcriptValue: SpeechControllerTranscript | null = null;
+  private readonly sttChunkSeconds: number;
   private previewObjectUrl = "";
   private ttsRunning = false;
   private sttRunning = false;
@@ -208,6 +213,8 @@ export class SpeechController {
       importFilesToProject,
     };
     this.now = options.now ?? (() => Date.now());
+    const chunkSeconds = Number(options.sttChunkSeconds);
+    this.sttChunkSeconds = Number.isFinite(chunkSeconds) ? Math.min(780, Math.max(30, Math.round(chunkSeconds))) : 660;
   }
 
   get transcript(): SpeechControllerTranscript | null {
@@ -573,22 +580,59 @@ export class SpeechController {
       const callProvider = (request: SttRequest): Promise<SttResult> =>
         this.options.runStt?.(request) ?? this.client().transcribe(request);
       let effectiveModel = providerRequest.model;
-      let provided: SttResult;
-      try {
-        provided = await callProvider(providerRequest);
-      } catch (error) {
-        // 기본 모델(diarize 등)이 빈 원고를 반환하거나 시간 초과되면 whisper-1로 자동 재시도한다.
-        // 방송·다화자 오디오에서 diarize가 빈 결과·타임아웃을 내는 실측 사례 대비 — whisper-1은
-        // 화자 구분은 없지만 더 빠르고 견고하다.
-        if ((isEmptyTranscriptError(error) || isSttTimeoutError(error)) && providerRequest.model !== "whisper-1") {
-          const cause = isSttTimeoutError(error) ? "시간 초과" : "빈 원고";
-          this.options.onActivity?.(`${providerRequest.model} STT가 ${cause}로 실패해 whisper-1로 다시 시도합니다.`);
-          effectiveModel = "whisper-1";
-          provided = await callProvider({ ...providerRequest, model: "whisper-1", bytes: providerRequest.bytes.slice() });
-        } else {
+      // 기본 모델(diarize 등)이 빈 원고·시간 초과로 실패하면 whisper-1로 자동 재시도한다(실측 32-b).
+      // 한 번 폴백하면 남은 청크도 whisper-1을 유지한다.
+      const callWithFallback = async (request: SttRequest): Promise<SttResult> => {
+        try {
+          return await callProvider({ ...request, model: effectiveModel, bytes: request.bytes.slice() });
+        } catch (error) {
+          if ((isEmptyTranscriptError(error) || isSttTimeoutError(error)) && effectiveModel !== "whisper-1") {
+            const cause = isSttTimeoutError(error) ? "시간 초과" : "빈 원고";
+            this.options.onActivity?.(`${effectiveModel} STT가 ${cause}로 실패해 whisper-1로 다시 시도합니다.`);
+            effectiveModel = "whisper-1";
+            return callProvider({ ...request, model: "whisper-1", bytes: request.bytes.slice() });
+          }
           throw error;
         }
+      };
+      // 긴 WAV는 무음 경계에서 청크로 나눠 순차 전사한다(whisper 25MB=약 13분 상한 대응, runbook 40).
+      let provided: SttResult | null = null;
+      const isWav = providerRequest.mimeType === "audio/wav" || /\.wav$/iu.test(providerRequest.filename);
+      if (isWav) {
+        let pcm: { samples: Float32Array; sampleRate: number } | null = null;
+        try {
+          const parsed = parseWavPcm(providerRequest.bytes);
+          pcm = { samples: parsed.samples, sampleRate: parsed.sampleRate };
+        } catch {
+          pcm = null; // WAV 파싱 실패는 단일 요청 경로로
+        }
+        if (pcm && pcm.sampleRate > 0) {
+          const duration = pcm.samples.length / pcm.sampleRate;
+          if (duration > this.sttChunkSeconds * 1.2) {
+            const gaps = detectSilenceGaps(pcm.samples, pcm.sampleRate);
+            const boundaries = planChunkBoundaries(duration, this.sttChunkSeconds, gaps, 8);
+            const edges = [0, ...boundaries, duration];
+            const baseName = stripExtension(snapshot.sourceName);
+            const parts: Array<{ offsetSeconds: number; text: string; segments: SttResult["segments"] }> = [];
+            for (let index = 0; index + 1 < edges.length; index += 1) {
+              const from = Math.max(0, Math.floor(edges[index]! * pcm.sampleRate));
+              const to = Math.min(pcm.samples.length, Math.ceil(edges[index + 1]! * pcm.sampleRate));
+              if (to <= from) continue;
+              const chunkBytes = encodeWavPcm16(pcm.samples.subarray(from, to), pcm.sampleRate);
+              this.options.onActivity?.(`긴 오디오 분할 전사 ${index + 1}/${edges.length - 1} (${Math.round(edges[index]!)}초부터)`);
+              const part = await callWithFallback({
+                ...providerRequest,
+                bytes: chunkBytes,
+                filename: `${baseName}_part${index + 1}.wav`,
+              });
+              if (!this.operationIsCurrent(lifecycleRevision)) return;
+              parts.push({ offsetSeconds: edges[index]!, text: part.text, segments: part.segments });
+            }
+            provided = mergeSttChunkResults(parts, effectiveModel) as SttResult;
+          }
+        }
       }
+      if (!provided) provided = await callWithFallback(providerRequest);
       const result = validateSttResult(provided, effectiveModel);
       if (!this.operationIsCurrent(lifecycleRevision)) return;
       const basename = `${stripExtension(snapshot.sourceName)}_ShortFlow`;

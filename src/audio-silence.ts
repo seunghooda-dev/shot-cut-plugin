@@ -107,3 +107,28 @@ export function snapCutPointToSilence(time: number, gaps: SilenceGap[], maxShift
   }
   return best;
 }
+
+/**
+ * 긴 오디오를 STT 청크로 나눌 내부 경계 시각들을 계획한다. maxChunkSeconds 간격의 목표
+ * 지점을 가장 가까운 무음 gap 중심에 스냅해(말 중간을 자르지 않게) 반환한다. 결정적 순수.
+ */
+export function planChunkBoundaries(
+  totalSeconds: number,
+  maxChunkSeconds: number,
+  gaps: SilenceGap[],
+  maxShiftSeconds = 8,
+): number[] {
+  if (!Number.isFinite(totalSeconds) || !Number.isFinite(maxChunkSeconds) || maxChunkSeconds <= 0) return [];
+  if (totalSeconds <= maxChunkSeconds) return [];
+  const chunkCount = Math.ceil(totalSeconds / maxChunkSeconds);
+  const step = totalSeconds / chunkCount;
+  const boundaries: number[] = [];
+  for (let index = 1; index < chunkCount; index += 1) {
+    const target = index * step;
+    const snapped = snapCutPointToSilence(target, gaps, maxShiftSeconds);
+    const previous = boundaries[boundaries.length - 1] ?? 0;
+    // 경계가 뒤엉키지 않게 최소 1초 간격 보장.
+    boundaries.push(Math.max(previous + 1, Math.min(totalSeconds - 1, snapped)));
+  }
+  return boundaries;
+}

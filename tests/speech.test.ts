@@ -12,6 +12,7 @@ import {
   SpeechApiError,
   isEmptyTranscriptError,
   isSttTimeoutError,
+  mergeSttChunkResults,
   readOpenAIApiKey,
   transcriptToSrt,
   validateSttResult,
@@ -796,5 +797,18 @@ describe("isSttTimeoutError", () => {
     assert.equal(isSttTimeoutError(new SpeechApiError("EMPTY_RESPONSE", "AI가 빈 원고를 반환했습니다.")), false);
     assert.equal(isSttTimeoutError(new Error("네트워크 오류")), false);
     assert.equal(isSttTimeoutError(null), false);
+  });
+});
+
+describe("mergeSttChunkResults (chunked transcription merge)", () => {
+  it("offsets segment times by each chunk start and joins text", () => {
+    const merged = mergeSttChunkResults([
+      { offsetSeconds: 0, text: "첫 청크.", segments: [{ start: 0, end: 5, text: "첫" }] },
+      { offsetSeconds: 660, text: "둘째 청크.", segments: [{ start: 1, end: 4, text: "둘", speaker: "A" }] },
+    ], "whisper-1");
+    assert.equal(merged.text, "첫 청크. 둘째 청크.");
+    assert.deepEqual(merged.segments[1], { start: 661, end: 664, text: "둘", speaker: "A" });
+    const validated = validateSttResult(merged, "whisper-1");
+    assert.match(validated.srt, /00:11:01,000/u);
   });
 });
