@@ -2380,6 +2380,103 @@ export async function writeTextGuideMarkers(
   return actions.length;
 }
 
+export interface DuckApplyResult {
+  clipCount: number;
+  keyframeCount: number;
+  warnings: string[];
+}
+
+// 덕킹 엔벨로프를 지정 오디오 트랙의 클립 볼륨 '레벨' 키프레임으로 실제 적용한다.
+// Host 실측(runbook 39): "볼륨(Internal Volume Mono)"의 "레벨" 파라미터가 키프레임을
+// 지원하며, 값 인코딩은 value = 10^((dB-15)/20) (기본 0dB = 0.177828).
+// 키프레임 시각은 클립 기준 0-기반이므로 시퀀스 시각에서 클립 시작을 빼 변환한다.
+export async function applyDuckingLevelKeyframes(
+  audioTrackNumber: number,
+  keyframes: Array<{ time: number; gainDb: number }>,
+  levelValueFromDb: (gainDb: number) => number,
+): Promise<DuckApplyResult> {
+  const valid = (Array.isArray(keyframes) ? keyframes : [])
+    .filter((kf) => kf && Number.isFinite(kf.time) && Number.isFinite(kf.gainDb));
+  if (valid.length === 0) {
+    throw new ShortFlowError("NO_DUCK_KEYFRAMES", "적용할 덕킹 키프레임이 없습니다.");
+  }
+  const trackIndex = zeroBasedTrackIndex(audioTrackNumber, true);
+  const { project, sequence } = await getActiveContext();
+  const track = await sequence.getAudioTrack(trackIndex);
+  if (!track) {
+    throw new ShortFlowError("INVALID_TRACK", "지정한 오디오 트랙을 찾지 못했습니다.");
+  }
+  const clipType = ppro.Constants?.TrackItemType?.CLIP ?? 1;
+  const items = await track.getTrackItems(clipType, false);
+  if (!items || items.length === 0) {
+    throw new ShortFlowError("NO_AUDIO_CLIP", "지정한 트랙에 오디오 클립이 없습니다.");
+  }
+  const warnings: string[] = [];
+  const actions: ActionFactory[] = [];
+  let clipCount = 0;
+  let keyframeCount = 0;
+  for (const item of items.slice(0, 50)) {
+    try {
+      const startTick = await item.getStartTime?.();
+      const endTick = await item.getEndTime?.();
+      const clipStart = startTick ? Number(startTick.seconds) : 0;
+      const clipEnd = endTick ? Number(endTick.seconds) : Number.POSITIVE_INFINITY;
+      const chain = await item.getComponentChain();
+      const count = Number(chain.getComponentCount()) || 0;
+      let level: ComponentParam | null = null;
+      for (let index = 0; index < count && !level; index += 1) {
+        const component = chain.getComponentAtIndex(index);
+        if (!component) continue;
+        const matchName = String(await component.getMatchName()).toLocaleLowerCase();
+        const displayName = String(await component.getDisplayName()).toLocaleLowerCase();
+        if (!(matchName.includes("volume") || displayName.includes("볼륨") || displayName.includes("volume"))) continue;
+        const paramCount = Number(component.getParamCount()) || 0;
+        for (let p = 0; p < paramCount; p += 1) {
+          const param = component.getParam(p);
+          const name = String(param?.displayName ?? "").toLocaleLowerCase();
+          if (name.includes("레벨") || name.includes("level")) {
+            level = param;
+            break;
+          }
+        }
+      }
+      if (!level) {
+        warnings.push("볼륨 레벨 파라미터가 없는 오디오 클립은 건너뛰었습니다.");
+        continue;
+      }
+      if (typeof level.areKeyframesSupported === "function" && !(await level.areKeyframesSupported())) {
+        warnings.push("레벨 키프레임을 지원하지 않는 클립은 건너뛰었습니다.");
+        continue;
+      }
+      const levelParam = level;
+      // 이 클립과 겹치는 키프레임만 클립-상대 시각으로 변환해 기록한다.
+      const clipKfs = valid
+        .filter((kf) => kf.time >= clipStart - 1e-6 && kf.time <= clipEnd + 1e-6)
+        .map((kf) => ({ time: Math.max(0, kf.time - clipStart), value: levelValueFromDb(kf.gainDb) }));
+      if (clipKfs.length === 0) continue;
+      actions.push(() => levelParam.createSetTimeVaryingAction(true));
+      for (const kf of clipKfs) {
+        actions.push(() => {
+          const keyframe = levelParam.createKeyframe(kf.value);
+          keyframe.position = ppro.TickTime.createWithSeconds(kf.time);
+          return levelParam.createAddKeyframeAction(keyframe);
+        });
+      }
+      clipCount += 1;
+      keyframeCount += clipKfs.length;
+    } catch (error) {
+      warnings.push(`덕킹 적용 실패: ${errorMessage(error)}`);
+    }
+  }
+  if (actions.length === 0) {
+    throw new ShortFlowError("NO_DUCK_TARGET", "덕킹을 적용할 수 있는 클립이 없습니다.");
+  }
+  if (!commitActionFactories(project, actions, "ShortFlow: BGM 자동 덕킹")) {
+    throw new ShortFlowError("DUCK_COMMIT_FAILED", "덕킹 키프레임을 적용하지 못했습니다.");
+  }
+  return { clipCount, keyframeCount, warnings: [...new Set(warnings)] };
+}
+
 // 발화 구간(덕킹 필요 구간)을 활성 시퀀스에 코멘트 마커로 표시한다. Level 키프레임 자동 적용이
 // 불가한 환경의 폴백 — 사용자가 이 구간에서 BGM 볼륨을 낮추면 된다. #sf가 없어 숏폼으로 안 잡힘.
 export async function writeDuckMarkers(ranges: Array<{ start: number; end: number }>): Promise<number> {

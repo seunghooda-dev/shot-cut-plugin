@@ -158,3 +158,12 @@ export function duckRangesFromEnvelope(keyframes: readonly DuckKeyframe[], baseG
   if (start !== null && isFiniteNumber(lastTime) && lastTime > start) ranges.push({ start, end: lastTime });
   return ranges;
 }
+
+/**
+ * dB 게인을 Premiere 볼륨 '레벨' 파라미터 값으로 변환한다. Host 실측(§39): 기본 0dB의
+ * 레벨 값이 10^(-15/20)=0.177828 — 고전 인코딩 value = 10^((dB - 15) / 20)를 확인.
+ */
+export function duckLevelValueFromDb(gainDb: number): number {
+  const db = isFiniteNumber(gainDb) ? Math.min(15, Math.max(-96, gainDb)) : 0;
+  return 10 ** ((db - 15) / 20);
+}

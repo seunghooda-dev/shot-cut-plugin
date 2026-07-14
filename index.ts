@@ -16,6 +16,7 @@ import {
   writeShortsMarkers,
   writeDuckMarkers,
   writeTextGuideMarkers,
+  applyDuckingLevelKeyframes,
   buildHighlightReel,
   exportFrameToFolder,
   activeSequenceFrameSize,
@@ -85,7 +86,7 @@ import { SubtitleController, type SubtitleAiRequest, type SubtitleAnalysisReques
 import { resolveAutomationTranscript, subtitleDocumentToAutomationTranscript } from "./src/automation-transcript";
 import { createSubtitleDocument, type SubtitleDocument } from "./src/subtitles";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus } from "./src/style-corpus";
-import { computeDuckingEnvelope, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
+import { computeDuckingEnvelope, duckLevelValueFromDb, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
 import { resolveSubjectFocal, type SubjectPoint } from "./src/subject-focus";
 import { annotateSpanTransitions, correctedFocalX, planSampleTimes, planShotFocalSpans, type FocalSpan, type TimedSubjectSample } from "./src/shot-focus";
 import {
@@ -1362,8 +1363,8 @@ function handleLearnClear(): void {
   toast("학습 예시를 초기화했습니다.", "info");
 }
 
-// 자막(발화) 구간을 근거로 BGM 덕킹 계획을 계산해 타임라인 마커로 표시한다.
-// Level 키프레임 자동 적용 대신, 사용자가 해당 구간에서 BGM 볼륨을 낮추도록 안내하는 폴백.
+// 자막(발화) 구간을 근거로 BGM 볼륨 레벨 키프레임을 실제 적용한다(runbook 39 인코딩 실측).
+// 지정 트랙에 적용할 클립이 없으면 기존 마커 폴백(수동 안내)으로 대체한다.
 async function handleDuckPlan(): Promise<void> {
   const controller = subtitleController;
   if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다.");
@@ -1373,6 +1374,19 @@ async function handleDuckPlan(): Promise<void> {
   }
   const rangeEnd = Math.max(...spans.map((span) => span.end));
   const envelope = computeDuckingEnvelope(spans, { start: 0, end: rangeEnd });
+  if (envelope.length === 0) throw new Error("덕킹할 발화 구간을 찾지 못했습니다.");
+  const trackNumber = Math.max(1, Math.min(99, Math.round(numberOf("duck-track-input", 2))));
+  try {
+    const applied = await busy.during("BGM 자동 덕킹을 적용하고 있습니다…", () =>
+      applyDuckingLevelKeyframes(trackNumber, envelope.map((kf) => ({ time: kf.time, gainDb: kf.gainDb })), duckLevelValueFromDb));
+    const warn = applied.warnings.length > 0 ? ` · ${applied.warnings.join(" ")}` : "";
+    activity.add(applied.warnings.length > 0 ? "warning" : "success",
+      `BGM 자동 덕킹 · A${trackNumber} 클립 ${applied.clipCount}개 · 키프레임 ${applied.keyframeCount}개${warn}`);
+    toast(`A${trackNumber} 트랙에 자동 덕킹을 적용했습니다 (클립 ${applied.clipCount} · 키프레임 ${applied.keyframeCount}).`, "success");
+    return;
+  } catch (error) {
+    activity.add("warning", `자동 덕킹 적용 불가(${errorMessage(error)}) — 마커 안내로 대체합니다.`);
+  }
   const ranges = duckRangesFromEnvelope(envelope);
   if (ranges.length === 0) {
     throw new Error("덕킹할 발화 구간을 찾지 못했습니다.");

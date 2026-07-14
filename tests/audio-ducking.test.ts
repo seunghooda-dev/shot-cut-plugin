@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   computeDuckingEnvelope,
+  duckLevelValueFromDb,
   duckRangesFromEnvelope,
   speechSpansFromCues,
   type DuckKeyframe,
@@ -129,5 +130,16 @@ describe("duckRangesFromEnvelope", () => {
       { time: 10, gainDb: -12 },
     ]);
     assert.deepEqual(ranges, [{ start: 5, end: 10 }]);
+  });
+});
+
+describe("duckLevelValueFromDb (Premiere 레벨 인코딩)", () => {
+  it("maps 0dB to the Host-measured default level value", () => {
+    assert.ok(Math.abs(duckLevelValueFromDb(0) - 0.17782794) < 1e-7);
+  });
+  it("maps duck gains logarithmically and clamps the range", () => {
+    assert.ok(Math.abs(duckLevelValueFromDb(-12) - 10 ** (-27 / 20)) < 1e-9);
+    assert.equal(duckLevelValueFromDb(100), duckLevelValueFromDb(15)); // 상한 +15dB
+    assert.equal(duckLevelValueFromDb(Number.NaN), duckLevelValueFromDb(0));
   });
 });
