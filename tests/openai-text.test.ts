@@ -580,3 +580,46 @@ describe("detectSubjectPoint", () => {
     await assert.rejects(() => client(fetcher).detectSubjectPoint({ bytes: Uint8Array.from([1]) }), /좌표가 올바르지 않습니다/u);
   });
 });
+
+describe("detectSubjectTimeline", () => {
+  const frame = (n: number) => ({ bytes: Uint8Array.from({ length: n }, (_v, i) => i % 251) });
+
+  it("sends one input_image per frame and filters/clamps indexed results", async () => {
+    let captured: any = null;
+    const fetcher = (async (_url: unknown, init: any) => {
+      captured = JSON.parse(String(init?.body ?? "{}"));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          output_text: JSON.stringify({ frames: [
+            { index: 0, x: 0.5, y: 0.3, confidence: 0.9 },
+            { index: 2, x: 1.7, y: -1, confidence: 0.8 }, // 클램프
+            { index: 9, x: 0.5, y: 0.5, confidence: 0.9 }, // 범위 밖 index → 제외
+            { index: 0, x: 0.1, y: 0.1, confidence: 0.1 }, // 중복 index → 제외
+            { index: 1, x: "bad", y: 0.5, confidence: 0.9 }, // 비정상 좌표 → 제외
+          ] }),
+        }),
+      } as Response;
+    }) as typeof fetch;
+    const result = await client(fetcher).detectSubjectTimeline([frame(10), frame(10), frame(10)]);
+    assert.deepEqual(result, [
+      { index: 0, x: 0.5, y: 0.3, confidence: 0.9 },
+      { index: 2, x: 1, y: 0, confidence: 0.8 },
+    ]);
+    const content = captured?.input?.[1]?.content;
+    assert.equal(content.filter((part: any) => part.type === "input_image").length, 3);
+    assert.equal(content.filter((part: any) => part.type === "input_text").length, 3);
+    assert.equal(captured?.text?.format?.name, "shortflow_subject_timeline");
+  });
+
+  it("rejects empty, too-many, and oversized batches before any network call", async () => {
+    let called = 0;
+    const fetcher = (async () => { called += 1; return { ok: true, status: 200, json: async () => ({}) } as Response; }) as typeof fetch;
+    const c = client(fetcher);
+    await assert.rejects(() => c.detectSubjectTimeline([]), /프레임이 없습니다/u);
+    await assert.rejects(() => c.detectSubjectTimeline(Array.from({ length: 25 }, () => frame(10))), /24장까지/u);
+    await assert.rejects(() => c.detectSubjectTimeline([frame(700_000), frame(700_000)]), /합계가 너무 큽니다/u);
+    assert.equal(called, 0);
+  });
+});

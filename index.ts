@@ -83,6 +83,7 @@ import { createSubtitleDocument, type SubtitleDocument } from "./src/subtitles";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus } from "./src/style-corpus";
 import { computeDuckingEnvelope, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
 import { resolveSubjectFocal, type SubjectPoint } from "./src/subject-focus";
+import { planSampleTimes, planShotFocalSpans, type FocalSpan, type TimedSubjectSample } from "./src/shot-focus";
 import {
   alignShortToOriginal,
   buildStyleExample,
@@ -927,8 +928,8 @@ async function handleAutoCutMarkers(): Promise<void> {
   toast(`${count}개 구간을 #sf 마커로 표시했습니다. QC 탭 '마커 검색'으로 검토·생성할 수 있습니다.`, "success");
 }
 
-// 세그먼트의 프레임 샘플 3장을 비전으로 감지해 컷 초점을 구한다. 실패 시 null(슬라이더 폴백).
-async function detectSegmentSubjectFocal(segment: HighlightCutSegment): Promise<{ x: number; y: number } | null> {
+// UXP 데이터 폴더 접근(프레임 샘플 저장용). 사용할 수 없으면 null.
+function frameDataFolderApi(): { fileSystem: any; formats: any } | null {
   let uxp: any;
   try {
     uxp = require("uxp");
@@ -938,7 +939,34 @@ async function detectSegmentSubjectFocal(segment: HighlightCutSegment): Promise<
   const fileSystem = uxp?.storage?.localFileSystem;
   const formats = uxp?.storage?.formats;
   if (typeof fileSystem?.getDataFolder !== "function") return null;
-  const dataFolder = await fileSystem.getDataFolder();
+  return { fileSystem, formats };
+}
+
+// exportSequenceFrame은 성공을 반환해도 파일이 디스크에 늦게 나타난다(Host 실측) — 재시도 읽기.
+async function readExportedFrameBytes(dataFolder: any, formats: any, filename: string): Promise<Uint8Array | null> {
+  let bytes: Uint8Array | null = null;
+  for (let attempt = 0; attempt < 12 && (!bytes || bytes.byteLength === 0); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    try {
+      const entry = await dataFolder.getEntry(filename);
+      const data = await entry.read({ format: formats?.binary });
+      bytes = data instanceof ArrayBuffer
+        ? new Uint8Array(data)
+        : ArrayBuffer.isView(data)
+          ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+          : null;
+    } catch {
+      bytes = null;
+    }
+  }
+  return bytes && bytes.byteLength > 0 ? bytes.slice() : null;
+}
+
+// 세그먼트의 프레임 샘플 3장을 비전으로 감지해 컷 초점을 구한다. 실패 시 null(슬라이더 폴백).
+async function detectSegmentSubjectFocal(segment: HighlightCutSegment): Promise<{ x: number; y: number } | null> {
+  const api = frameDataFolderApi();
+  if (!api) return null;
+  const dataFolder = await api.fileSystem.getDataFolder();
   const mid = (segment.start + segment.end) / 2;
   const times = [Math.min(segment.start + 0.7, mid), mid, Math.max(segment.end - 0.7, mid)];
   const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
@@ -946,29 +974,56 @@ async function detectSegmentSubjectFocal(segment: HighlightCutSegment): Promise<
   for (const time of times) {
     try {
       const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 640);
-      // exportSequenceFrame은 성공을 반환해도 파일이 디스크에 늦게 나타난다(Host 실측) — 재시도 대기.
-      let bytes: Uint8Array | null = null;
-      for (let attempt = 0; attempt < 12 && (!bytes || bytes.byteLength === 0); attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 400));
-        try {
-          const entry = await dataFolder.getEntry(filename);
-          const data = await entry.read({ format: formats?.binary });
-          bytes = data instanceof ArrayBuffer
-            ? new Uint8Array(data)
-            : ArrayBuffer.isView(data)
-              ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-              : null;
-        } catch {
-          bytes = null;
-        }
-      }
-      if (!bytes || bytes.byteLength === 0) continue;
-      points.push(await client.detectSubjectPoint({ bytes: bytes.slice(), mimeType: "image/png" }));
+      const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+      if (!bytes) continue;
+      points.push(await client.detectSubjectPoint({ bytes, mimeType: "image/png" }));
     } catch {
       // 샘플 하나의 실패는 무시하고 남은 샘플로 종합한다.
     }
   }
   return resolveSubjectFocal(points);
+}
+
+// 세그먼트 안의 카메라 컷까지 따라가는 샷 단위 초점 스팬을 감지한다(배치 비전 1회).
+// 자막 발화 중간 시점 위주로 프레임을 샘플링해 "말하는 사람"을 프레임별로 잡는다.
+async function detectSegmentShotSpans(segment: HighlightCutSegment): Promise<FocalSpan[] | null> {
+  const api = frameDataFolderApi();
+  if (!api) return null;
+  const controller = subtitleController;
+  const cueMidpoints: number[] = [];
+  if (controller) {
+    const wanted = new Set(segment.cueIds);
+    for (const cue of controller.document.cues) {
+      if (wanted.has(cue.cueId)) cueMidpoints.push((cue.start + cue.end) / 2);
+    }
+  }
+  const times = planSampleTimes(segment.start, segment.end, cueMidpoints, { maxSamples: 14, minGapSeconds: 1.5 });
+  if (times.length < 2) return null;
+  const dataFolder = await api.fileSystem.getDataFolder();
+  let frames: Array<{ bytes: Uint8Array; time: number }> = [];
+  for (const time of times) {
+    try {
+      const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 320);
+      const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+      if (bytes) frames.push({ bytes, time });
+    } catch {
+      // 샘플 하나 실패는 무시
+    }
+  }
+  if (frames.length < 2) return null;
+  // 배치 요청 바이트 상한(어댑터 1.2MB)에 맞춰 초과 시 절반씩 솎는다.
+  let total = frames.reduce((sum, frame) => sum + frame.bytes.byteLength, 0);
+  while (total > 1_150_000 && frames.length > 4) {
+    frames = frames.filter((_, index) => index % 2 === 0);
+    total = frames.reduce((sum, frame) => sum + frame.bytes.byteLength, 0);
+  }
+  const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
+  const detected = await client.detectSubjectTimeline(frames.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" })));
+  const samples: TimedSubjectSample[] = detected
+    .filter((item) => item.index >= 0 && item.index < frames.length)
+    .map((item) => ({ time: frames[item.index]!.time, x: item.x, y: item.y, confidence: item.confidence }));
+  const spans = planShotFocalSpans(samples, segment.start, segment.end);
+  return spans.length > 0 ? spans : null;
 }
 
 // 선택한 후보 구간을 각각 새 숏폼 시퀀스로 일괄 생성(기존 createShortsFromMarkers 재사용).
@@ -980,29 +1035,51 @@ async function handleAutoCutGenerate(): Promise<void> {
     return;
   }
   ensureAiConsent("AI 자동 컷 생성");
-  const focals = await busy.during("컷별 인물 위치를 감지하고 있습니다…", async () => {
-    const out: Array<{ x: number; y: number } | null> = [];
+  type SegmentFocalPlan = { spans?: FocalSpan[]; focal?: { x: number; y: number } };
+  const plans = await busy.during("컷별 인물 위치를 추적하고 있습니다…", async () => {
+    const out: SegmentFocalPlan[] = [];
     for (const segment of selected) {
-      const focal = await detectSegmentSubjectFocal(segment);
-      out.push(focal);
+      const title = segment.title.slice(0, 24);
+      let plan: SegmentFocalPlan = {};
+      // 1순위: 샷 단위 추적(카메라 컷마다 말하는 사람을 따라감).
+      try {
+        const spans = await detectSegmentShotSpans(segment);
+        if (spans) plan = { spans };
+      } catch {
+        // 배치 추적 실패 → 정적 감지로
+      }
+      // 2순위: 정적 인물 감지(세그먼트당 초점 1개). 3순위: 슬라이더.
+      if (!plan.spans) {
+        const focal = await detectSegmentSubjectFocal(segment);
+        if (focal) plan = { focal };
+      }
+      out.push(plan);
       activity.add(
-        focal ? "info" : "warning",
-        focal
-          ? `인물 초점 감지 · ${segment.title.slice(0, 24)} → x=${focal.x.toFixed(2)}`
-          : `인물 감지 실패(슬라이더 초점 사용) · ${segment.title.slice(0, 24)}`,
+        plan.spans || plan.focal ? "info" : "warning",
+        plan.spans
+          ? `샷 초점 추적 · ${title} → ${plan.spans.length}개 샷 (${plan.spans.map((span) => span.x.toFixed(2)).join("→")})`
+          : plan.focal
+            ? `인물 초점 감지 · ${title} → x=${plan.focal.x.toFixed(2)}`
+            : `인물 감지 실패(슬라이더 초점 사용) · ${title}`,
       );
     }
     return out;
   });
-  const segments: ShortSegmentInput[] = selected.map((segment, index) => ({
-    name: segment.title || `AutoCut_${index + 1}`,
-    comments: segment.reason,
-    start: segment.start,
-    end: segment.end,
-    duration: segment.duration,
-    index,
-    ...(focals[index] ? { focalX: focals[index]!.x, focalY: focals[index]!.y } : {}),
-  }));
+  const segments: ShortSegmentInput[] = selected.map((segment, index) => {
+    const plan = plans[index] ?? {};
+    // 정적 base 초점: 스팬이 있으면 첫 스팬(시작 훅 프레이밍), 아니면 정적 감지값.
+    const base = plan.spans?.[0] ?? plan.focal;
+    return {
+      name: segment.title || `AutoCut_${index + 1}`,
+      comments: segment.reason,
+      start: segment.start,
+      end: segment.end,
+      duration: segment.duration,
+      index,
+      ...(base ? { focalX: base.x, focalY: base.y } : {}),
+      ...(plan.spans ? { focalSpans: plan.spans } : {}),
+    };
+  });
   const result = await busy.during("자동 컷 구간을 생성하고 있습니다…", () =>
     createShortsFromMarkers(segments, createOptions(), (completed, total, name) => {
       setText("busy-message", `${completed}/${total} · ${name}`);

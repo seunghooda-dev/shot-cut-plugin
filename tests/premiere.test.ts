@@ -1835,3 +1835,27 @@ describe("setSequencePlayerPosition validation", () => {
     }
   });
 });
+
+describe("applyShotFocalPositionKeyframes source contract", () => {
+  // 샷 초점 키프레임도 모션과 동일한 Host 제약(§27-b): time-varying 선행 없이는 키프레임이
+  // 조용히 드롭된다. 소스 순서를 고정한다.
+  const shotBody = (): string => {
+    const source = readFileSync(path.resolve(__dirname, "../../src/premiere.ts"), "utf8");
+    const start = source.indexOf("async function applyShotFocalPositionKeyframes");
+    const end = source.indexOf("async function createShortFromSource", start);
+    return start >= 0 && end > start ? source.slice(start, end) : "";
+  };
+
+  it("enables time-varying before adding shot keyframes and uses focalReframePosition", () => {
+    const body = shotBody();
+    assert.ok(body.length > 0, "applyShotFocalPositionKeyframes body not found");
+    assert.ok(body.includes("createAddKeyframeAction(keyframe)"), "expected keyframe-adding actions");
+    assert.ok(
+      body.indexOf("createSetTimeVaryingAction(true)") >= 0
+        && body.indexOf("createSetTimeVaryingAction(true)") < body.indexOf("createAddKeyframeAction(keyframe)"),
+      "createSetTimeVaryingAction(true) must precede createAddKeyframeAction",
+    );
+    assert.ok(body.includes("focalReframePosition("), "expected focal position math reuse");
+    assert.ok(body.includes("TickTime.createWithSeconds(time)"), "expected keyframe time placement");
+  });
+});

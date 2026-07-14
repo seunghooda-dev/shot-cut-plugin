@@ -128,6 +128,8 @@ export interface CreateShortOptions {
   // 초점 좌표(0~1, 기본 중앙 0.5). fill 리프레임에서 크롭이 이 지점을 프레임에 유지한다.
   focalX?: number;
   focalY?: number;
+  // 샷 단위 초점 스팬(소스 절대 초). 있으면 정적 초점 대신 위치 키프레임으로 카메라 컷을 따라간다.
+  focalSpans?: Array<{ start: number; end: number; x: number; y: number }>;
   explicitRange?: { start: number; end: number };
 }
 
@@ -1870,6 +1872,85 @@ async function reframeSequence(
   };
 }
 
+// 샷 단위 초점 스팬을 위치 키프레임으로 적용한다(카메라 컷마다 크롭이 인물을 따라감).
+// 스팬 경계마다 hold 키프레임 2개(시작·끝-ε)를 넣어 팬(슬라이드) 없이 컷처럼 즉시 점프한다.
+// 검증된 모션 키프레임 패턴(§27-b: createSetTimeVaryingAction(true) 선행) 재사용.
+// 키프레임 시각은 클립 기준 0-기반 — 복제 시퀀스의 클립은 0에서 시작하므로 소스 절대 초와 일치.
+async function applyShotFocalPositionKeyframes(
+  project: Project,
+  sequence: Sequence,
+  spans: Array<{ start: number; end: number; x: number; y: number }>,
+  targetWidth: number,
+  targetHeight: number,
+  sourceWidth: number,
+  sourceHeight: number,
+): Promise<{ changed: number; warnings: string[] }> {
+  const valid = (Array.isArray(spans) ? spans : [])
+    .filter((span) => span && Number.isFinite(span.start) && Number.isFinite(span.end) && span.end > span.start
+      && Number.isFinite(span.x) && Number.isFinite(span.y));
+  if (valid.length === 0) return { changed: 0, warnings: [] };
+  const range: ResolvedTimeRange = {
+    start: valid[0]!.start,
+    end: valid[valid.length - 1]!.end,
+    duration: valid[valid.length - 1]!.end - valid[0]!.start,
+    usedFallback: false,
+  };
+  const candidates = await allVideoItems(sequence, "video");
+  const warnings: string[] = [];
+  const actions: ActionFactory[] = [];
+  let changed = 0;
+  const HOLD_EPSILON = 0.05;
+  for (const item of candidates.slice(0, 100)) {
+    try {
+      if (!(await overlapsRange(item, range))) continue;
+      if (typeof item.isAdjustmentLayer === "function" && await item.isAdjustmentLayer()) continue;
+      const component = await findMotionComponent(item);
+      if (!component) continue;
+      const params = await motionParams(component);
+      const position = params.position;
+      if (!position) continue;
+      if (typeof position.areKeyframesSupported === "function" && !(await position.areKeyframesSupported())) {
+        warnings.push("위치 키프레임을 지원하지 않는 클립은 정적 초점을 유지했습니다.");
+        continue;
+      }
+      const current: Keyframe = await position.getStartValue();
+      const rawValue = keyframeValue(current);
+      if (!readPointF(rawValue)) {
+        warnings.push("위치 값 형식을 인식하지 못한 클립은 정적 초점을 유지했습니다.");
+        continue;
+      }
+      actions.push(() => position.createSetTimeVaryingAction(true));
+      for (const span of valid) {
+        const point = focalReframePosition(
+          rawValue,
+          targetWidth,
+          targetHeight,
+          sourceWidth,
+          sourceHeight,
+          span.x,
+          span.y,
+        );
+        if (!point) continue;
+        const holdEnd = Math.max(span.start, span.end - HOLD_EPSILON);
+        for (const time of span.start === holdEnd ? [span.start] : [span.start, holdEnd]) {
+          actions.push(() => {
+            const keyframe = position.createKeyframe(ppro.PointF(point.x, point.y));
+            keyframe.position = ppro.TickTime.createWithSeconds(time);
+            return position.createAddKeyframeAction(keyframe);
+          });
+        }
+      }
+      changed += 1;
+    } catch (error) {
+      warnings.push(`샷 초점 키프레임 실패: ${errorMessage(error)}`);
+    }
+  }
+  if (actions.length > 0 && !commitActionFactories(project, actions, "ShortFlow: 샷 초점 키프레임")) {
+    throw new ShortFlowError("REFRAME_COMMIT_FAILED", "샷 초점 키프레임을 적용하지 못했습니다.");
+  }
+  return { changed, warnings: [...new Set(warnings)] };
+}
+
 async function createShortFromSource(
   project: Project,
   source: Sequence,
@@ -1892,6 +1973,24 @@ async function createShortFromSource(
     frameResult.oldHeight,
     options,
   );
+  // 샷 단위 초점 스팬이 있으면(fill 크롭에서만 의미) 정적 초점 위에 위치 키프레임을 얹는다.
+  const shotWarnings: string[] = [];
+  if (options.reframeMode === "fill" && Array.isArray(options.focalSpans) && options.focalSpans.length > 0) {
+    try {
+      const shot = await applyShotFocalPositionKeyframes(
+        project,
+        clone,
+        options.focalSpans,
+        options.width,
+        options.height,
+        frameResult.oldWidth,
+        frameResult.oldHeight,
+      );
+      shotWarnings.push(...shot.warnings);
+    } catch (error) {
+      shotWarnings.push(`샷 초점 키프레임을 건너뛰었습니다: ${errorMessage(error)}`);
+    }
+  }
   return {
     sequence: clone,
     sequenceName: String(clone.name ?? sanitizeSequenceName(options.name)),
@@ -1899,7 +1998,7 @@ async function createShortFromSource(
     height: options.height,
     range: sourceRange,
     reframe,
-    warnings: [...frameResult.warnings, ...reframe.warningMessages],
+    warnings: [...frameResult.warnings, ...reframe.warningMessages, ...shotWarnings],
   };
 }
 
@@ -1939,7 +2038,11 @@ export async function scanShortMarkers(defaultDuration: number): Promise<MarkerS
 }
 
 // 세그먼트별 초점(인물 감지 결과)을 받을 수 있게 MarkerSegment를 확장한 입력.
-export type ShortSegmentInput = MarkerSegment & { focalX?: number; focalY?: number };
+export type ShortSegmentInput = MarkerSegment & {
+  focalX?: number;
+  focalY?: number;
+  focalSpans?: Array<{ start: number; end: number; x: number; y: number }>;
+};
 
 export async function createShortsFromMarkers(
   segments: ShortSegmentInput[],
@@ -1968,6 +2071,8 @@ export async function createShortsFromMarkers(
         // 세그먼트별 인물 감지 초점이 있으면 슬라이더(baseOptions) 대신 사용 — 컷마다 다른 크롭.
         ...(typeof segment.focalX === "number" && Number.isFinite(segment.focalX) ? { focalX: segment.focalX } : {}),
         ...(typeof segment.focalY === "number" && Number.isFinite(segment.focalY) ? { focalY: segment.focalY } : {}),
+        // 샷 단위 초점 스팬이 있으면 위치 키프레임으로 카메라 컷을 따라간다.
+        ...(Array.isArray(segment.focalSpans) && segment.focalSpans.length > 0 ? { focalSpans: segment.focalSpans } : {}),
       }));
     } catch (error) {
       failures.push({ name, error: errorMessage(error) });
