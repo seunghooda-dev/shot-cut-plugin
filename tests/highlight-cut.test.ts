@@ -165,6 +165,23 @@ describe("planHighlightCuts", () => {
     assert.ok(segments.some((s) => Math.abs(s.end - 60) < 1e-9), "한 구간은 문장 경계 60초에서 끝나야 함");
   });
 
+  it("ranks a segment with a stronger opening hook higher", () => {
+    // 같은 구조인데 오프닝 텍스트만 다른 두 문서. 훅(질문·숫자·호기심)이 강한 쪽 점수가 높다.
+    const hooky: SubtitleDocument = {
+      version: 1,
+      projectKey: "hooky",
+      cues: [cue("c0", 0, 10, "3가지 비결은 뭘까?"), ...Array.from({ length: 19 }, (_, i) => cue(`c${i + 1}`, 10 + 2 * i, 12 + 2 * i))],
+    };
+    const plain: SubtitleDocument = {
+      version: 1,
+      projectKey: "plain",
+      cues: [cue("c0", 0, 10, "평범한 시작 문장."), ...Array.from({ length: 19 }, (_, i) => cue(`c${i + 1}`, 10 + 2 * i, 12 + 2 * i))],
+    };
+    const hookyScore = planHighlightCuts(hooky, [hl("c0")])[0]!.score;
+    const plainScore = planHighlightCuts(plain, [hl("c0")])[0]!.score;
+    assert.ok(hookyScore > plainScore, `${hookyScore} vs ${plainScore}`);
+  });
+
   it("prefers an outline (topic) boundary over a later sentence boundary when splitting", () => {
     // 모든 cue가 문장 끝이지만, 아웃라인 경계(c20)에서 잘라 주제 응집을 우선해야 한다.
     const doc = contiguousDoc(40); // cue i: start=2i, end=2i+2, 전부 "문장."

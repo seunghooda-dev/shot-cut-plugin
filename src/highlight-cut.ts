@@ -73,6 +73,21 @@ function overlaps(a: HighlightCutSegment, b: HighlightCutSegment): boolean {
   return a.start < b.end && b.start < a.end;
 }
 
+const HOOK_QUESTION = /[?？]/u;
+// 호기심·궁금증을 유발하는 오프닝 단어(숏폼 훅). 데이터가 아닌 순수 텍스트 신호.
+const HOOK_WORDS = /왜|어떻게|어째서|무엇|비결|비법|사실은|진짜|충격|반전|이유|방법|최고|절대|꿀팁|몰랐|놀라운/u;
+
+// 세그먼트 오프닝 텍스트의 훅 강도(0~1). 첫 3초에 시청 지속을 결정하는 상용 핵심 지표.
+function hookTextStrength(text: string): number {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) return 0;
+  let strength = 0;
+  if (HOOK_QUESTION.test(trimmed)) strength += 0.5;
+  if (HOOK_WORDS.test(trimmed)) strength += 0.4;
+  if (/\d/u.test(trimmed)) strength += 0.3;
+  return Math.min(1, strength);
+}
+
 // 한 cue를 중간에서 잘라야 할 때, limit 이하의 마지막 단어 끝(무음 경계)에 스냅한다.
 // 단어 타임스탬프가 없으면 limit 그대로.
 function wordSnapEnd(cue: CueMeta, limit: number): number {
@@ -202,7 +217,9 @@ function buildSegmentFromRange(
   const completeness = (cues[lo]!.sentenceStart ? 0.5 : 0) + (cues[hi]!.sentenceEnd ? 0.5 : 0);
   const durationFit = 1 - Math.min(1, Math.abs(duration - opt.idealDuration) / opt.idealDuration);
   const outlineScore = outlineAligned ? 1 : 0;
-  const score = 0.35 * density + 0.2 * hook + 0.2 * completeness + 0.15 * durationFit + 0.1 * outlineScore;
+  const base = 0.35 * density + 0.2 * hook + 0.2 * completeness + 0.15 * durationFit + 0.1 * outlineScore;
+  // 오프닝 훅은 가산 보너스(최대 +0.1)로 얹어 동점·근소 차의 순위를 훅 강한 쪽으로 기울인다.
+  const score = Math.min(1, base + 0.1 * hookTextStrength(cues[lo]!.text));
 
   return {
     start,
