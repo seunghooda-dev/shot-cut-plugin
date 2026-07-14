@@ -44,9 +44,11 @@ export function segmentsFromModelPlan(
     if (cues.length === 0) continue;
 
     const start = cues[0]!.start;
-    let end = cues[cues.length - 1]!.end;
+    // 겹치는 cue에서 잘리지 않도록 시작이 가장 이르지 않아도 실제 가장 늦게 끝나는 cue를 쓴다.
+    const endCue = cues.reduce((latest, cue) => (cue.end > latest.end ? cue : latest), cues[0]!);
+    let end = endCue.end;
     if (end - start > maxDuration) {
-      end = wordSnapEnd(cues[cues.length - 1]!.words ?? [], start, start + maxDuration);
+      end = wordSnapEnd(endCue.words ?? [], start, start + maxDuration);
     }
     if (!(end > start)) continue;
 

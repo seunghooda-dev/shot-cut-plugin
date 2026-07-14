@@ -68,8 +68,10 @@ export function detectSilenceGaps(
   if (rms.length === 0) return [];
   const peak = rms.reduce((max, value) => (value > max ? value : max), 0);
   if (!(peak > 0)) return [];
-  const threshold = peak * Math.min(1, Math.max(0, positive(opt.silenceRatio, 0.15)));
-  const minSilence = positive(opt.minSilenceMs, 200) / 1000;
+  // silenceRatio·minSilenceMs는 명시적 0(임계 0·무음 하한 없음)도 유효한 설정이라 그대로 존중한다.
+  const ratio = Number.isFinite(opt.silenceRatio) && opt.silenceRatio >= 0 ? Math.min(1, opt.silenceRatio) : 0.15;
+  const threshold = peak * ratio;
+  const minSilence = (Number.isFinite(opt.minSilenceMs) && opt.minSilenceMs >= 0 ? opt.minSilenceMs : 200) / 1000;
   const hop = positive(opt.hopMs, 25) / 1000;
 
   const gaps: SilenceGap[] = [];

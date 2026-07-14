@@ -318,7 +318,8 @@ export function planHighlightCuts(
     }
   }
 
-  const usable = segments.filter((s) => s.duration >= 1 && s.end > s.start);
+  // minDuration 미만(확장으로도 못 채운 고립 하이라이트)은 숏폼으로 부적합해 버린다.
+  const usable = segments.filter((s) => s.end > s.start && s.duration >= 1 && s.duration >= opt.minDuration);
   usable.sort((a, b) => b.score - a.score || a.start - b.start);
 
   const accepted: HighlightCutSegment[] = [];

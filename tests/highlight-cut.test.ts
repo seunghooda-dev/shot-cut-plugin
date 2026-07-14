@@ -150,6 +150,19 @@ describe("planHighlightCuts", () => {
     assert.equal(DEFAULT_HIGHLIGHT_CUT_OPTIONS.maxDuration, 60);
   });
 
+  it("drops an isolated highlight that cannot reach minDuration, keeps it when lowered", () => {
+    // c2가 고립(양쪽 gap 50·97 > mergeGap*1.5=12)이라 확장 불가 → 3초로만 남는다.
+    const doc: SubtitleDocument = {
+      version: 1,
+      projectKey: "iso",
+      cues: [cue("c0", 0, 3), cue("c1", 47, 50), cue("c2", 100, 103), cue("c3", 200, 203)],
+    };
+    assert.deepEqual(planHighlightCuts(doc, [hl("c2")]), []); // 3초 < 기본 minDuration 12 → 버림
+    const kept = planHighlightCuts(doc, [hl("c2")], null, { minDuration: 2, idealDuration: 2 });
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0]!.duration, 3);
+  });
+
   it("splits a long highlight run into multiple sentence-bounded segments under maxDuration", () => {
     // 40개 연속 cue, 5개마다(i%5===4) 문장 끝. cue2..cue35에 하이라이트(span 68초 > 60).
     const cues: SubtitleCue[] = [];

@@ -76,6 +76,17 @@ describe("segmentsFromModelPlan", () => {
   it("returns [] for no shorts", () => {
     assert.deepEqual(segmentsFromModelPlan(doc(5), []), []);
   });
+
+  it("uses the latest-ending cue for the segment end (overlapping cues)", () => {
+    const overlap: SubtitleDocument = {
+      version: 1,
+      projectKey: "ov",
+      cues: [cue("a", 0, 30), cue("b", 5, 10)], // a가 b보다 늦게 끝남
+    };
+    const s = segmentsFromModelPlan(overlap, [short(["a", "b"], 0.8)])[0]!;
+    assert.equal(s.start, 0);
+    assert.equal(s.end, 30); // b.end(10)이 아니라 max end
+  });
 });
 
 describe("validateAnalysisResponse (shorts-plan)", () => {

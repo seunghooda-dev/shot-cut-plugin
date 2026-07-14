@@ -48,6 +48,28 @@ describe("audio-silence", () => {
     assert.equal(snapCutPointToSilence(5, gaps, 0.5), 5); // 먼 지점은 그대로
   });
 
+  it("respects an explicit silenceRatio of 0 instead of the default", () => {
+    const rate = 1000;
+    const samples: number[] = [];
+    for (let i = 0; i < 3 * rate; i += 1) {
+      const t = i / rate;
+      samples.push(t >= 1 && t < 2 ? 0.05 : 0.5); // 조용하지만 완전 무음은 아님
+    }
+    assert.equal(detectSilenceGaps(samples, rate).length, 1); // 기본 0.15: 조용한 구간을 무음으로
+    assert.equal(detectSilenceGaps(samples, rate, { silenceRatio: 0 }).length, 0); // 0: 순수 무음만
+  });
+
+  it("respects an explicit minSilenceMs of 0", () => {
+    const rate = 1000;
+    const samples: number[] = [];
+    for (let i = 0; i < rate; i += 1) {
+      const t = i / rate;
+      samples.push(t >= 0.5 && t < 0.55 ? 0 : 0.5); // 50ms 무음
+    }
+    assert.equal(detectSilenceGaps(samples, rate).length, 0); // 기본 200ms 하한 → 무시
+    assert.ok(detectSilenceGaps(samples, rate, { minSilenceMs: 0 }).length >= 1); // 0 → 검출
+  });
+
   it("ignores short quiet dips below minSilenceMs", () => {
     const rate = 1000;
     const samples: number[] = [];
