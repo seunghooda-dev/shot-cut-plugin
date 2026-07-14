@@ -787,3 +787,15 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 - 학습 섹션 `.autocut-learn` **254×256**, 버튼 3개 각 238×34. "숏폼으로 학습" 버튼 초기 **비활성**(원본 미지정, 정확). `learn-status` "학습 예시 0개".
 - 코퍼스 localStorage 주입 후 리로드 → `learn-status` **"학습 예시 1개"** 반영(loadStyleCorpus·정규화·renderLearnStatus 정상). 콘솔 오류 0.
 - **실제-AI 엔드투엔드는 사용자 게이트**(관례): 자막 로드=네이티브 피커 + 유료 호출. 판단·학습 순수 로직은 25 유닛으로 고정, shorts-plan은 기존 분석 플럼빙(실 200 Host 검증 §25-f) 재사용, 폴백은 §29 검증된 휴리스틱. 남은 검증 = 실제 원본+숏폼 자막으로 학습→shorts-plan 실 200→스타일 반영 후보 확인.
+
+## 31. 야간 /goal 자율 배치 — 자동 컷 상용화 연장(2026-07-14 심야)
+
+사용자 /goal: "백로그 순서대로 모두 진행, 사용자 컨트롤/승인 필요한 건 최후순위, 2시간 자율, 필요시 서브에이전트". 게이트 green + 커밋 단위로 안전하게 진행.
+
+- **A1 오디오 무음·에너지 순수 코어**(`src/audio-silence.ts`, 유닛5): RMS 곡선·무음 gap 검출·컷 스냅 프리미티브. 라이브 배선(시퀀스 오디오 추출)은 Host 오디오 필요라 후순위.
+- **A2 자동 컷 → #sf 타임라인 마커**(`writeShortsMarkers`): 선택 후보를 활성 시퀀스에 #sf 코멘트 마커로 표시 → 기존 `scanShortMarkers`가 인식 → QC '마커 검색'으로 검토·생성 연결. 검증된 `createAddMarkerAction` 패턴(§21) 재사용. Tier1: 버튼 DOM 존재·바인딩·콘솔0(`cdt-markers-smoke.mjs`).
+- **A4 distillStyleProfile**: 학습 예시→선호 길이 프로필 한 줄 가이드, few-shot과 함께 shorts-plan 프롬프트에 주입.
+- **E1**: `tests/*.wav`·`docs/.pdca-snapshots/` gitignore(커밋 노이즈 제거).
+- **C3 QA 감사**: 순수 로직(highlight-cut·shorts-plan·audio-silence·shorts-learning·premiere 리프레임/마커) 서브에이전트 읽기전용 감사 → 발견 사항 반영.
+
+**후순위(사용자 세션·승인·리스크)**: A3 실 STT→자동컷(유료 STT), A5 단일 파일-쌍 학습 UX, C1 다양한 소스 리프레임(중첩 시퀀스 Host 검증 필요), C2 리프레임 후 미세조정 UI, **D 자동 덕킹 apply(dB↔Premiere Level 매핑 Host 미탐색 — 리스크, 안 되면 덕킹 계획을 마커로 출력하는 폴백)**, B 실-AI 엔드투엔드, E2 CCX 최종화.
