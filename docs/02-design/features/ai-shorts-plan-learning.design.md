@@ -2,7 +2,7 @@
 
 > **Summary**: 자동 컷의 "판단"을 모델로 더 옮기는 `shorts-plan` 분석 액션(Phase 1)과, 사용자가 준 (원본+숏폼) 샘플에서 편집 스타일을 few-shot으로 학습하는 파이프라인(Phase 2). 파인튜닝이 아니라 예시 학습 — 샘플 몇 개로 즉시, 재학습 없이 스타일을 반영한다.
 >
-> **Project**: shortflow-studio · **Date**: 2026-07-14 · **Status**: P1 완료·게이트 green / P2 순수 코어(정렬·예시·few-shot 직렬화) 완료 / 남은 것: 스타일 코퍼스 저장 + "샘플로 학습" UI·STT 배선 + 코퍼스 주입 (사용자: "샘플 학습 파이프라인까지 한번에")
+> **Project**: shortflow-studio · **Date**: 2026-07-14 · **Status**: ✅ 전 단계 완료·게이트 1645/1645·Tier1 Host 통과. P1(shorts-plan 판단) + P2(정렬·예시·코퍼스 저장·"샘플로 학습" UI·코퍼스 주입) 배선 완료. 실제-AI 엔드투엔드만 사용자 게이트(자막 로드+유료). (사용자: "샘플 학습 파이프라인까지 한번에 · 끝까지 완벽하게")
 
 ## 1. 배경·범위
 
@@ -80,7 +80,7 @@ interface StyleExample { transcript: string; chosen: Array<{ cueIds: string[]; h
 | P1-b | `segmentsFromModelPlan` 순수 + `validateAnalysisResponse` 확장 | ✅ 유닛 11 `cfa4596` |
 | P1-c | `planAutoCuts` shorts-plan 우선·폴백 배선 | ✅ `cfa4596` |
 | P2-a | `alignShortToOriginal` 순수 | ✅ 유닛 6 `f99e5e4` |
-| P2-b | `buildStyleExample`·`formatStyleExamplesForPrompt` 순수 | ✅ 유닛 3 (본 커밋) / 코퍼스 저장·`distillStyleProfile`은 남음 |
-| P2-c | UI "샘플로 학습" 흐름 + STT 배선 + 코퍼스 주입(`planAutoCuts`의 styleExamples 슬롯) | 남음 (배선·Host) |
+| P2-b | `buildStyleExample`·`formatStyleExamplesForPrompt` 순수 + `style-corpus` 저장(정규화·상한) | ✅ 유닛 3+5 `968ea34`·본 커밋 |
+| P2-c | "샘플로 학습" UI(원본 지정→숏폼 정렬→코퍼스) + `handleAutoCutScan`이 코퍼스를 few-shot 주입 | ✅ 배선·Tier1 Host 통과 |
 
-각 단계 독립 게이트·커밋. Host 실AI는 자막 로드+유료라 사용자 게이트(관례). **남은 것은 저장+UI+STT 배선(기계적)** — 순수 판단·학습 로직은 전부 완료·테스트됨.
+각 단계 독립 게이트·커밋. **전 단계 완료.** 실제-AI 엔드투엔드만 자막 로드+유료라 사용자 게이트. `distillStyleProfile`(다수 예시 압축)은 verbatim 예시로 충분해 보류. **학습 흐름 v1**: 원본 자막 로드→"원본으로 지정"→그 원본으로 만든 숏폼 자막 로드→"숏폼으로 학습"→`alignShortToOriginal`→`buildStyleExample`→코퍼스. 두 전사를 순차로 편집기에 올리는 방식이라 별도 STT 플럼빙 불요(기존 STT/SRT 로드 재사용). 단일 파일-쌍 UX는 후속 개선 여지.

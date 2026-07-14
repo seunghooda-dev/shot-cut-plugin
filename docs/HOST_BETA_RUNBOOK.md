@@ -773,3 +773,17 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 - **Tier1(무료, `cdt-autocut-ui.mjs`)**: 숏 탭에서 `.autocut-card` **284×221**, `#auto-cut-scan-btn` **238×34**(텍스트 정확), candidates 컨테이너 hidden(0×0), consent 반영, 콘솔 오류 0. 카드 렌더·이벤트 바인딩 정상. (자막 autosave 키가 이미 존재해 유료 AI 호출은 생략.)
 - **실제-AI 엔드투엔드는 자연히 사용자 게이트**: 자막 로드 경로(STT·SRT)가 전부 네이티브 피커라 CDP로 못 몰고, autosave 주입은 `deterministicHash`+`stableHash`+strict envelope 다중 재현이 필요해 취약. 대신 **모든 구성요소가 이미 독립 검증됨** — planHighlightCuts(유닛 13), `interview-highlight`·`edit-outline` 분석(이전 세션 실 200 응답 Host 검증, §25-f), `validateAnalysisResponse`(유닛), `createShortsFromMarkers`(기존 Host 검증 배치 경로). planAutoCuts는 이들을 잇는 얇은 글루(타입 검증됨)이고 Tier1이 UI 도달을 확인. Sora·썸네일 해피패스와 동일 관례(실 콘텐츠+유료 호출 필요 → 사용자 세션에서 검증).
 - **남은 사용자 게이트 검증**: 실제 자막 로드된 시퀀스에서 "AI 하이라이트로 자동 컷" → 실 분석 200 → 후보 랭킹 렌더 → 선택 생성으로 여러 숏폼(초점 리프레임 포함) 생성.
+
+## 30. AI 숏폼 플랜(모델 판단) + 샘플 스타일 학습 — 배선 완료·Host Tier1(2026-07-14)
+
+§28 답변에서 "판단이 사람/마커/자막제안까지"였던 것을, 사용자가 "판단을 모델로 더 옮기고 내 샘플로 학습"으로 확장 지시(파인튜닝 아님 — few-shot 예시 학습). 설계 `docs/02-design/features/ai-shorts-plan-learning.design.md`. 순수 판단·학습 로직 25 유닛 + 배선 완료, 게이트 **1645/1645**.
+
+### 30-a. 구현
+- **Phase 1 판단**(`cfa4596`): `shorts-plan` 분석 액션 — 모델이 transcript에서 cueId집합+훅·제목·점수·근거로 숏폼 직접 제안. 순수 `segmentsFromModelPlan`이 검증·시간매핑·클램프·겹침제거. `planAutoCuts`가 shorts-plan 우선→실패시 기존 하이라이트+아웃라인 휴리스틱 폴백.
+- **Phase 2 학습**(`f99e5e4`·`968ea34`·본 커밋): `alignShortToOriginal`(숏폼 전사→원본 cueId 역추적, 토큰 containment+coverage) → `buildStyleExample`→`formatStyleExamplesForPrompt`(few-shot) → `style-corpus`(영속 저장·정규화·상한 4). `handleAutoCutScan`이 코퍼스를 `planAutoCuts`의 styleExamples로 주입.
+- **학습 UI**(숏 탭 자동 컷 카드): "현재 자막을 원본으로 지정" → 그 원본으로 만든 숏폼 자막 로드 → "숏폼으로 학습"(정렬→예시→코퍼스). 두 전사를 순차로 편집기에 올려 기존 STT/SRT 로드 재사용(별도 STT 플럼빙 불요).
+
+### 30-b. Host Tier1(`cdt-learn-ui.mjs`, 무료)
+- 학습 섹션 `.autocut-learn` **254×256**, 버튼 3개 각 238×34. "숏폼으로 학습" 버튼 초기 **비활성**(원본 미지정, 정확). `learn-status` "학습 예시 0개".
+- 코퍼스 localStorage 주입 후 리로드 → `learn-status` **"학습 예시 1개"** 반영(loadStyleCorpus·정규화·renderLearnStatus 정상). 콘솔 오류 0.
+- **실제-AI 엔드투엔드는 사용자 게이트**(관례): 자막 로드=네이티브 피커 + 유료 호출. 판단·학습 순수 로직은 25 유닛으로 고정, shorts-plan은 기존 분석 플럼빙(실 200 Host 검증 §25-f) 재사용, 폴백은 §29 검증된 휴리스틱. 남은 검증 = 실제 원본+숏폼 자막으로 학습→shorts-plan 실 200→스타일 반영 후보 확인.

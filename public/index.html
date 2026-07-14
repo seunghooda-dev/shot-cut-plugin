@@ -514,6 +514,19 @@
               <p class="action-note">선택한 구간을 각각 새 숏폼 시퀀스로 만듭니다(초점 리프레임 포함).</p>
               <button id="auto-cut-generate-btn" class="primary-button" type="button">선택 구간 생성</button>
             </div>
+
+            <div class="autocut-learn">
+              <div class="autocut-learn-head">
+                <strong>내 스타일 학습 (선택)</strong>
+                <small>원본 자막을 불러와 '원본으로 지정' → 그 원본으로 만든 숏폼 자막을 불러와 '숏폼으로 학습'. 다음 자동 컷이 당신 편집 스타일을 모방합니다.</small>
+              </div>
+              <div class="autocut-learn-actions">
+                <button id="learn-capture-original-btn" class="secondary-button" type="button">현재 자막을 원본으로 지정</button>
+                <button id="learn-from-short-btn" class="secondary-button" type="button" disabled>현재 자막을 숏폼으로 → 학습</button>
+                <button id="learn-clear-btn" class="secondary-button" type="button">학습 초기화</button>
+              </div>
+              <p id="learn-status" class="autocut-learn-status">학습 예시 0개</p>
+            </div>
           </div>
 
           <div class="settings-card motion-card">

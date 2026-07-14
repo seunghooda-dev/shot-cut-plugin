@@ -75,7 +75,9 @@ import {
 } from "./src/asset-rights";
 import { SubtitleController, type SubtitleAiRequest, type SubtitleAnalysisRequest } from "./src/subtitle-controller";
 import { resolveAutomationTranscript, subtitleDocumentToAutomationTranscript } from "./src/automation-transcript";
-import { createSubtitleDocument } from "./src/subtitles";
+import { createSubtitleDocument, type SubtitleDocument } from "./src/subtitles";
+import { addStyleExample, clearStyleCorpus, loadStyleCorpus } from "./src/style-corpus";
+import { alignShortToOriginal, buildStyleExample, formatStyleExamplesForPrompt } from "./src/shorts-learning";
 import { OpenAITextClient, chunkSubtitleCues } from "./src/openai-text";
 import {
   buildReferencePrompt,
@@ -825,13 +827,19 @@ async function handleApplyClipMotion(): Promise<void> {
 }
 
 let autoCutSegments: HighlightCutSegment[] = [];
+// 학습 흐름: 현재 자막을 원본으로 지정해 두었다가, 숏폼 자막과 정렬해 스타일 예시를 뽑는다.
+let pendingLearnOriginal: SubtitleDocument | null = null;
 
-// AI 하이라이트+아웃라인 분석 → 자막 타임코드 근거로 숏폼 컷 후보를 랭킹해 제안한다.
+// AI가 자막 타임코드를 근거로 숏폼 컷 후보를 랭킹해 제안한다(shorts-plan 우선, 스타일 코퍼스 few-shot 주입).
 async function handleAutoCutScan(): Promise<void> {
   ensureAiConsent("AI 자동 컷");
   const controller = subtitleController;
   if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다. 패널을 다시 열어 주세요.");
-  autoCutSegments = await controller.planAutoCuts({ maxDuration: syncSettingsFromUI().maxDuration });
+  const styleExamples = formatStyleExamplesForPrompt(loadStyleCorpus());
+  autoCutSegments = await controller.planAutoCuts(
+    { maxDuration: syncSettingsFromUI().maxDuration },
+    styleExamples || undefined,
+  );
   renderAutoCutCandidates();
   if (autoCutSegments.length === 0) {
     activity.add("warning", "AI 자동 컷: 후보 0개");
@@ -907,6 +915,61 @@ async function handleAutoCutGenerate(): Promise<void> {
   result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
   toast(`${result.created.length}개 숏폼 시퀀스를 생성했습니다.`, result.failures.length ? "warning" : "success");
   await refreshStatus(true);
+}
+
+// 학습된 스타일 예시 수 + 원본 지정 상태를 표시하고, '숏폼으로 학습' 버튼 활성화를 갱신한다.
+function renderLearnStatus(): void {
+  const count = loadStyleCorpus().length;
+  const pending = pendingLearnOriginal ? " · 원본 지정됨" : "";
+  setText("learn-status", `학습 예시 ${count}개${pending}`);
+  const fromShortBtn = optionalElement<HTMLButtonElement>("learn-from-short-btn");
+  if (fromShortBtn) fromShortBtn.disabled = !pendingLearnOriginal;
+}
+
+// 현재 편집 중인 자막을 학습 '원본'으로 스냅샷한다(이후 숏폼 자막과 정렬).
+function handleLearnCaptureOriginal(): void {
+  const controller = subtitleController;
+  if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다.");
+  const doc = controller.document;
+  if (doc.cues.length === 0) throw new Error("먼저 원본 자막을 불러오세요(STT 또는 SRT).");
+  pendingLearnOriginal = doc;
+  renderLearnStatus();
+  activity.add("info", `학습 원본 지정 · 큐 ${doc.cues.length}개`);
+  toast("원본으로 지정했습니다. 이제 숏폼 자막을 불러온 뒤 '숏폼으로 학습'을 누르세요.", "success");
+}
+
+// 현재 자막(숏폼)을 지정해 둔 원본과 정렬해 스타일 예시를 코퍼스에 추가한다.
+async function handleLearnFromShort(): Promise<void> {
+  const controller = subtitleController;
+  if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다.");
+  if (!pendingLearnOriginal) throw new Error("먼저 '현재 자막을 원본으로 지정'을 누르세요.");
+  const short = controller.document;
+  if (short.cues.length === 0) throw new Error("숏폼 자막을 먼저 불러오세요.");
+  const alignment = alignShortToOriginal(pendingLearnOriginal, short);
+  if (alignment.spans.length === 0) {
+    toast(
+      `숏폼이 원본과 충분히 매칭되지 않았습니다(일치도 ${Math.round(alignment.coverage * 100)}%). 원본 오디오를 잘라 만든 숏폼인지 확인해 주세요.`,
+      "warning",
+    );
+    return;
+  }
+  const example = buildStyleExample(pendingLearnOriginal, alignment.spans);
+  if (!example) {
+    toast("학습 예시를 만들지 못했습니다.", "warning");
+    return;
+  }
+  const corpus = addStyleExample(example);
+  pendingLearnOriginal = null;
+  renderLearnStatus();
+  activity.add("success", `AI 자동 컷 학습 · 예시 ${corpus.length}개 (일치도 ${Math.round(alignment.coverage * 100)}%)`);
+  toast(`학습했습니다. 스타일 예시 ${corpus.length}개가 다음 자동 컷에 반영됩니다.`, "success");
+}
+
+function handleLearnClear(): void {
+  clearStyleCorpus();
+  pendingLearnOriginal = null;
+  renderLearnStatus();
+  toast("학습 예시를 초기화했습니다.", "info");
 }
 
 async function handleExportVideo(): Promise<void> {
@@ -1208,6 +1271,9 @@ function bindCoreEvents(): void {
   bind("create-short-btn", "click", guarded(() => markersQcPanel.createShort(), "숏폼 생성 실패"));
   bind("auto-cut-scan-btn", "click", guarded(handleAutoCutScan, "AI 자동 컷 분석 실패"));
   bind("auto-cut-generate-btn", "click", guarded(handleAutoCutGenerate, "자동 컷 생성 실패"));
+  bind("learn-capture-original-btn", "click", guarded(async () => handleLearnCaptureOriginal(), "학습 원본 지정 실패"));
+  bind("learn-from-short-btn", "click", guarded(handleLearnFromShort, "숏폼으로 학습 실패"));
+  bind("learn-clear-btn", "click", guarded(async () => handleLearnClear(), "학습 초기화 실패"));
   bind("scan-markers-btn", "click", guarded(() => markersQcPanel.scanMarkers(), "마커 검색 실패"));
   bind("batch-create-btn", "click", guarded(() => markersQcPanel.batchCreate(), "일괄 생성 실패"));
   bind("add-story-markers-btn", "click", guarded(() => markersQcPanel.addStoryMarkers(), "스토리 마커 추가 실패"));
@@ -1270,6 +1336,7 @@ async function bootstrap(): Promise<void> {
   initialized = true;
   applySettingsToUI();
   bindCoreEvents();
+  renderLearnStatus();
   diagnosticsPanel.render(null);
   await assetBrowserPanel.initialize();
   renderAssetRights(null);
