@@ -17,6 +17,8 @@ export interface AdjustPanelOptions {
   ) => Promise<{ changed: number; warnings: string[] }>;
   /** 프로젝트의 현재 시퀀스 이름 목록(없어진 시퀀스 계획 정리용). */
   listSequenceNames: () => Promise<string[]>;
+  /** 숏폼의 지정 시각(숏폼 로컬 초) 프레임 PNG 바이트(미리보기용). 실패·미지원이면 null. */
+  exportPreviewFrame?: (record: ShotPlanRecord, seconds: number) => Promise<Uint8Array | null>;
   runBusy: <T>(message: string, task: () => Promise<T>) => Promise<T>;
   onActivity: (level: "info" | "success" | "warning" | "error", message: string) => void;
 }
@@ -37,13 +39,45 @@ function describePlan(plan: ShotPlanRecord): string {
   return `${plan.sequenceName} · ${plan.spans.length}샷 · ${seconds}초`;
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let offset = 0; offset < bytes.byteLength; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
 export function createAdjustPanel(options: AdjustPanelOptions): { refresh: () => void } {
   let plans: ShotPlanRecord[] = [];
+  // 미리보기 경합 가드 — 마지막 요청의 결과만 반영한다.
+  let previewToken = 0;
 
   const selectedPlan = (): ShotPlanRecord | null => {
     const select = optionalElement<HTMLSelectElement>("adjust-plan-select");
     if (!select || !select.value) return null;
     return plans.find((plan) => plan.sequenceName === select.value) ?? null;
+  };
+
+  /** 선택한 숏폼의 첫 스팬 중앙 프레임을 미리보기로 그린다(스팬 시각은 원본 기준 → 숏폼 로컬로 변환). */
+  const renderPreview = async (): Promise<void> => {
+    const image = optionalElement<HTMLImageElement>("adjust-preview");
+    if (!image) return;
+    const plan = selectedPlan();
+    const port = options.exportPreviewFrame;
+    previewToken += 1;
+    const token = previewToken;
+    image.hidden = true;
+    if (!plan || !port || plan.spans.length === 0) return;
+    const span = plan.spans[0]!;
+    const localSeconds = Math.max(0, (span.start + span.end) / 2 - plan.segment.start);
+    try {
+      const bytes = await port(plan, localSeconds);
+      if (token !== previewToken || !bytes || bytes.byteLength === 0) return;
+      image.src = `data:image/png;base64,${bytesToBase64(bytes)}`;
+      image.hidden = false;
+    } catch {
+      // 미리보기는 보조 기능 — 실패는 조용히 숨김 유지(일부 시퀀스는 프레임 내보내기가 거부될 수 있다).
+    }
   };
 
   const renderValues = (): void => {
@@ -78,7 +112,12 @@ export function createAdjustPanel(options: AdjustPanelOptions): { refresh: () =>
       option.textContent = describePlan(plan);
       select.appendChild(option);
     }
-    if (previous && plans.some((plan) => plan.sequenceName === previous)) select.value = previous;
+    if (previous && plans.some((plan) => plan.sequenceName === previous)) {
+      select.value = previous;
+    } else if (plans.length > 0) {
+      // UXP는 옵션 재구성 후 value를 자동 선택하지 않을 수 있다 — 첫 계획을 기본 선택.
+      select.value = plans[0]!.sequenceName;
+    }
     const disabled = plans.length === 0;
     for (const id of ["adjust-apply-btn", "adjust-reset-btn", "adjust-remove-btn"]) {
       const button = optionalElement<HTMLButtonElement>(id);
@@ -86,6 +125,7 @@ export function createAdjustPanel(options: AdjustPanelOptions): { refresh: () =>
     }
     renderValues();
     renderInfo();
+    void renderPreview();
   };
 
   const refresh = (): void => {
@@ -170,7 +210,10 @@ export function createAdjustPanel(options: AdjustPanelOptions): { refresh: () =>
     });
   });
   optionalElement<HTMLButtonElement>("adjust-remove-btn")?.addEventListener("click", handleRemove);
-  optionalElement<HTMLSelectElement>("adjust-plan-select")?.addEventListener("change", renderInfo);
+  optionalElement<HTMLSelectElement>("adjust-plan-select")?.addEventListener("change", () => {
+    renderInfo();
+    void renderPreview();
+  });
   for (const id of ["adjust-dx-input", "adjust-dy-input", "adjust-zoom-input"]) {
     optionalElement<HTMLInputElement>(id)?.addEventListener("input", renderValues);
   }

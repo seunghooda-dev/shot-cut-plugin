@@ -24,6 +24,7 @@ import {
   activateSequenceByContextKey,
   applyShotFocalAdjustment,
   attachTranscriptToActiveSequence,
+  exportSequenceFrameByName,
   listSequenceNames,
   type ShortSegmentInput,
   errorMessage,
@@ -579,6 +580,21 @@ const adjustPanel = createAdjustPanel({
     record.source.height,
   ),
   listSequenceNames,
+  // 첫 샷 중앙 프레임 미리보기 — 내보낸 임시 PNG를 읽고 바로 지운다.
+  exportPreviewFrame: async (record, seconds) => {
+    const api = frameDataFolderApi();
+    if (!api) return null;
+    const dataFolder = await api.fileSystem.getDataFolder();
+    const { filename } = await exportSequenceFrameByName(record.sequenceName, seconds, String(dataFolder.nativePath), 180);
+    const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+    try {
+      const entry = await dataFolder.getEntry(filename);
+      await entry.delete();
+    } catch {
+      // 임시 파일 삭제 실패는 무시(다음 부팅 정리 대상)
+    }
+    return bytes;
+  },
   runBusy: (message, task) => busy.during(message, task),
   onActivity: (level, message) => activity.add(level, message),
 });
@@ -821,6 +837,8 @@ const markersQcPanel = createMarkersQcPanel({
   scanShortMarkers,
   createShortsFromMarkers,
   addStoryMarkers,
+  readContextKey: readActiveContextKey,
+  activateContextKey: activateSequenceByContextKey,
 });
 
 function applyPersistentResult(

@@ -27,6 +27,9 @@ export interface MarkersQcPanelOptions {
     onProgress: (completed: number, total: number, name: string) => void,
   ) => Promise<{ created: CreateShortResult[]; failures: Array<{ name: string; error: string }> }>;
   addStoryMarkers: (hookSeconds: number, ctaSeconds: number) => Promise<number>;
+  /** 마커를 검색한 원본 시퀀스 복원용(§46-b — 생성이 끝나면 활성이 숏폼으로 바뀐다). */
+  readContextKey: () => Promise<string>;
+  activateContextKey: (key: string) => Promise<boolean>;
 }
 
 function qcIcon(level: QCItem["level"]): string {
@@ -95,6 +98,8 @@ export function createMarkersQcPanel(options: MarkersQcPanelOptions): {
   addStoryMarkers(): Promise<void>;
 } {
   let markerSegments: MarkerSegment[] = [];
+  // 마커를 검색한 시점의 원본 시퀀스 컨텍스트 — 일괄 생성 전에 복원 근거로 쓴다(§46-b).
+  let markerSourceKey = "";
 
   function selectedMarkerSegments(): MarkerSegment[] {
     const checkboxes = document.querySelectorAll<HTMLInputElement>("#marker-list input[data-segment-index]");
@@ -140,9 +145,22 @@ export function createMarkersQcPanel(options: MarkersQcPanelOptions): {
 
   async function scanMarkers(): Promise<void> {
     const current = options.syncSettings();
+    markerSourceKey = await options.readContextKey().catch(() => "");
     markerSegments = await options.runBusy("숏폼 마커를 검색하고 있습니다…", () => options.scanShortMarkers(current.maxDuration));
     renderMarkers(markerSegments);
     options.onActivity("info", `숏폼 마커 구간 ${markerSegments.length}개 검색`);
+  }
+
+  // 마커 구간은 검색 시점의 원본 시퀀스를 전제한다 — 활성이 바뀌어 있으면 원본을 자동 재활성화한다.
+  async function ensureMarkerSourceActive(): Promise<void> {
+    if (!markerSourceKey) return;
+    const current = await options.readContextKey().catch(() => "");
+    if (current === markerSourceKey) return;
+    const restored = await options.activateContextKey(markerSourceKey);
+    if (!restored) {
+      throw new Error("마커를 검색한 원본 시퀀스를 찾지 못했습니다. 원본 시퀀스를 활성화하고 마커를 다시 검색해 주세요.");
+    }
+    options.onActivity("info", "마커 원본 시퀀스를 다시 활성화했습니다.");
   }
 
   async function batchCreate(): Promise<void> {
@@ -151,6 +169,7 @@ export function createMarkersQcPanel(options: MarkersQcPanelOptions): {
       toast("일괄 생성할 마커 구간을 선택해 주세요.", "warning");
       return;
     }
+    await ensureMarkerSourceActive();
     const createShortOptions = options.getCreateOptions();
     const result = await options.runBusy(`${selected.length}개 마커 구간을 생성하고 있습니다…`, () =>
       options.createShortsFromMarkers(selected, createShortOptions, (completed, total, name) => {

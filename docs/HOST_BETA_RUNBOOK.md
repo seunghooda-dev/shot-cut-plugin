@@ -957,3 +957,12 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 - 부수: README·CLAUDE.md에 `host:smoke` 명령과 단일 세션 원칙 안내 추가. 게이트 1749/1749 유지.
 
 - **46-d CCX 재생성(점검 수정 포함)**: `beta:evidence:verified` — 게이트 1749/1749 → `ShortFlow-Studio-1.0.0.ccx` **257,199B**, SHA-256 `36a94311dad4b8b57cc994826dd879db8ea69e860f99c80294f32410955e0ee7` (§45의 771afbdc… 대체). USER_GUIDE의 SHA 동기화.
+
+## 47. 잔여 결함 마감 — 마커 QC 가드 + 프레임 미리보기 (2026-07-15)
+
+§46 보고에서 남긴 1·2번 항목 처리.
+
+- **47-a 마커 QC 원본 이탈 가드**: §46-b와 같은 패턴을 `markers-qc-panel`에 적용 — 마커 검색 시점의 컨텍스트 키를 기억(`readContextKey` 포트), 일괄 생성 진입 시 활성이 바뀌어 있으면 `activateContextKey`로 원본 자동 복원(실패 시 재검색 안내 에러). 포트 2개는 index.ts가 `readActiveContextKey`/`activateSequenceByContextKey`로 주입.
+- **47-b 조정 패널 프레임 미리보기(D-2 계획 잔여 단계)**: 선택한 숏폼의 첫 스팬 중앙 프레임을 카드에 표시. `exportSequenceFrameByName`(premiere.ts, 이름→시퀀스 핸들→기존 exportFrameToFolder 위임 180px) + 패널 포트 `exportPreviewFrame`(index.ts가 내보내기→바이트 읽기→임시 파일 삭제로 구현) + data:image/png;base64 `<img>`(§25-b 계열 UXP innerHTML 회피, 파형과 동일 패턴). 경합은 토큰 가드, 실패는 조용히 숨김(보조 기능).
+- **47-c UXP 발견**: select 옵션 재구성 후 **value가 자동 선택되지 않는다**(브라우저는 첫 옵션 자동 선택) — selectedPlan()이 null이 되어 미리보기·버튼이 전부 무반응이었다. 렌더 시 첫 계획을 명시 기본 선택으로 수정(§25-b 쿼크 목록에 추가할 것).
+- **E2E**: 계획 시드 → 새로고침 → **미리보기 실렌더(hidden=false, PNG base64 52KB)** → 원본 복원 클릭 "클립 1" 로그·미리보기 유지, 콘솔 0. 검증이 실시퀀스에 남긴 중앙(기본값) 위치 키프레임은 timeVarying 해제로 원복 확인([0.5,0.5] 정적). 게이트 1749/1749.

@@ -3350,6 +3350,22 @@ export async function attachTranscriptToActiveSequence(
   return { sequenceName: String(sequence.name), replaced: previousWords > 0, words };
 }
 
+// 이름으로 찾은 시퀀스의 프레임을 폴더로 내보낸다(프레이밍 조정 패널 미리보기용 — §47).
+export async function exportSequenceFrameByName(
+  sequenceName: string,
+  seconds: number,
+  folderPath: string,
+  maxWidth = 180,
+): Promise<{ filename: string }> {
+  const { project } = await getActiveContext();
+  const sequences = await project.getSequences();
+  const sequence = sequences.find((item) => String(item.name) === sequenceName);
+  if (!sequence) {
+    throw new ShortFlowError("SEQUENCE_NOT_FOUND", `시퀀스를 찾지 못했습니다: ${sequenceName}`);
+  }
+  return exportFrameToFolder(seconds, folderPath, maxWidth, sequence);
+}
+
 // 프로젝트의 시퀀스 이름 목록(컷별 조정 패널의 계획 정리·존재 확인용).
 export async function listSequenceNames(): Promise<string[]> {
   const { project } = await getActiveContext();
