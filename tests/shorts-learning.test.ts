@@ -1,7 +1,14 @@
 // alignShortToOriginal — 숏폼 전사를 원본 cueId로 역추적하는 순수 정렬 로직 테스트
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { alignShortToOriginal, buildStyleExample, formatStyleExamplesForPrompt } from "../src/shorts-learning";
+import {
+  alignShortToOriginal,
+  buildStyleExample,
+  distillStyleProfile,
+  formatStyleExamplesForPrompt,
+  formatStyleProfileForPrompt,
+} from "../src/shorts-learning";
+import type { StyleExample } from "../src/shorts-learning";
 import type { SubtitleCue, SubtitleDocument } from "../src/subtitles";
 
 function cue(id: string, text: string): SubtitleCue {
@@ -91,5 +98,32 @@ describe("buildStyleExample + formatStyleExamplesForPrompt", () => {
     assert.ok(text.includes("Chosen shorts"));
     assert.ok(text.includes("\"c1\"") && text.includes("핵심 모음"));
     assert.equal(formatStyleExamplesForPrompt([]), "");
+  });
+});
+
+describe("distillStyleProfile", () => {
+  const ex = (durationSeconds: number): StyleExample => ({
+    transcript: "[c1] t",
+    chosen: [{ cueIds: ["c1"], title: "t", durationSeconds }],
+  });
+
+  it("summarizes duration range and average across examples", () => {
+    const profile = distillStyleProfile([ex(20), ex(30), ex(40)]);
+    assert.ok(profile);
+    assert.equal(profile!.exampleCount, 3);
+    assert.equal(profile!.avgDurationSeconds, 30);
+    assert.equal(profile!.minDurationSeconds, 20);
+    assert.equal(profile!.maxDurationSeconds, 40);
+  });
+
+  it("returns null when there are no usable durations", () => {
+    assert.equal(distillStyleProfile([]), null);
+    assert.equal(distillStyleProfile([{ transcript: "t", chosen: [{ cueIds: ["c1"], title: "t", durationSeconds: 0 }] }]), null);
+  });
+
+  it("formats a profile into a one-line prompt guide", () => {
+    const text = formatStyleProfileForPrompt(distillStyleProfile([ex(15), ex(45)]));
+    assert.ok(text.includes("15-45s"));
+    assert.equal(formatStyleProfileForPrompt(null), "");
   });
 });

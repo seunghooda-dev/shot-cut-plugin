@@ -78,7 +78,13 @@ import { SubtitleController, type SubtitleAiRequest, type SubtitleAnalysisReques
 import { resolveAutomationTranscript, subtitleDocumentToAutomationTranscript } from "./src/automation-transcript";
 import { createSubtitleDocument, type SubtitleDocument } from "./src/subtitles";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus } from "./src/style-corpus";
-import { alignShortToOriginal, buildStyleExample, formatStyleExamplesForPrompt } from "./src/shorts-learning";
+import {
+  alignShortToOriginal,
+  buildStyleExample,
+  distillStyleProfile,
+  formatStyleExamplesForPrompt,
+  formatStyleProfileForPrompt,
+} from "./src/shorts-learning";
 import { OpenAITextClient, chunkSubtitleCues } from "./src/openai-text";
 import {
   buildReferencePrompt,
@@ -836,7 +842,11 @@ async function handleAutoCutScan(): Promise<void> {
   ensureAiConsent("AI 자동 컷");
   const controller = subtitleController;
   if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다. 패널을 다시 열어 주세요.");
-  const styleExamples = formatStyleExamplesForPrompt(loadStyleCorpus());
+  const corpus = loadStyleCorpus();
+  const styleExamples = [
+    formatStyleProfileForPrompt(distillStyleProfile(corpus)),
+    formatStyleExamplesForPrompt(corpus),
+  ].filter(Boolean).join("\n\n");
   autoCutSegments = await controller.planAutoCuts(
     { maxDuration: syncSettingsFromUI().maxDuration },
     styleExamples || undefined,

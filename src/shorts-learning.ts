@@ -142,6 +142,39 @@ export function buildStyleExample(
   return { transcript: lines.join("\n"), chosen };
 }
 
+export interface StyleProfile {
+  exampleCount: number;
+  avgDurationSeconds: number;
+  minDurationSeconds: number;
+  maxDurationSeconds: number;
+}
+
+/** 여러 스타일 예시를 압축한 프로필(선호 길이 범위). verbatim 예시와 함께 프롬프트에 얹어 스타일 신호를 강화한다. */
+export function distillStyleProfile(examples: StyleExample[]): StyleProfile | null {
+  const durations: number[] = [];
+  for (const example of examples) {
+    for (const choice of example.chosen) {
+      if (typeof choice.durationSeconds === "number" && choice.durationSeconds > 0) {
+        durations.push(choice.durationSeconds);
+      }
+    }
+  }
+  if (durations.length === 0) return null;
+  const sum = durations.reduce((total, value) => total + value, 0);
+  return {
+    exampleCount: examples.length,
+    avgDurationSeconds: Math.round(sum / durations.length),
+    minDurationSeconds: Math.round(Math.min(...durations)),
+    maxDurationSeconds: Math.round(Math.max(...durations)),
+  };
+}
+
+/** 스타일 프로필을 프롬프트용 한 줄 가이드로 만든다. */
+export function formatStyleProfileForPrompt(profile: StyleProfile | null): string {
+  if (!profile) return "";
+  return `The user's past shorts run about ${profile.minDurationSeconds}-${profile.maxDurationSeconds}s (average ~${profile.avgDurationSeconds}s). Prefer clip lengths in that range.`;
+}
+
 /** 스타일 예시들을 shorts-plan 프롬프트에 넣을 few-shot 텍스트로 직렬화한다. */
 export function formatStyleExamplesForPrompt(examples: StyleExample[]): string {
   const blocks: string[] = [];
