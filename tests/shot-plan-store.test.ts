@@ -123,3 +123,31 @@ describe("adjustFocalSpans", () => {
     assert.equal(same[1]!.zoom, 1.4);
   });
 });
+
+describe("clipRelativeSpans (D-1 멀티클립)", () => {
+  const { clipRelativeSpans } = require("../src/shot-focus") as typeof import("../src/shot-focus");
+  const spans: FocalSpan[] = [
+    { start: 0, end: 50, x: 0.3, y: 0.5 },
+    { start: 50, end: 100, x: 0.7, y: 0.4, zoom: 1.3, transition: "cut" },
+    { start: 100, end: 150, x: 0.5, y: 0.5, transition: "pan" },
+  ];
+
+  it("keeps a zero-start clip identical (기존 단일 클립 회귀 0)", () => {
+    assert.deepEqual(clipRelativeSpans(spans, 0, 150), spans);
+  });
+
+  it("shifts and clamps spans for a mid-timeline clip", () => {
+    const relative = clipRelativeSpans(spans, 60, 120);
+    assert.deepEqual(relative, [
+      { start: 0, end: 40, x: 0.7, y: 0.4, zoom: 1.3, transition: "cut" }, // 60~100 → 0~40
+      { start: 40, end: 60, x: 0.5, y: 0.5, transition: "pan" }, // 100~120 → 40~60
+    ]);
+  });
+
+  it("drops non-overlapping or sliver spans and invalid clip bounds", () => {
+    assert.deepEqual(clipRelativeSpans(spans, 200, 300), []);
+    assert.deepEqual(clipRelativeSpans(spans, 49.995, 50.001, ), []);
+    assert.deepEqual(clipRelativeSpans(spans, 10, 10), []);
+    assert.deepEqual(clipRelativeSpans(spans, Number.NaN, 100), []);
+  });
+});

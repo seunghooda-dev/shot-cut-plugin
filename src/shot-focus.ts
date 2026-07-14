@@ -323,3 +323,31 @@ export function adjustFocalSpans(
     };
   });
 }
+
+/**
+ * 타임라인 절대 초점 스팬을 특정 클립의 "클립 상대 0-기반" 스팬으로 변환한다.
+ * 클립과 겹치는 스팬만 남겨 경계에 맞게 자르고 클립 시작만큼 이동한다. 멀티클립
+ * 타임라인에서 두 번째 이후 클립의 키프레임 시각이 어긋나는 문제의 핵심 계층(D-1).
+ */
+export function clipRelativeSpans(
+  spans: readonly FocalSpan[],
+  clipStart: number,
+  clipEnd: number,
+): FocalSpan[] {
+  if (!Number.isFinite(clipStart) || !Number.isFinite(clipEnd) || clipEnd <= clipStart) return [];
+  const out: FocalSpan[] = [];
+  for (const span of Array.isArray(spans) ? spans : []) {
+    const start = Math.max(span.start, clipStart);
+    const end = Math.min(span.end, clipEnd);
+    if (end - start < 0.01) continue;
+    out.push({
+      start: round3(start - clipStart),
+      end: round3(end - clipStart),
+      x: span.x,
+      y: span.y,
+      ...(typeof span.zoom === "number" ? { zoom: span.zoom } : {}),
+      ...(span.transition ? { transition: span.transition } : {}),
+    });
+  }
+  return out;
+}

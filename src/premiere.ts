@@ -10,7 +10,7 @@ import {
   type ReframeMode,
   type ResolvedTimeRange,
 } from "./core";
-import { planSpanHoldWindows } from "./shot-focus";
+import { clipRelativeSpans, planSpanHoldWindows } from "./shot-focus";
 import type {
   ExportMode,
   ExportRange,
@@ -1918,6 +1918,12 @@ async function applyShotFocalPositionKeyframes(
     try {
       if (!(await overlapsRange(item, range))) continue;
       if (typeof item.isAdjustmentLayer === "function" && await item.isAdjustmentLayer()) continue;
+      // 키프레임 시각은 클립 상대 0-기반 — 멀티클립 타임라인의 두 번째 이후 클립은
+      // 타임라인 절대초를 그대로 쓰면 어긋난다. 이 클립과 겹치는 스팬만 상대화한다(D-1).
+      const itemStart = tickTimeSeconds(await item.getStartTime(), 0);
+      const itemEnd = tickTimeSeconds(await item.getEndTime(), Number.POSITIVE_INFINITY);
+      const itemSpans = clipRelativeSpans(valid, itemStart, itemEnd);
+      if (itemSpans.length === 0) continue;
       const component = await findMotionComponent(item);
       if (!component) continue;
       const params = await motionParams(component);
@@ -1958,9 +1964,9 @@ async function applyShotFocalPositionKeyframes(
       if (zoomUsable) actions.push(() => scale!.createSetTimeVaryingAction(true));
       // 스팬별 hold 창: "cut" 경계는 경계-ε까지 붙여 즉시 점프(원본 컷에 정렬),
       // "pan" 경계는 양쪽에 여유를 둬 선형 보간이 짧은 팬이 되게 한다(§35 부자연 점프 해소).
-      const holdWindows = planSpanHoldWindows(valid, { holdEpsilon: HOLD_EPSILON });
-      for (let spanIndex = 0; spanIndex < valid.length; spanIndex += 1) {
-        const span = valid[spanIndex]!;
+      const holdWindows = planSpanHoldWindows(itemSpans, { holdEpsilon: HOLD_EPSILON });
+      for (let spanIndex = 0; spanIndex < itemSpans.length; spanIndex += 1) {
+        const span = itemSpans[spanIndex]!;
         const window = holdWindows[spanIndex]!;
         const zoom = zoomUsable && typeof span.zoom === "number" && span.zoom > 1.01 ? Math.min(2, span.zoom) : 1;
         const point = focalReframePosition(
@@ -3232,6 +3238,11 @@ export async function applyShotFocalPositionCorrection(
   for (const item of candidates.slice(0, 100)) {
     try {
       if (!(await overlapsRange(item, range))) continue;
+      // 멀티클립 타임라인 대응: 이 클립과 겹치는 스팬만 클립 상대 0-기반으로 변환(D-1).
+      const itemStart = tickTimeSeconds(await item.getStartTime(), 0);
+      const itemEnd = tickTimeSeconds(await item.getEndTime(), Number.POSITIVE_INFINITY);
+      const itemSpans = clipRelativeSpans(valid, itemStart, itemEnd);
+      if (itemSpans.length === 0) continue;
       const component = await findMotionComponent(item);
       if (!component) continue;
       const params = await motionParams(component);
@@ -3240,9 +3251,9 @@ export async function applyShotFocalPositionCorrection(
       const current: Keyframe = await position.getStartValue();
       const rawValue = keyframeValue(current);
       if (!readPointF(rawValue)) continue;
-      const holdWindows = planSpanHoldWindows(valid, { holdEpsilon: HOLD_EPSILON });
-      for (let spanIndex = 0; spanIndex < valid.length; spanIndex += 1) {
-        const span = valid[spanIndex]!;
+      const holdWindows = planSpanHoldWindows(itemSpans, { holdEpsilon: HOLD_EPSILON });
+      for (let spanIndex = 0; spanIndex < itemSpans.length; spanIndex += 1) {
+        const span = itemSpans[spanIndex]!;
         const window = holdWindows[spanIndex]!;
         const zoom = typeof span.zoom === "number" && span.zoom > 1.01 ? Math.min(2, span.zoom) : 1;
         const point = focalReframePosition(rawValue, targetWidth, targetHeight, sourceWidth, sourceHeight, span.x, span.y, zoom);
