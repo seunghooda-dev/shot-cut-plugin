@@ -43,6 +43,7 @@ export interface AssetBrowserPanelOptions {
     videoTrackIndex: number;
     audioTrackIndex: number;
     displayName: string;
+    audioDurationSeconds?: number;
   }) => Promise<void>;
   /** 인라인 오디오 미지원 시 Premiere 소스 모니터 미리듣기 — Host 호출은 index.ts에 남는다. */
   previewInSourceMonitor: (asset: AssetItem) => Promise<boolean>;
@@ -502,11 +503,23 @@ export function createAssetBrowserPanel(options: AssetBrowserPanelOptions): {
   }
 
   async function insertAsset(asset: AssetItem): Promise<void> {
-    await options.runBusy(`${asset.name}을(를) 타임라인에 삽입하고 있습니다…`, () => options.insertToTimeline(asset.nativePath, {
-      videoTrackIndex: Math.max(0, numberOf("asset-video-track-input", 1) - 1),
-      audioTrackIndex: Math.max(0, numberOf("asset-audio-track-input", 2) - 1),
-      displayName: asset.name,
-    }));
+    await options.runBusy(`${asset.name}을(를) 타임라인에 삽입하고 있습니다…`, async () => {
+      // Premiere가 일부 WAV(예: OpenAI TTS 출력)의 길이를 오독하므로, WAV은 바이트에서 직접 계산해
+      // 넘긴다. 비 WAV(MP3 등)는 parseWavPcm이 던지고 Host의 getMedia 길이 감지로 폴백한다.
+      let audioDurationSeconds: number | undefined;
+      if (asset.extension.toLocaleLowerCase("en-US") === ".wav") {
+        try {
+          const pcm = parseWavPcm(await assetBytes(asset));
+          if (pcm.sampleRate > 0) audioDurationSeconds = pcm.samples.length / pcm.sampleRate;
+        } catch { /* 헤더 손상·읽기 실패 시 Host 길이 감지로 폴백 */ }
+      }
+      await options.insertToTimeline(asset.nativePath, {
+        videoTrackIndex: Math.max(0, numberOf("asset-video-track-input", 1) - 1),
+        audioTrackIndex: Math.max(0, numberOf("asset-audio-track-input", 2) - 1),
+        displayName: asset.name,
+        ...(audioDurationSeconds !== undefined ? { audioDurationSeconds } : {}),
+      });
+    });
     options.onActivity("success", `자산 삽입: ${asset.name}`);
     toast("현재 재생 위치에 자산을 삽입했습니다.", "success");
   }
