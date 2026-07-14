@@ -534,3 +534,49 @@ describe("analysis request 2MB safety cap", () => {
     }
   });
 });
+
+describe("encodeBase64", () => {
+  it("encodes with correct padding (RFC 4648 vectors)", async () => {
+    const { encodeBase64 } = await import("../src/openai-text");
+    const enc = (s: string) => encodeBase64(new TextEncoder().encode(s));
+    assert.equal(enc("Man"), "TWFu");
+    assert.equal(enc("Ma"), "TWE=");
+    assert.equal(enc("M"), "TQ==");
+    assert.equal(enc(""), "");
+  });
+});
+
+describe("detectSubjectPoint", () => {
+  it("sends an input_image data URL and clamps the response into 0..1", async () => {
+    let captured: any = null;
+    const fetcher = (async (_url: unknown, init: any) => {
+      captured = JSON.parse(String(init?.body ?? "{}"));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ output_text: JSON.stringify({ x: 1.4, y: -0.2, confidence: 2 }) }),
+      } as Response;
+    }) as typeof fetch;
+    const result = await client(fetcher).detectSubjectPoint({ bytes: Uint8Array.from([1, 2, 3, 4]) });
+    assert.deepEqual(result, { x: 1, y: 0, confidence: 1 });
+    const content = captured?.input?.[1]?.content;
+    assert.ok(Array.isArray(content), "user content는 파츠 배열이어야 함");
+    assert.equal(content[1]?.type, "input_image");
+    assert.match(String(content[1]?.image_url), /^data:image\/png;base64,/u);
+    assert.equal(captured?.text?.format?.name, "shortflow_subject_point");
+  });
+
+  it("rejects empty and oversized frames before any network call", async () => {
+    let called = 0;
+    const fetcher = (async () => { called += 1; return { ok: true, status: 200, json: async () => ({}) } as Response; }) as typeof fetch;
+    const c = client(fetcher);
+    await assert.rejects(() => c.detectSubjectPoint({ bytes: new Uint8Array() }), /비어 있습니다/u);
+    await assert.rejects(() => c.detectSubjectPoint({ bytes: new Uint8Array(1_500_000) }), /너무 큽니다/u);
+    assert.equal(called, 0);
+  });
+
+  it("rejects a malformed coordinate response", async () => {
+    const { fetcher } = okFetcher(() => ({ x: "half", y: 0.5, confidence: 0.9 }));
+    await assert.rejects(() => client(fetcher).detectSubjectPoint({ bytes: Uint8Array.from([1]) }), /좌표가 올바르지 않습니다/u);
+  });
+});

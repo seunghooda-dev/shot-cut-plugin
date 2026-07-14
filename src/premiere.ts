@@ -1938,8 +1938,11 @@ export async function scanShortMarkers(defaultDuration: number): Promise<MarkerS
   return segments.sort((a, b) => a.start - b.start || a.index - b.index);
 }
 
+// 세그먼트별 초점(인물 감지 결과)을 받을 수 있게 MarkerSegment를 확장한 입력.
+export type ShortSegmentInput = MarkerSegment & { focalX?: number; focalY?: number };
+
 export async function createShortsFromMarkers(
-  segments: MarkerSegment[],
+  segments: ShortSegmentInput[],
   baseOptions: CreateShortOptions,
   onProgress?: (completed: number, total: number, name: string) => void,
 ): Promise<{ created: CreateShortResult[]; failures: Array<{ name: string; error: string }> }> {
@@ -1962,6 +1965,9 @@ export async function createShortsFromMarkers(
         name,
         explicitRange: { start: segment.start, end: segment.end },
         scope: baseOptions.scope === "selected" ? "video" : baseOptions.scope,
+        // 세그먼트별 인물 감지 초점이 있으면 슬라이더(baseOptions) 대신 사용 — 컷마다 다른 크롭.
+        ...(typeof segment.focalX === "number" && Number.isFinite(segment.focalX) ? { focalX: segment.focalX } : {}),
+        ...(typeof segment.focalY === "number" && Number.isFinite(segment.focalY) ? { focalY: segment.focalY } : {}),
       }));
     } catch (error) {
       failures.push({ name, error: errorMessage(error) });
@@ -2713,6 +2719,41 @@ export async function exportVideo(options: ExportVideoOptions): Promise<string> 
     throw new ShortFlowError("EXPORT_FAILED", "영상 내보내기 요청이 거부되었습니다. 프리셋과 출력 경로를 확인해 주세요.");
   }
   return outputPath;
+}
+
+// 활성 시퀀스의 특정 시각 프레임을 축소 PNG로 내보낸다(인물 감지 초점용 샘플).
+// 커버 내보내기와 동일한 검증된 exportSequenceFrame 경로를 쓰고, 비전 비용을 줄이려 maxWidth로 축소한다.
+export async function exportFrameToFolder(
+  seconds: number,
+  folderPath: string,
+  maxWidth = 640,
+): Promise<{ filename: string }> {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    throw new ShortFlowError("INVALID_RANGE", "프레임 시각이 올바르지 않습니다.");
+  }
+  const { sequence } = await getActiveContext();
+  const frame = await sequence.getFrameSize();
+  const width = Math.round(Number(frame.width));
+  const height = Math.round(Number(frame.height));
+  if (!(width > 0) || !(height > 0)) {
+    throw new ShortFlowError("INVALID_FRAME_SIZE", "현재 시퀀스의 프레임 크기를 확인하지 못했습니다.");
+  }
+  const scale = Math.min(1, Math.max(16, maxWidth) / width);
+  const outWidth = Math.max(2, Math.round((width * scale) / 2) * 2);
+  const outHeight = Math.max(2, Math.round((height * scale) / 2) * 2);
+  const filename = sanitizeFileName(`sf_frame_${exportTimestamp()}_${Math.round(seconds * 1000)}.png`);
+  const success = await ppro.Exporter.exportSequenceFrame(
+    sequence,
+    ppro.TickTime.createWithSeconds(seconds),
+    filename,
+    String(folderPath),
+    outWidth,
+    outHeight,
+  );
+  if (!success) {
+    throw new ShortFlowError("FRAME_EXPORT_FAILED", "프레임 이미지를 내보내지 못했습니다.");
+  }
+  return { filename };
 }
 
 export async function exportCover(outputFolder: any): Promise<string> {

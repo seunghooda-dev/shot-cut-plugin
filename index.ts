@@ -1,4 +1,4 @@
-import { PROFILES, formatDuration, type MarkerSegment } from "./src/core";
+import { PROFILES, formatDuration } from "./src/core";
 import type { HighlightCutSegment } from "./src/highlight-cut";
 import { normalizeNativePath, type AssetItem } from "./src/asset-library";
 import { createAssetBrowserPanel } from "./src/asset-browser-panel";
@@ -15,6 +15,8 @@ import {
   createShortsFromMarkers,
   writeShortsMarkers,
   writeDuckMarkers,
+  exportFrameToFolder,
+  type ShortSegmentInput,
   errorMessage,
   exportCover,
   exportVideo,
@@ -80,6 +82,7 @@ import { resolveAutomationTranscript, subtitleDocumentToAutomationTranscript } f
 import { createSubtitleDocument, type SubtitleDocument } from "./src/subtitles";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus } from "./src/style-corpus";
 import { computeDuckingEnvelope, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
+import { resolveSubjectFocal, type SubjectPoint } from "./src/subject-focus";
 import {
   alignShortToOriginal,
   buildStyleExample,
@@ -924,20 +927,72 @@ async function handleAutoCutMarkers(): Promise<void> {
   toast(`${count}개 구간을 #sf 마커로 표시했습니다. QC 탭 '마커 검색'으로 검토·생성할 수 있습니다.`, "success");
 }
 
+// 세그먼트의 프레임 샘플 3장을 비전으로 감지해 컷 초점을 구한다. 실패 시 null(슬라이더 폴백).
+async function detectSegmentSubjectFocal(segment: HighlightCutSegment): Promise<{ x: number; y: number } | null> {
+  let uxp: any;
+  try {
+    uxp = require("uxp");
+  } catch {
+    return null;
+  }
+  const fileSystem = uxp?.storage?.localFileSystem;
+  const formats = uxp?.storage?.formats;
+  if (typeof fileSystem?.getDataFolder !== "function") return null;
+  const dataFolder = await fileSystem.getDataFolder();
+  const mid = (segment.start + segment.end) / 2;
+  const times = [Math.min(segment.start + 0.7, mid), mid, Math.max(segment.end - 0.7, mid)];
+  const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
+  const points: SubjectPoint[] = [];
+  for (const time of times) {
+    try {
+      const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 640);
+      const entry = await dataFolder.getEntry(filename);
+      const data = await entry.read({ format: formats?.binary });
+      const bytes = data instanceof ArrayBuffer
+        ? new Uint8Array(data)
+        : ArrayBuffer.isView(data)
+          ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+          : null;
+      if (!bytes || bytes.byteLength === 0) continue;
+      points.push(await client.detectSubjectPoint({ bytes: bytes.slice(), mimeType: "image/png" }));
+    } catch {
+      // 샘플 하나의 실패는 무시하고 남은 샘플로 종합한다.
+    }
+  }
+  return resolveSubjectFocal(points);
+}
+
 // 선택한 후보 구간을 각각 새 숏폼 시퀀스로 일괄 생성(기존 createShortsFromMarkers 재사용).
+// 생성 전에 컷마다 인물 위치를 감지해, 그 인물이 프레임 중앙에 오도록 세그먼트별 초점을 적용한다.
 async function handleAutoCutGenerate(): Promise<void> {
   const selected = selectedAutoCutSegments();
   if (selected.length === 0) {
     toast("생성할 구간을 하나 이상 선택해 주세요.", "warning");
     return;
   }
-  const segments: MarkerSegment[] = selected.map((segment, index) => ({
+  ensureAiConsent("AI 자동 컷 생성");
+  const focals = await busy.during("컷별 인물 위치를 감지하고 있습니다…", async () => {
+    const out: Array<{ x: number; y: number } | null> = [];
+    for (const segment of selected) {
+      const focal = await detectSegmentSubjectFocal(segment);
+      out.push(focal);
+      activity.add(
+        focal ? "info" : "warning",
+        focal
+          ? `인물 초점 감지 · ${segment.title.slice(0, 24)} → x=${focal.x.toFixed(2)}`
+          : `인물 감지 실패(슬라이더 초점 사용) · ${segment.title.slice(0, 24)}`,
+      );
+    }
+    return out;
+  });
+  const segments: ShortSegmentInput[] = selected.map((segment, index) => ({
     name: segment.title || `AutoCut_${index + 1}`,
     comments: segment.reason,
     start: segment.start,
     end: segment.end,
     duration: segment.duration,
     index,
+    ...(focals[index] ? { focalX: focals[index]!.x, focalY: focals[index]!.y } : {}),
   }));
   const result = await busy.during("자동 컷 구간을 생성하고 있습니다…", () =>
     createShortsFromMarkers(segments, createOptions(), (completed, total, name) => {
