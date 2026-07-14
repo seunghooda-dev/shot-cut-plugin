@@ -1,7 +1,7 @@
 // shot-focus — 샘플 시각 계획·샷 단위 초점 스팬 순수 로직 테스트
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { planSampleTimes, planShotFocalSpans } from "../src/shot-focus";
+import { correctedFocalX, planSampleTimes, planShotFocalSpans } from "../src/shot-focus";
 
 describe("planSampleTimes", () => {
   it("uses cue midpoints inside the segment and fills with a uniform grid", () => {
@@ -129,5 +129,23 @@ describe("planShotFocalSpans v2 (median·merge·zoom)", () => {
     assert.equal(coarse[0]!.end, 5);
     const refined = planShotFocalSpans([...first, sample(5, 0.5)], 0, 10);
     assert.equal(refined[0]!.end, 5.5);
+  });
+});
+
+describe("correctedFocalX (측정 피드백 보정)", () => {
+  it("moves the focal toward the measured face position scaled by visible fraction", () => {
+    // 얼굴이 화면 0.33(왼쪽)에 보임 → 실제 얼굴 = 0.18 + (0.33-0.5)×0.316 = 0.126 → 새 초점.
+    assert.equal(correctedFocalX(0.18, 0.33, 0.316), 0.126);
+  });
+  it("does not touch focals already within the dead zone", () => {
+    assert.equal(correctedFocalX(0.58, 0.47, 0.316), 0.58); // |0.47-0.5|=0.03 ≤ 0.06
+  });
+  it("clamps the correction magnitude and the result into 0..1", () => {
+    assert.equal(correctedFocalX(0.5, 1.0, 0.9), 0.7); // delta 0.45 → maxCorrection 0.2
+    assert.equal(correctedFocalX(0.01, 0.0, 0.316), 0); // 결과 0..1 클램프
+  });
+  it("returns the input for non-finite values", () => {
+    assert.equal(correctedFocalX(Number.NaN, 0.3, 0.316), Number.NaN);
+    assert.equal(correctedFocalX(0.5, Number.NaN, 0.316), 0.5);
   });
 });

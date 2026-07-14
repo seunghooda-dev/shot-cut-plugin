@@ -197,3 +197,25 @@ export function planShotFocalSpans(
   }
   return spans;
 }
+
+/**
+ * 결과 프레임에서 재측정한 얼굴 위치(measuredX, 0=좌 1=우)로 샷 초점을 보정한다.
+ * 크롭 창 중심이 focalX일 때 실제 얼굴은 focalX + (measuredX-0.5)×visibleFraction —
+ * 그 지점을 새 초점으로 삼으면 다음 적용에서 얼굴이 정중앙에 온다(폐루프 1스텝).
+ * visibleFraction = 타깃에 보이는 소스 가로 비율(예: 16:9→9:16 fill이면 ≈0.316/zoom).
+ */
+export function correctedFocalX(
+  focalX: number,
+  measuredX: number,
+  visibleFraction: number,
+  options?: { deadZone?: number; maxCorrection?: number },
+): number {
+  if (!Number.isFinite(focalX) || !Number.isFinite(measuredX) || !Number.isFinite(visibleFraction)) return focalX;
+  const deadZone = Number.isFinite(options?.deadZone) ? Math.max(0, options!.deadZone!) : 0.06;
+  const maxCorrection = Number.isFinite(options?.maxCorrection) ? Math.max(0, options!.maxCorrection!) : 0.2;
+  const offset = measuredX - 0.5;
+  if (Math.abs(offset) <= deadZone) return focalX; // 이미 충분히 중앙 — 흔들지 않는다.
+  const delta = offset * Math.min(1, Math.max(0, visibleFraction));
+  const clamped = Math.min(maxCorrection, Math.max(-maxCorrection, delta));
+  return round3(Math.min(1, Math.max(0, focalX + clamped)));
+}

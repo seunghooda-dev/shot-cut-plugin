@@ -2870,11 +2870,12 @@ export async function exportFrameToFolder(
   seconds: number,
   folderPath: string,
   maxWidth = 640,
+  targetSequence?: Sequence,
 ): Promise<{ filename: string }> {
   if (!Number.isFinite(seconds) || seconds < 0) {
     throw new ShortFlowError("INVALID_RANGE", "프레임 시각이 올바르지 않습니다.");
   }
-  const { sequence } = await getActiveContext();
+  const sequence = targetSequence ?? (await getActiveContext()).sequence;
   const frame = await sequence.getFrameSize();
   const width = Math.round(Number(frame.width));
   const height = Math.round(Number(frame.height));
@@ -2897,6 +2898,79 @@ export async function exportFrameToFolder(
     throw new ShortFlowError("FRAME_EXPORT_FAILED", "프레임 이미지를 내보내지 못했습니다.");
   }
   return { filename };
+}
+
+// 활성 시퀀스의 프레임 크기(px). 보정 패스에서 소스 종횡비 계산에 쓴다.
+export async function activeSequenceFrameSize(): Promise<{ width: number; height: number }> {
+  const { sequence } = await getActiveContext();
+  const frame = await sequence.getFrameSize();
+  const width = Math.round(Number(frame.width));
+  const height = Math.round(Number(frame.height));
+  if (!(width > 0) || !(height > 0)) {
+    throw new ShortFlowError("INVALID_FRAME_SIZE", "현재 시퀀스의 프레임 크기를 확인하지 못했습니다.");
+  }
+  return { width, height };
+}
+
+// 측정 피드백 보정: 생성된 숫폼의 위치 키프레임만 교체한다(같은 시각에 추가 = 덮어쓰기).
+// 스케일(zoom) 키프레임은 건드리지 않고 span.zoom을 위치 수학에만 반영해 불일치를 막는다.
+export async function applyShotFocalPositionCorrection(
+  sequence: Sequence,
+  spans: Array<{ start: number; end: number; x: number; y: number; zoom?: number }>,
+  targetWidth: number,
+  targetHeight: number,
+  sourceWidth: number,
+  sourceHeight: number,
+): Promise<{ changed: number; warnings: string[] }> {
+  const { project } = await getActiveContext();
+  const valid = (Array.isArray(spans) ? spans : [])
+    .filter((span) => span && Number.isFinite(span.start) && Number.isFinite(span.end) && span.end > span.start
+      && Number.isFinite(span.x) && Number.isFinite(span.y));
+  if (valid.length === 0) return { changed: 0, warnings: [] };
+  const range: ResolvedTimeRange = {
+    start: valid[0]!.start,
+    end: valid[valid.length - 1]!.end,
+    duration: valid[valid.length - 1]!.end - valid[0]!.start,
+    usedFallback: false,
+  };
+  const candidates = await allVideoItems(sequence, "video");
+  const warnings: string[] = [];
+  const actions: ActionFactory[] = [];
+  let changed = 0;
+  const HOLD_EPSILON = 0.05;
+  for (const item of candidates.slice(0, 100)) {
+    try {
+      if (!(await overlapsRange(item, range))) continue;
+      const component = await findMotionComponent(item);
+      if (!component) continue;
+      const params = await motionParams(component);
+      const position = params.position;
+      if (!position) continue;
+      const current: Keyframe = await position.getStartValue();
+      const rawValue = keyframeValue(current);
+      if (!readPointF(rawValue)) continue;
+      for (const span of valid) {
+        const zoom = typeof span.zoom === "number" && span.zoom > 1.01 ? Math.min(2, span.zoom) : 1;
+        const point = focalReframePosition(rawValue, targetWidth, targetHeight, sourceWidth, sourceHeight, span.x, span.y, zoom);
+        if (!point) continue;
+        const holdEnd = Math.max(span.start, span.end - HOLD_EPSILON);
+        for (const time of span.start === holdEnd ? [span.start] : [span.start, holdEnd]) {
+          actions.push(() => {
+            const keyframe = position.createKeyframe(ppro.PointF(point.x, point.y));
+            keyframe.position = ppro.TickTime.createWithSeconds(time);
+            return position.createAddKeyframeAction(keyframe);
+          });
+        }
+      }
+      changed += 1;
+    } catch (error) {
+      warnings.push(`샷 초점 보정 실패: ${errorMessage(error)}`);
+    }
+  }
+  if (actions.length > 0 && !commitActionFactories(project, actions, "ShortFlow: 샷 초점 보정")) {
+    throw new ShortFlowError("REFRAME_COMMIT_FAILED", "샷 초점 보정을 적용하지 못했습니다.");
+  }
+  return { changed, warnings: [...new Set(warnings)] };
 }
 
 export async function exportCover(outputFolder: any): Promise<string> {

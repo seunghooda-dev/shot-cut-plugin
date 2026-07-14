@@ -16,6 +16,8 @@ import {
   writeShortsMarkers,
   writeDuckMarkers,
   exportFrameToFolder,
+  activeSequenceFrameSize,
+  applyShotFocalPositionCorrection,
   type ShortSegmentInput,
   errorMessage,
   exportCover,
@@ -83,7 +85,7 @@ import { createSubtitleDocument, type SubtitleDocument } from "./src/subtitles";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus } from "./src/style-corpus";
 import { computeDuckingEnvelope, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
 import { resolveSubjectFocal, type SubjectPoint } from "./src/subject-focus";
-import { planSampleTimes, planShotFocalSpans, type FocalSpan, type TimedSubjectSample } from "./src/shot-focus";
+import { correctedFocalX, planSampleTimes, planShotFocalSpans, type FocalSpan, type TimedSubjectSample } from "./src/shot-focus";
 import {
   alignShortToOriginal,
   buildStyleExample,
@@ -1067,6 +1069,76 @@ async function detectSegmentShotSpans(segment: HighlightCutSegment): Promise<Foc
   return spans.length > 0 ? spans : null;
 }
 
+// 측정 피드백 보정: 생성된 숏폼의 각 샷 중간 프레임에서 얼굴 위치를 재측정하고,
+// 오차(|x-0.5|>deadZone)를 초점에 반영해 위치 키프레임을 교체한다(폐루프 1스텝).
+async function correctGeneratedShortFraming(
+  created: Array<{ sequence: any; sequenceName: string }>,
+  segments: ShortSegmentInput[],
+  sourceDims: { width: number; height: number },
+  targetWidth: number,
+  targetHeight: number,
+): Promise<number> {
+  const api = frameDataFolderApi();
+  if (!api) return 0;
+  const dataFolder = await api.fileSystem.getDataFolder();
+  const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
+  const baseVisible = (targetWidth / targetHeight) / (sourceDims.width / sourceDims.height);
+  if (!(baseVisible > 0) || baseVisible >= 1) return 0; // 가로 크롭이 없으면 보정 무의미
+  let correctedShots = 0;
+  for (let index = 0; index < segments.length; index += 1) {
+    const spans = segments[index]?.focalSpans;
+    if (!spans || spans.length === 0) continue;
+    const marker = `_${String(index + 1).padStart(2, "0")}_`;
+    const shortResult = created.find((item) => item.sequenceName.includes(marker));
+    if (!shortResult) continue;
+    // 각 샷 중간 프레임을 숏폼 시퀀스에서 내보내 재측정한다.
+    const frames: Array<{ bytes: Uint8Array; spanIndex: number }> = [];
+    for (let spanIndex = 0; spanIndex < Math.min(spans.length, 8); spanIndex += 1) {
+      const span = spans[spanIndex]!;
+      const mid = (span.start + span.end) / 2;
+      try {
+        const { filename } = await exportFrameToFolder(mid, String(dataFolder.nativePath), 270, shortResult.sequence);
+        const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+        if (bytes) frames.push({ bytes, spanIndex });
+      } catch {
+        // 프레임 하나 실패는 무시
+      }
+    }
+    if (frames.length === 0) continue;
+    let measured: Array<{ index: number; x: number; y: number; confidence: number }> = [];
+    try {
+      measured = await client.detectSubjectTimeline(frames.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" })));
+    } catch {
+      continue;
+    }
+    const correctedSpans = spans.map((span) => ({ ...span }));
+    let changed = false;
+    for (const point of measured) {
+      const frame = frames[point.index];
+      if (!frame || point.confidence < 0.3) continue;
+      const span = correctedSpans[frame.spanIndex]!;
+      const zoom = typeof span.zoom === "number" && span.zoom > 1.01 ? Math.min(2, span.zoom) : 1;
+      const nextX = correctedFocalX(span.x, point.x, baseVisible / zoom);
+      if (Math.abs(nextX - span.x) > 1e-6) {
+        span.x = nextX;
+        changed = true;
+        correctedShots += 1;
+      }
+    }
+    if (changed) {
+      await applyShotFocalPositionCorrection(
+        shortResult.sequence,
+        correctedSpans,
+        targetWidth,
+        targetHeight,
+        sourceDims.width,
+        sourceDims.height,
+      );
+    }
+  }
+  return correctedShots;
+}
+
 // 선택한 후보 구간을 각각 새 숏폼 시퀀스로 일괄 생성(기존 createShortsFromMarkers 재사용).
 // 생성 전에 컷마다 인물 위치를 감지해, 그 인물이 프레임 중앙에 오도록 세그먼트별 초점을 적용한다.
 async function handleAutoCutGenerate(): Promise<void> {
@@ -1121,10 +1193,28 @@ async function handleAutoCutGenerate(): Promise<void> {
       ...(plan.spans ? { focalSpans: plan.spans } : {}),
     };
   });
+  const shortOptions = createOptions();
+  // 보정 패스에서 소스 종횡비가 필요하다 — 생성 전에(소스가 아직 active일 때) 캡처.
+  let sourceDims: { width: number; height: number } | null = null;
+  try {
+    sourceDims = await activeSequenceFrameSize();
+  } catch {
+    sourceDims = null;
+  }
   const result = await busy.during("자동 컷 구간을 생성하고 있습니다…", () =>
-    createShortsFromMarkers(segments, createOptions(), (completed, total, name) => {
+    createShortsFromMarkers(segments, shortOptions, (completed, total, name) => {
       setText("busy-message", `${completed}/${total} · ${name}`);
     }));
+  // 측정 피드백 보정: 카메라 감독처럼 결과 프레임을 재측정해 얼굴이 정중앙에 오도록 초점을 교정한다.
+  if (sourceDims) {
+    try {
+      const correctedCount = await busy.during("프레이밍을 재측정해 보정하고 있습니다…", () =>
+        correctGeneratedShortFraming(result.created, segments, sourceDims!, shortOptions.width, shortOptions.height));
+      if (correctedCount > 0) activity.add("info", `프레이밍 자동 보정 · ${correctedCount}개 샷 교정`);
+    } catch (error) {
+      activity.add("warning", `프레이밍 보정을 건너뛰었습니다: ${errorMessage(error)}`);
+    }
+  }
   activity.add(
     result.failures.length ? "warning" : "success",
     `AI 자동 컷 일괄 생성 · 성공 ${result.created.length} · 실패 ${result.failures.length}`,
