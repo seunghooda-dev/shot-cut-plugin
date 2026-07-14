@@ -867,3 +867,9 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 
 ### 36-c. JTV 3단 텍스트 구조 반영(`d252368`)
 사용자 기준 채널(youtube.com/@Jtvnews2021/shorts) 포맷 = 상단 노랑 인용 훅 / 하단 흰색 맥락 / 하단 노랑 펀치. shorts-plan의 hook이 세그먼트 변환에서 유실되던 것을 `HighlightCutSegment.hook`으로 관통시키고, 뉴스 스타일 마커를 3단으로 확장(상단 훅은 따옴표 정규화). 후보 카드에 훅 표시. **Host 확인**: NewsStyle 재생성 → 마커 3종에 실제 모델 훅 인용문·제목·근거 정확히 실림, 콘솔 0. 유닛 1712/1712.
+
+## 37. 텍스트 주입 최종 판정 + 편집 API 발견 + 썸네일 스모크(2026-07-14)
+
+- **37-a 텍스트 주입 최종 판정(불가)**: Basic Title에 이어 Premiere 네이티브 캡션 MOGRT(Bold Web Caption)와 jamak CEP가 실제 텍스트 주입에 쓰던 MOGRT(assembly_top_left·archive_label)까지 4종 삽입 검사 — 전부 컴포넌트 체인에 불투명도/모션/벡터모션만 노출(파라미터 전수 덤프). 이 빌드 UXP에 CEP `getMGTComponent()` 대응 API 없음 → **화면 텍스트 자동 주입은 현 빌드에서 불가 확정**. 뉴스 레이아웃의 마커 복붙 워크플로우(§36)가 v1 정답. 탐색 잔재: "그래픽" 클립 4개(ShotTrack_3256_02 V3 ×1, NewsStyle_8622_01 V2 ×3) — 프로그램 제거 실패(createRemoveItemsAction 파라미터형 미해결 "Illegal Parameter type"/"script object no longer valid"), 수동 삭제 요망.
+- **37-b SequenceEditor 편집 API 발견**: `createInsertProjectItemAction`·`createOverwriteItemAction`·`createCloneTrackItemAction`·`createAddItem(s)Action`·`createRemoveItemsAction` 실재 — **하이라이트 릴(세그먼트 이어붙이기 16:9 3~4분)의 핵심 API 확보**. 다음 단계에서 insertProjectItemAction 시그니처 프로브 → 릴 빌더 구현.
+- **37-c 썸네일 제작 스모크(통과)**: 제목/배지/색/크기 입력→변형 A/B 저장→SVG 미리보기에 입력 내용 정확 반영(디코드 검증), 콘솔 0. **실버그 수정**: UXP가 `aspect-ratio` 미적용 → 변형 미리보기 220×0 붕괴 → 고정 높이 124px 병기(§25-b류 Host CSS 쿼크 목록에 추가).
