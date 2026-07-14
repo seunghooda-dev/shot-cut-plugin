@@ -14,6 +14,7 @@ import {
   createShort,
   createShortsFromMarkers,
   writeShortsMarkers,
+  writeDuckMarkers,
   errorMessage,
   exportCover,
   exportVideo,
@@ -78,6 +79,7 @@ import { SubtitleController, type SubtitleAiRequest, type SubtitleAnalysisReques
 import { resolveAutomationTranscript, subtitleDocumentToAutomationTranscript } from "./src/automation-transcript";
 import { createSubtitleDocument, type SubtitleDocument } from "./src/subtitles";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus } from "./src/style-corpus";
+import { computeDuckingEnvelope, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
 import {
   alignShortToOriginal,
   buildStyleExample,
@@ -1005,6 +1007,27 @@ function handleLearnClear(): void {
   toast("학습 예시를 초기화했습니다.", "info");
 }
 
+// 자막(발화) 구간을 근거로 BGM 덕킹 계획을 계산해 타임라인 마커로 표시한다.
+// Level 키프레임 자동 적용 대신, 사용자가 해당 구간에서 BGM 볼륨을 낮추도록 안내하는 폴백.
+async function handleDuckPlan(): Promise<void> {
+  const controller = subtitleController;
+  if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다.");
+  const spans = speechSpansFromCues(controller.document.cues);
+  if (spans.length === 0) {
+    throw new Error("발화 구간(자막)이 없습니다. 먼저 자막을 불러오세요.");
+  }
+  const rangeEnd = Math.max(...spans.map((span) => span.end));
+  const envelope = computeDuckingEnvelope(spans, { start: 0, end: rangeEnd });
+  const ranges = duckRangesFromEnvelope(envelope);
+  if (ranges.length === 0) {
+    throw new Error("덕킹할 발화 구간을 찾지 못했습니다.");
+  }
+  const count = await busy.during("BGM 덕킹 계획을 마커로 표시하고 있습니다…", () =>
+    writeDuckMarkers(ranges.map((range) => ({ start: range.start, end: range.end }))));
+  activity.add("success", `BGM 덕킹 마커 ${count}개를 타임라인에 표시했습니다.`);
+  toast(`발화 구간 ${count}곳에 'BGM 덕킹' 마커를 표시했습니다. 해당 구간에서 BGM 볼륨을 낮추세요.`, "success");
+}
+
 async function handleExportVideo(): Promise<void> {
   syncSettingsFromUI();
   if (!finalQCController) throw new Error("최종 QC 게이트가 초기화되지 않았습니다. 플러그인 패널을 다시 열어 주세요.");
@@ -1311,6 +1334,7 @@ function bindCoreEvents(): void {
   bind("scan-markers-btn", "click", guarded(() => markersQcPanel.scanMarkers(), "마커 검색 실패"));
   bind("batch-create-btn", "click", guarded(() => markersQcPanel.batchCreate(), "일괄 생성 실패"));
   bind("add-story-markers-btn", "click", guarded(() => markersQcPanel.addStoryMarkers(), "스토리 마커 추가 실패"));
+  bind("duck-plan-btn", "click", guarded(handleDuckPlan, "BGM 덕킹 계획 실패"));
   bind("choose-preset-btn", "click", guarded(handleChoosePreset, "프리셋 선택 실패"));
   bind("choose-output-btn", "click", guarded(handleChooseOutput, "출력 폴더 선택 실패"));
   bind("choose-mogrt-btn", "click", guarded(handleChooseMogrt, "MOGRT 선택 실패"));
