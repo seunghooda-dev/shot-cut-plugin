@@ -149,4 +149,33 @@ describe("planHighlightCuts", () => {
     assert.equal(DEFAULT_HIGHLIGHT_CUT_OPTIONS.idealDuration, 30);
     assert.equal(DEFAULT_HIGHLIGHT_CUT_OPTIONS.maxDuration, 60);
   });
+
+  it("splits a long highlight run into multiple sentence-bounded segments under maxDuration", () => {
+    // 40개 연속 cue, 5개마다(i%5===4) 문장 끝. cue2..cue35에 하이라이트(span 68초 > 60).
+    const cues: SubtitleCue[] = [];
+    for (let i = 0; i < 40; i += 1) cues.push(cue(`c${i}`, 2 * i, 2 * i + 2, i % 5 === 4 ? "문장 끝." : "이어지는 말,"));
+    const doc: SubtitleDocument = { version: 1, projectKey: "long-run", cues };
+    const highlights: SubtitleHighlight[] = [];
+    for (let i = 2; i <= 35; i += 1) highlights.push(hl(`c${i}`));
+
+    const segments = planHighlightCuts(doc, highlights);
+    assert.ok(segments.length >= 2, `분할 결과 ${segments.length}개`);
+    for (const s of segments) assert.ok(s.duration <= 60 + 1e-9, `duration ${s.duration}`);
+    // 분할 경계는 문장 끝(짝수초, cue i%5===4의 end = 2i+2)에 놓여야 한다. 60초=cue29.end.
+    assert.ok(segments.some((s) => Math.abs(s.end - 60) < 1e-9), "한 구간은 문장 경계 60초에서 끝나야 함");
+  });
+
+  it("snaps a mid-cue max-duration cut to the nearest word boundary", () => {
+    // 한 cue(0~80초) 안에 10초 간격 단어 끝. max 55 → 55 이하 마지막 단어 끝 50에 스냅.
+    const words = [];
+    for (let i = 0; i < 8; i += 1) words.push({ wordId: `w${i}`, s: 10 * i, e: 10 * i + 10, t: "말", hidden: false });
+    const doc: SubtitleDocument = {
+      version: 1,
+      projectKey: "wordsnap",
+      cues: [cue("c0", 0, 80, "긴 한 컷.", { words })],
+    };
+    const s = planHighlightCuts(doc, [hl("c0")], null, { maxDuration: 55 })[0]!;
+    assert.equal(s.end, 50);
+    assert.equal(s.duration, 50);
+  });
 });

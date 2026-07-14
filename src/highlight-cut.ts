@@ -1,5 +1,5 @@
 // 자막 하이라이트·아웃라인·타임코드를 숏폼 컷 구간 후보로 변환하는 순수 판단 로직
-import type { SubtitleDocument } from "./subtitles";
+import type { SubtitleDocument, SubtitleWord } from "./subtitles";
 import type { EditOutlineSegment, SubtitleHighlight } from "./subtitle-controller";
 
 export interface HighlightCutOptions {
@@ -31,7 +31,7 @@ export const DEFAULT_HIGHLIGHT_CUT_OPTIONS: Readonly<HighlightCutOptions> = Obje
   mergeGap: 8,
 });
 
-// 문장 종결부호(다국어)로 끝나면 문장 끝으로 본다. 따옴표·공백은 벗겨내고 마지막 글자를 검사.
+// 문장 종결부호(다국어)로 끝나면 문장 끝으로 본다. 따옴표·괄호·공백은 벗겨내고 검사.
 const SENTENCE_END = /[.?!…。！？]["'”’»)\]]*$/u;
 
 function isSentenceEnd(text: string): boolean {
@@ -64,6 +64,7 @@ interface CueMeta {
   start: number;
   end: number;
   text: string;
+  words: SubtitleWord[];
   sentenceEnd: boolean;
   sentenceStart: boolean;
 }
@@ -72,34 +73,26 @@ function overlaps(a: HighlightCutSegment, b: HighlightCutSegment): boolean {
   return a.start < b.end && b.start < a.end;
 }
 
-// 클러스터(하이라이트 cue 인덱스 묶음)를 목표 길이에 맞춰 앞뒤 cue로 확장/클램프하고 문장 경계에 스냅한다.
-function buildSegment(
-  cluster: number[],
-  cues: CueMeta[],
-  reasonById: Map<string, string>,
-  outline: EditOutlineSegment[] | null,
-  opt: HighlightCutOptions,
-): HighlightCutSegment {
+// 한 cue를 중간에서 잘라야 할 때, limit 이하의 마지막 단어 끝(무음 경계)에 스냅한다.
+// 단어 타임스탬프가 없으면 limit 그대로.
+function wordSnapEnd(cue: CueMeta, limit: number): number {
+  let best = cue.start;
+  for (const word of cue.words) {
+    if (typeof word.e === "number" && Number.isFinite(word.e)
+      && word.e > cue.start && word.e <= limit && word.e > best) {
+      best = word.e;
+    }
+  }
+  return best > cue.start ? best : limit;
+}
+
+// 짧은 클러스터를 idealDuration까지 앞뒤 cue로 확장한다(문장 경계·작은 공백 우선).
+function expandRange(cluster: number[], cues: CueMeta[], opt: HighlightCutOptions): { lo: number; hi: number } {
   let lo = cluster[0]!;
   let hi = cluster[cluster.length - 1]!;
   let start = cues[lo]!.start;
   let end = cues[hi]!.end;
 
-  // 너무 길면 뒤를 잘라 maxDuration 이내로. 잘린 끝을 cue 경계에 맞춰 hi 재계산.
-  if (end - start > opt.maxDuration) {
-    const limit = start + opt.maxDuration;
-    let newHi = lo;
-    for (let i = lo; i <= hi; i += 1) {
-      if (cues[i]!.end <= limit) newHi = i;
-      else break;
-    }
-    hi = Math.max(lo, newHi);
-    end = cues[hi]!.end;
-    // 단일 cue가 maxDuration보다 길어 cue 경계로 못 줄이면 최후로 중간을 자른다.
-    if (end - start > opt.maxDuration) end = start + opt.maxDuration;
-  }
-
-  // 너무 짧으면 인접 cue를 앞뒤로 붙여 idealDuration까지 확장.
   while (end - start < opt.idealDuration) {
     const beforeGap = lo - 1 >= 0 ? cues[lo]!.start - cues[lo - 1]!.end : Number.POSITIVE_INFINITY;
     const afterGap = hi + 1 < cues.length ? cues[hi + 1]!.start - cues[hi]!.end : Number.POSITIVE_INFINITY;
@@ -109,7 +102,6 @@ function buildSegment(
       && cues[hi + 1]!.end - start <= opt.maxDuration;
     if (!canBefore && !canAfter) break;
 
-    // 문장 경계를 완성하는 방향을 우선한다. 끝이 문장 끝이 아니면 뒤로, 시작이 문장 시작이 아니면 앞으로.
     const wantAfter = !cues[hi]!.sentenceEnd;
     const wantBefore = !cues[lo]!.sentenceStart;
     let extendAfter: boolean;
@@ -126,11 +118,50 @@ function buildSegment(
       start = cues[lo]!.start;
     }
   }
+  return { lo, hi };
+}
 
+// 긴 cue 구간 [coreLo, coreHi]를 maxDuration 이내 윈도우로 나눈다. 가능하면 문장 끝에서 자른다.
+function splitWindows(
+  coreLo: number,
+  coreHi: number,
+  cues: CueMeta[],
+  opt: HighlightCutOptions,
+): Array<{ lo: number; hi: number }> {
+  const windows: Array<{ lo: number; hi: number }> = [];
+  let winLo = coreLo;
+  for (let i = coreLo + 1; i <= coreHi; i += 1) {
+    if (cues[i]!.end - cues[winLo]!.start <= opt.maxDuration) continue;
+    // i를 넣으면 max 초과 → i 이전에서 윈도우를 닫는다. [winLo, i-1] 안 마지막 문장 끝 우선.
+    let cutHi = i - 1;
+    for (let j = i - 1; j >= winLo; j -= 1) {
+      if (cues[j]!.sentenceEnd) { cutHi = j; break; }
+    }
+    if (cutHi < winLo) cutHi = winLo;
+    windows.push({ lo: winLo, hi: cutHi });
+    winLo = cutHi + 1;
+  }
+  windows.push({ lo: winLo, hi: coreHi });
+  return windows;
+}
+
+// 고정된 cue 구간 [lo, hi]와 그 안의 하이라이트로 한 세그먼트를 만든다(확장 없음).
+function buildSegmentFromRange(
+  lo: number,
+  hi: number,
+  highlightIdxs: number[],
+  cues: CueMeta[],
+  reasonById: Map<string, string>,
+  outline: EditOutlineSegment[] | null,
+  opt: HighlightCutOptions,
+): HighlightCutSegment {
+  const start = cues[lo]!.start;
+  // 단일 cue가 maxDuration보다 길면 단어 경계(없으면 그 지점)로 스냅해 자른다.
+  let end = cues[hi]!.end;
+  if (end - start > opt.maxDuration) end = wordSnapEnd(cues[hi]!, start + opt.maxDuration);
   const duration = end - start;
   const segCueIds = cues.slice(lo, hi + 1).map((c) => c.cueId);
 
-  // 아웃라인 정렬: cueId 겹침이 가장 큰 아웃라인 세그먼트의 라벨을 제목으로.
   let outlineLabel = "";
   let bestOverlap = 0;
   if (outline) {
@@ -147,20 +178,19 @@ function buildSegment(
   }
   const outlineAligned = bestOverlap > 0;
 
-  const firstHlReason = reasonById.get(cues[cluster[0]!]!.cueId) ?? "";
-  const reason = cluster
+  const firstHl = highlightIdxs[0]!;
+  const firstHlReason = reasonById.get(cues[firstHl]!.cueId) ?? "";
+  const reason = highlightIdxs
     .map((i) => reasonById.get(cues[i]!.cueId) ?? "")
     .filter((r) => r.length > 0)
     .slice(0, 2)
     .join(" · ");
-  const title = (outlineLabel || firstHlReason || cues[cluster[0]!]!.text).trim().slice(0, 60)
+  const title = (outlineLabel || firstHlReason || cues[lo]!.text).trim().slice(0, 60)
     || `구간 ${cues[lo]!.start.toFixed(0)}초`;
 
-  // 점수(0~1): 하이라이트 밀도·훅(시작 직후 하이라이트)·완결성(문장 경계)·길이 적합·아웃라인 정렬.
-  const highlightCount = cluster.length;
+  const highlightCount = highlightIdxs.length;
   const density = Math.min(1, highlightCount / Math.max(1, duration / opt.mergeGap));
-  const firstHlStart = cues[cluster[0]!]!.start;
-  const hook = firstHlStart - start <= opt.hookWindow ? 1 : 0.3;
+  const hook = cues[firstHl]!.start - start <= opt.hookWindow ? 1 : 0.3;
   const completeness = (cues[lo]!.sentenceStart ? 0.5 : 0) + (cues[hi]!.sentenceEnd ? 0.5 : 0);
   const durationFit = 1 - Math.min(1, Math.abs(duration - opt.idealDuration) / opt.idealDuration);
   const outlineScore = outlineAligned ? 1 : 0;
@@ -181,6 +211,7 @@ function buildSegment(
 /**
  * 자막 문서 + AI 하이라이트(+아웃라인)를 랭킹된 숏폼 컷 구간 후보로 변환한다.
  * 결정적 순수 함수: 같은 입력이면 항상 같은 출력. 하이라이트가 없으면 빈 배열.
+ * 긴 하이라이트 런은 문장 경계에서 maxDuration 이내 여러 구간으로 분할한다.
  */
 export function planHighlightCuts(
   document: SubtitleDocument,
@@ -202,6 +233,7 @@ export function planHighlightCuts(
     start: c.start,
     end: c.end,
     text: c.text,
+    words: Array.isArray(c.words) ? c.words : [],
     sentenceEnd: isSentenceEnd(c.text),
     sentenceStart: i === 0 ? true : isSentenceEnd(visible[i - 1]!.text),
   }));
@@ -219,29 +251,39 @@ export function planHighlightCuts(
   if (hlIndices.length === 0) return [];
   hlIndices.sort((a, b) => a - b);
 
+  // 근접도(gap ≤ mergeGap)만으로 묶는다. 길이 제한은 아래 분할이 처리한다.
   const clusters: number[][] = [];
   let current: number[] | null = null;
   for (const idx of hlIndices) {
-    if (current) {
-      const gap = cues[idx]!.start - cues[current[current.length - 1]!]!.end;
-      const span = cues[idx]!.end - cues[current[0]!]!.start;
-      if (gap <= opt.mergeGap && span <= opt.maxDuration) {
-        current.push(idx);
-        continue;
-      }
+    if (current && cues[idx]!.start - cues[current[current.length - 1]!]!.end <= opt.mergeGap) {
+      current.push(idx);
+      continue;
     }
     current = [idx];
     clusters.push(current);
   }
 
-  const segments = clusters
-    .map((cluster) => buildSegment(cluster, cues, reasonById, outline, opt))
-    .filter((s) => s.duration >= 1 && s.end > s.start);
+  const segments: HighlightCutSegment[] = [];
+  for (const cluster of clusters) {
+    const coreLo = cluster[0]!;
+    const coreHi = cluster[cluster.length - 1]!;
+    if (cues[coreHi]!.end - cues[coreLo]!.start <= opt.maxDuration) {
+      const { lo, hi } = expandRange(cluster, cues, opt);
+      segments.push(buildSegmentFromRange(lo, hi, cluster, cues, reasonById, outline, opt));
+    } else {
+      for (const window of splitWindows(coreLo, coreHi, cues, opt)) {
+        const inWindow = cluster.filter((i) => i >= window.lo && i <= window.hi);
+        if (inWindow.length === 0) continue;
+        segments.push(buildSegmentFromRange(window.lo, window.hi, inWindow, cues, reasonById, outline, opt));
+      }
+    }
+  }
 
-  segments.sort((a, b) => b.score - a.score || a.start - b.start);
+  const usable = segments.filter((s) => s.duration >= 1 && s.end > s.start);
+  usable.sort((a, b) => b.score - a.score || a.start - b.start);
 
   const accepted: HighlightCutSegment[] = [];
-  for (const segment of segments) {
+  for (const segment of usable) {
     if (accepted.some((a) => overlaps(a, segment))) continue;
     accepted.push(segment);
     if (accepted.length >= opt.maxSegments) break;
