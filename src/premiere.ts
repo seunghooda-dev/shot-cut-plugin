@@ -129,7 +129,7 @@ export interface CreateShortOptions {
   focalX?: number;
   focalY?: number;
   // 샷 단위 초점 스팬(소스 절대 초). 있으면 정적 초점 대신 위치 키프레임으로 카메라 컷을 따라간다.
-  focalSpans?: Array<{ start: number; end: number; x: number; y: number }>;
+  focalSpans?: Array<{ start: number; end: number; x: number; y: number; zoom?: number }>;
   explicitRange?: { start: number; end: number };
 }
 
@@ -305,6 +305,7 @@ export function focalReframePosition(
   sourceHeight: number,
   focalX: number,
   focalY: number,
+  zoom = 1,
 ): { x: number; y: number } | null {
   const point = readPointF(value);
   if (
@@ -324,23 +325,24 @@ export function focalReframePosition(
     Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.5;
   const fx = clamp01(focalX);
   const fy = clamp01(focalY);
+  // 확대(펀치인) 배율. 1이면 기존 fill 그대로, >1이면 양축 모두 그만큼 더 크게 표시된다.
+  const z = Number.isFinite(zoom) && zoom > 1 ? Math.min(2, zoom) : 1;
   const sourceAspect = sourceWidth / sourceHeight;
   const targetAspect = targetWidth / targetHeight;
-  // fill 시 소스가 타깃보다 커지는 비율과 넘치는 양. 넓은 소스는 가로, 높은 소스는 세로가 넘친다.
-  const horizontalRatio = sourceAspect / targetAspect;
-  const verticalRatio = targetAspect / sourceAspect;
-  const horizontalOverflow = Math.max(0, horizontalRatio - 1);
-  const verticalOverflow = Math.max(0, verticalRatio - 1);
+  // fill 시 각 축의 표시 배율(타깃 대비). 넓은 소스는 가로만 >1, 높은 소스는 세로만 >1이며
+  // 확대 배율 z가 양축에 곱해진다. 배율이 1을 넘는 축만 크롭(이동) 여지가 있다.
+  const widthRatio = (sourceAspect >= targetAspect ? sourceAspect / targetAspect : 1) * z;
+  const heightRatio = (sourceAspect >= targetAspect ? 1 : targetAspect / sourceAspect) * z;
   // 피사체(fx,fy)가 프레임 "정중앙"에 오도록 전체 비율로 이동하되(×ratio — ×overflow면 피사체가
   // 화면의 fx 지점에 놓여 가장자리에 걸린다. Host 프레임 실측 §33), 크롭 창이 소스를 벗어나
-  // 여백이 생기지 않도록 ±오버플로/2로 클램프한다(경계 근처 피사체는 가능한 만큼만 중앙으로).
+  // 여백이 생기지 않도록 ±(ratio-1)/2로 클램프한다(경계 근처 피사체는 가능한 만큼만 중앙으로).
   const clampShift = (value: number, limit: number): number =>
     Math.min(limit, Math.max(-limit, value));
-  const shiftXNorm = horizontalOverflow > 0
-    ? clampShift((0.5 - fx) * horizontalRatio, horizontalOverflow / 2)
+  const shiftXNorm = widthRatio > 1
+    ? clampShift((0.5 - fx) * widthRatio, (widthRatio - 1) / 2)
     : 0;
-  const shiftYNorm = verticalOverflow > 0
-    ? clampShift((0.5 - fy) * verticalRatio, verticalOverflow / 2)
+  const shiftYNorm = heightRatio > 1
+    ? clampShift((0.5 - fy) * heightRatio, (heightRatio - 1) / 2)
     : 0;
   const normalized = Math.abs(point.x) <= 2 && Math.abs(point.y) <= 2;
   return normalized
@@ -1888,7 +1890,7 @@ async function reframeSequence(
 async function applyShotFocalPositionKeyframes(
   project: Project,
   sequence: Sequence,
-  spans: Array<{ start: number; end: number; x: number; y: number }>,
+  spans: Array<{ start: number; end: number; x: number; y: number; zoom?: number }>,
   targetWidth: number,
   targetHeight: number,
   sourceWidth: number,
@@ -1904,6 +1906,7 @@ async function applyShotFocalPositionKeyframes(
     duration: valid[valid.length - 1]!.end - valid[0]!.start,
     usedFallback: false,
   };
+  const wantsZoom = valid.some((span) => typeof span.zoom === "number" && span.zoom > 1.01);
   const candidates = await allVideoItems(sequence, "video");
   const warnings: string[] = [];
   const actions: ActionFactory[] = [];
@@ -1928,8 +1931,24 @@ async function applyShotFocalPositionKeyframes(
         warnings.push("위치 값 형식을 인식하지 못한 클립은 정적 초점을 유지했습니다.");
         continue;
       }
+      // 펀치인(zoom)은 위치·스케일이 함께 움직여야 한다. 스케일 파라미터를 못 읽으면
+      // 위치만 확대 기준으로 밀리는 왜곡이 생기므로 이 클립은 zoom 없이(1) 적용한다.
+      const scale = params.scale;
+      let baseScale = Number.NaN;
+      let zoomUsable = false;
+      if (wantsZoom && scale && !(typeof scale.isTimeVarying === "function" && scale.isTimeVarying())) {
+        if (!(typeof scale.areKeyframesSupported === "function") || await scale.areKeyframesSupported()) {
+          baseScale = Number(keyframeValue(await scale.getStartValue()));
+          zoomUsable = Number.isFinite(baseScale) && baseScale > 0;
+        }
+      }
+      if (wantsZoom && !zoomUsable) {
+        warnings.push("스케일 파라미터를 읽지 못해 일부 샷의 확대(펀치인)를 생략했습니다.");
+      }
       actions.push(() => position.createSetTimeVaryingAction(true));
+      if (zoomUsable) actions.push(() => scale!.createSetTimeVaryingAction(true));
       for (const span of valid) {
+        const zoom = zoomUsable && typeof span.zoom === "number" && span.zoom > 1.01 ? Math.min(2, span.zoom) : 1;
         const point = focalReframePosition(
           rawValue,
           targetWidth,
@@ -1938,15 +1957,25 @@ async function applyShotFocalPositionKeyframes(
           sourceHeight,
           span.x,
           span.y,
+          zoom,
         );
         if (!point) continue;
         const holdEnd = Math.max(span.start, span.end - HOLD_EPSILON);
-        for (const time of span.start === holdEnd ? [span.start] : [span.start, holdEnd]) {
+        const times = span.start === holdEnd ? [span.start] : [span.start, holdEnd];
+        for (const time of times) {
           actions.push(() => {
             const keyframe = position.createKeyframe(ppro.PointF(point.x, point.y));
             keyframe.position = ppro.TickTime.createWithSeconds(time);
             return position.createAddKeyframeAction(keyframe);
           });
+          if (zoomUsable) {
+            const scaleValue = Math.round(baseScale * zoom * 100) / 100;
+            actions.push(() => {
+              const keyframe = scale!.createKeyframe(scaleValue);
+              keyframe.position = ppro.TickTime.createWithSeconds(time);
+              return scale!.createAddKeyframeAction(keyframe);
+            });
+          }
         }
       }
       changed += 1;
@@ -2050,7 +2079,7 @@ export async function scanShortMarkers(defaultDuration: number): Promise<MarkerS
 export type ShortSegmentInput = MarkerSegment & {
   focalX?: number;
   focalY?: number;
-  focalSpans?: Array<{ start: number; end: number; x: number; y: number }>;
+  focalSpans?: Array<{ start: number; end: number; x: number; y: number; zoom?: number }>;
 };
 
 export async function createShortsFromMarkers(

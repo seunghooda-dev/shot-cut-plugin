@@ -4,6 +4,10 @@ import type { SubjectPoint } from "./subject-focus";
 export interface TimedSubjectSample extends SubjectPoint {
   /** 소스 시퀀스 절대 시각(초). */
   time: number;
+  /** 얼굴 세로 크기(프레임 높이 대비 0..1). 풀샷 판단·확대 배율 계산에 쓴다. */
+  faceHeight?: number;
+  /** 프레임에 보이는 인물 수. 2명 이상 풀샷이면 화자를 확대한다. */
+  personCount?: number;
 }
 
 export interface FocalSpan {
@@ -11,6 +15,8 @@ export interface FocalSpan {
   end: number;
   x: number;
   y: number;
+  /** 펀치인 배율(기본 1). 멀티인물 풀샷에서 화자를 키워 잡을 때 >1. */
+  zoom?: number;
 }
 
 export interface ShotFocalOptions {
@@ -18,12 +24,27 @@ export interface ShotFocalOptions {
   jumpThreshold: number;
   /** 이 미만 confidence 샘플은 무시한다. */
   minConfidence: number;
+  /** 인접 샷의 초점(중간값) 차이가 이 미만이면 같은 샷으로 병합한다(노이즈 분할 방지). */
+  mergeThreshold: number;
+  /** 확대 시 목표 얼굴 세로 크기(프레임 높이 대비). */
+  faceTargetHeight: number;
+  /** 최대 펀치인 배율. */
+  zoomMax: number;
 }
 
 export const DEFAULT_SHOT_FOCAL_OPTIONS: Readonly<ShotFocalOptions> = Object.freeze({
-  jumpThreshold: 0.12,
+  jumpThreshold: 0.08,
   minConfidence: 0.3,
+  mergeThreshold: 0.05,
+  faceTargetHeight: 0.22,
+  zoomMax: 1.5,
 });
+
+function median(values: readonly number[]): number {
+  const sorted = values.slice().sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
 
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
@@ -76,10 +97,20 @@ export function planSampleTimes(
   return thinned;
 }
 
+interface CleanSample {
+  time: number;
+  x: number;
+  y: number;
+  faceHeight: number | null;
+  personCount: number | null;
+}
+
 /**
  * 시각순 인물 감지 샘플을 샷 단위 초점 스팬으로 묶는다. x가 jumpThreshold 이상 점프하면
- * 카메라 컷으로 보고 두 샘플의 중간에서 스팬을 나눈다. 각 스팬의 초점은 소속 샘플 평균.
- * 유효 샘플이 없으면 빈 배열(호출부는 정적 초점 폴백). 결정적 순수 함수.
+ * 카메라 컷으로 보고 두 샘플의 중간에서 스팬을 나눈다. 각 스팬의 초점은 소속 샘플의
+ * **중간값**(혼합 평균은 화면에서 ~3배 증폭돼 §34 실측처럼 얼굴이 밀린다). 초점이 비슷한
+ * 인접 샷은 병합(노이즈 분할 방지)하고, 멀티인물 풀샷(인원≥2·얼굴 작음)은 화자를 목표
+ * 크기까지 확대(zoom)한다. 유효 샘플이 없으면 빈 배열. 결정적 순수 함수.
  */
 export function planShotFocalSpans(
   samples: readonly TimedSubjectSample[],
@@ -88,40 +119,81 @@ export function planShotFocalSpans(
   options?: Partial<ShotFocalOptions>,
 ): FocalSpan[] {
   if (!Number.isFinite(startSeconds) || !Number.isFinite(endSeconds) || endSeconds <= startSeconds) return [];
-  const jumpThreshold = typeof options?.jumpThreshold === "number" && Number.isFinite(options.jumpThreshold)
-    ? Math.max(0.01, options.jumpThreshold)
-    : DEFAULT_SHOT_FOCAL_OPTIONS.jumpThreshold;
-  const minConfidence = typeof options?.minConfidence === "number" && Number.isFinite(options.minConfidence)
-    ? clamp01(options.minConfidence)
-    : DEFAULT_SHOT_FOCAL_OPTIONS.minConfidence;
+  const defaults = DEFAULT_SHOT_FOCAL_OPTIONS;
+  const numberOr = (value: unknown, fallback: number, min: number): number =>
+    typeof value === "number" && Number.isFinite(value) ? Math.max(min, value) : fallback;
+  const jumpThreshold = numberOr(options?.jumpThreshold, defaults.jumpThreshold, 0.01);
+  const minConfidence = clamp01(numberOr(options?.minConfidence, defaults.minConfidence, 0));
+  const mergeThreshold = numberOr(options?.mergeThreshold, defaults.mergeThreshold, 0);
+  const faceTargetHeight = clamp01(numberOr(options?.faceTargetHeight, defaults.faceTargetHeight, 0.01));
+  const zoomMax = numberOr(options?.zoomMax, defaults.zoomMax, 1);
 
-  const valid = (Array.isArray(samples) ? samples : [])
+  const valid: CleanSample[] = (Array.isArray(samples) ? samples : [])
     .filter((sample) => sample
       && Number.isFinite(sample.time) && Number.isFinite(sample.x) && Number.isFinite(sample.y)
       && Number.isFinite(sample.confidence) && sample.confidence >= minConfidence
       && sample.time >= startSeconds - 1e-6 && sample.time <= endSeconds + 1e-6)
-    .map((sample) => ({ time: sample.time, x: clamp01(sample.x), y: clamp01(sample.y) }))
+    .map((sample) => ({
+      time: sample.time,
+      x: clamp01(sample.x),
+      y: clamp01(sample.y),
+      faceHeight: typeof sample.faceHeight === "number" && Number.isFinite(sample.faceHeight) && sample.faceHeight > 0
+        ? clamp01(sample.faceHeight)
+        : null,
+      personCount: typeof sample.personCount === "number" && Number.isFinite(sample.personCount) && sample.personCount >= 0
+        ? Math.round(sample.personCount)
+        : null,
+    }))
     .sort((a, b) => a.time - b.time);
   if (valid.length === 0) return [];
 
-  // 샷 그룹화: 인접 샘플 x 점프 시 컷.
-  const groups: Array<{ items: Array<{ time: number; x: number; y: number }> }> = [{ items: [valid[0]!] }];
+  // 1) 샷 그룹화: 인접 샘플 x 점프 시 컷.
+  let groups: CleanSample[][] = [[valid[0]!]];
   for (let i = 1; i < valid.length; i += 1) {
-    const previous = valid[i - 1]!;
-    const current = valid[i]!;
-    if (Math.abs(current.x - previous.x) >= jumpThreshold) groups.push({ items: [current] });
-    else groups[groups.length - 1]!.items.push(current);
+    if (Math.abs(valid[i]!.x - valid[i - 1]!.x) >= jumpThreshold) groups.push([valid[i]!]);
+    else groups[groups.length - 1]!.push(valid[i]!);
   }
 
+  // 2) 초점(중간값)이 비슷한 인접 그룹은 병합 — 감지 노이즈로 갈라진 같은 샷을 다시 합친다.
+  const merged: CleanSample[][] = [];
+  for (const group of groups) {
+    const last = merged[merged.length - 1];
+    if (last && Math.abs(median(last.map((s) => s.x)) - median(group.map((s) => s.x))) < mergeThreshold) {
+      last.push(...group);
+    } else {
+      merged.push(group.slice());
+    }
+  }
+  groups = merged;
+
+  // 3) 그룹 → 스팬: 초점은 중간값, 경계는 인접 샘플 중간, 멀티인물 풀샷은 확대 배율 계산.
   const spans: FocalSpan[] = [];
   for (let g = 0; g < groups.length; g += 1) {
-    const items = groups[g]!.items;
-    const meanX = items.reduce((sum, item) => sum + item.x, 0) / items.length;
-    const meanY = items.reduce((sum, item) => sum + item.y, 0) / items.length;
-    // 스팬 경계: 첫 스팬은 세그먼트 시작부터, 마지막은 끝까지. 사이 경계는 인접 샘플 중간.
-    const start = g === 0 ? startSeconds : (groups[g - 1]!.items[groups[g - 1]!.items.length - 1]!.time + items[0]!.time) / 2;
-    const end = g === groups.length - 1 ? endSeconds : (items[items.length - 1]!.time + groups[g + 1]!.items[0]!.time) / 2;
-    if (end > start) spans.push({ start: round3(start), end: round3(end), x: round3(meanX), y: round3(meanY) });
+    const items = groups[g]!;
+    const focalX = median(items.map((item) => item.x));
+    const focalY = median(items.map((item) => item.y));
+    const faceHeights = items.map((item) => item.faceHeight).filter((value): value is number => value !== null);
+    const personCounts = items.map((item) => item.personCount).filter((value): value is number => value !== null);
+    let zoom = 1;
+    if (faceHeights.length > 0 && personCounts.length > 0) {
+      const faceMedian = median(faceHeights);
+      const personMedian = median(personCounts);
+      // 인물이 2명 이상 보이는 풀샷에서 화자의 얼굴이 목표보다 작으면 펀치인으로 키워 잡는다.
+      if (personMedian >= 2 && faceMedian > 0 && faceMedian < faceTargetHeight) {
+        zoom = Math.min(zoomMax, faceTargetHeight / faceMedian);
+      }
+    }
+    const start = g === 0 ? startSeconds : (groups[g - 1]![groups[g - 1]!.length - 1]!.time + items[0]!.time) / 2;
+    const end = g === groups.length - 1 ? endSeconds : (items[items.length - 1]!.time + groups[g + 1]![0]!.time) / 2;
+    if (end > start) {
+      spans.push({
+        start: round3(start),
+        end: round3(end),
+        x: round3(focalX),
+        y: round3(focalY),
+        ...(zoom > 1.01 ? { zoom: round3(zoom) } : {}),
+      });
+    }
   }
   return spans;
 }

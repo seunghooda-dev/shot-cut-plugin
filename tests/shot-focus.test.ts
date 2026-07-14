@@ -86,3 +86,48 @@ describe("planShotFocalSpans", () => {
     assert.deepEqual(planShotFocalSpans(input, 0, 10), planShotFocalSpans(input, 0, 10));
   });
 });
+
+describe("planShotFocalSpans v2 (median·merge·zoom)", () => {
+  it("uses the median focal, not the blended mean (mixed-shot contamination)", () => {
+    // 0.50 다수 + 0.56 소수가 한 그룹(점프 0.06<0.08) → 평균 0.523이 아니라 중간값 0.50.
+    const spans = planShotFocalSpans(
+      [sample(2, 0.5), sample(4, 0.5), sample(6, 0.56), sample(8, 0.5)],
+      0,
+      10,
+    );
+    assert.equal(spans.length, 1);
+    assert.equal(spans[0]!.x, 0.5);
+  });
+
+  it("merges adjacent groups whose medians are nearly equal (noise split)", () => {
+    // 0.50그룹 → 점프(0.085)로 분할된 0.56그룹(중간값 0.56): 기본 임계 0.05로는 유지(차 0.06),
+    // mergeThreshold 0.07로 넓히면 병합돼 스팬 1개. (한 샘플 노이즈 0.585는 중간값이 흡수)
+    const samples = [sample(1, 0.5), sample(3, 0.5), sample(5, 0.585), sample(7, 0.56), sample(9, 0.56)];
+    assert.equal(planShotFocalSpans(samples, 0, 10).length, 2);
+    assert.equal(planShotFocalSpans(samples, 0, 10, { mergeThreshold: 0.07 }).length, 1);
+  });
+
+  it("zooms in on the speaker for multi-person wide shots", () => {
+    const wide = (time: number) => ({ time, x: 0.62, y: 0.35, confidence: 0.9, faceHeight: 0.11, personCount: 2 });
+    const spans = planShotFocalSpans([wide(2), wide(5), wide(8)], 0, 10);
+    assert.equal(spans.length, 1);
+    assert.equal(spans[0]!.zoom, 1.5); // min(1.5, 0.22/0.11=2)
+  });
+
+  it("does not zoom single-person or large-face shots", () => {
+    const single = (time: number) => ({ time, x: 0.5, y: 0.3, confidence: 0.9, faceHeight: 0.11, personCount: 1 });
+    const bigFace = (time: number) => ({ time, x: 0.5, y: 0.3, confidence: 0.9, faceHeight: 0.3, personCount: 2 });
+    assert.equal(planShotFocalSpans([single(2), single(5)], 0, 10)[0]!.zoom, undefined);
+    assert.equal(planShotFocalSpans([bigFace(2), bigFace(5)], 0, 10)[0]!.zoom, undefined);
+  });
+
+  it("refines a boundary toward the true cut when a boundary sample is added", () => {
+    // 1차: 샘플 4/6 사이 경계=5. 실제 컷이 5.6쯤이면 경계 샘플(5)이 왼쪽 샷(0.5)으로 판정되고
+    // 재계산 경계가 (5+6)/2=5.5로 이동 — 실제 컷에 절반 수렴.
+    const first = [sample(2, 0.5), sample(4, 0.5), sample(6, 0.75), sample(8, 0.75)];
+    const coarse = planShotFocalSpans(first, 0, 10);
+    assert.equal(coarse[0]!.end, 5);
+    const refined = planShotFocalSpans([...first, sample(5, 0.5)], 0, 10);
+    assert.equal(refined[0]!.end, 5.5);
+  });
+});

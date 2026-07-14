@@ -1879,3 +1879,28 @@ describe("applyShotFocalPositionKeyframes source contract", () => {
     assert.ok(body.includes("TickTime.createWithSeconds(time)"), "expected keyframe time placement");
   });
 });
+
+describe("focalReframePosition zoom (punch-in)", () => {
+  it("keeps z=1 behavior identical and centers with zoom on both axes", () => {
+    // 정사각→정사각 + z=2: 양축 배율 2, fy=0.25 → shiftY=(0.25)×2=0.5 (한도 0.5) → y=1000.
+    assert.deepEqual(
+      focalReframePosition([600, 400], 1000, 1000, 1000, 1000, 0.5, 0.25, 2),
+      { x: 500, y: 1000 },
+    );
+    // 검증: 창 중심 y = 0.5 − shift/z = 0.25 = fy → 얼굴 정중앙.
+  });
+
+  it("clamps zoomed shift so the window stays inside the source", () => {
+    assert.deepEqual(
+      focalReframePosition([600, 400], 1000, 1000, 1000, 1000, 0.5, 0.05, 2),
+      focalReframePosition([600, 400], 1000, 1000, 1000, 1000, 0.5, 0, 2),
+    );
+  });
+
+  it("ignores invalid zoom values (treated as 1)", () => {
+    assert.deepEqual(
+      focalReframePosition([600, 400], 1000, 2000, 2000, 1000, 0.35, 0.5, Number.NaN),
+      focalReframePosition([600, 400], 1000, 2000, 2000, 1000, 0.35, 0.5),
+    );
+  });
+});

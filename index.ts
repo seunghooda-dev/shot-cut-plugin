@@ -1018,11 +1018,52 @@ async function detectSegmentShotSpans(segment: HighlightCutSegment): Promise<Foc
     total = frames.reduce((sum, frame) => sum + frame.bytes.byteLength, 0);
   }
   const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
-  const detected = await client.detectSubjectTimeline(frames.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" })));
-  const samples: TimedSubjectSample[] = detected
-    .filter((item) => item.index >= 0 && item.index < frames.length)
-    .map((item) => ({ time: frames[item.index]!.time, x: item.x, y: item.y, confidence: item.confidence }));
-  const spans = planShotFocalSpans(samples, segment.start, segment.end);
+  const toSamples = (
+    detected: Array<{ index: number; x: number; y: number; confidence: number; faceHeight?: number; personCount?: number }>,
+    sourceFrames: Array<{ bytes: Uint8Array; time: number }>,
+  ): TimedSubjectSample[] => detected
+    .filter((item) => item.index >= 0 && item.index < sourceFrames.length)
+    .map((item) => ({
+      time: sourceFrames[item.index]!.time,
+      x: item.x,
+      y: item.y,
+      confidence: item.confidence,
+      ...(typeof item.faceHeight === "number" ? { faceHeight: item.faceHeight } : {}),
+      ...(typeof item.personCount === "number" ? { personCount: item.personCount } : {}),
+    }));
+  let samples = toSamples(
+    await client.detectSubjectTimeline(frames.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" }))),
+    frames,
+  );
+  let spans = planShotFocalSpans(samples, segment.start, segment.end);
+  // 경계 정밀화: 샷 경계(인접 샘플 중간) 지점의 프레임을 추가 샘플해 다시 계산하면
+  // 경계가 실제 컷에 절반씩 수렴한다. 내부 경계가 있을 때 1회만 수행.
+  const boundaries = spans.slice(0, -1).map((span) => span.end)
+    .filter((time) => time > segment.start + 0.2 && time < segment.end - 0.2);
+  if (boundaries.length > 0 && boundaries.length <= 6) {
+    const extraFrames: Array<{ bytes: Uint8Array; time: number }> = [];
+    for (const time of boundaries) {
+      try {
+        const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 320);
+        const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+        if (bytes) extraFrames.push({ bytes, time });
+      } catch {
+        // 경계 샘플 실패는 무시(1차 경계 유지)
+      }
+    }
+    if (extraFrames.length > 0) {
+      try {
+        const refined = toSamples(
+          await client.detectSubjectTimeline(extraFrames.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" }))),
+          extraFrames,
+        );
+        samples = [...samples, ...refined];
+        spans = planShotFocalSpans(samples, segment.start, segment.end);
+      } catch {
+        // 정밀화 실패 시 1차 스팬 유지
+      }
+    }
+  }
   return spans.length > 0 ? spans : null;
 }
 
