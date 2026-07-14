@@ -411,11 +411,16 @@ function subtitleProjectKeyFromStatus(status: Pick<SequenceStatus, "projectPath"
 }
 
 async function subtitleProjectKey(): Promise<string> {
-  try {
-    return subtitleProjectKeyFromStatus(await readSequenceStatus());
-  } catch {
-    return SESSION_FALLBACK_PROJECT_KEY;
+  // 부팅 직후에는 Host가 아직 준비 전이라 상태 읽기가 잠시 실패할 수 있다 — 짧게 재시도한 뒤에만
+  // 세션 폴백으로 넘어간다(리로드 직후 엉뚱한 세션 문서가 로드되던 쿼크의 근본 원인, runbook 33-c).
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      return subtitleProjectKeyFromStatus(await readSequenceStatus());
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
   }
+  return SESSION_FALLBACK_PROJECT_KEY;
 }
 
 async function readSrtFile(): Promise<string | null> {
@@ -2075,6 +2080,11 @@ async function bootstrap(): Promise<void> {
     reportError(error, "최종 QC 게이트 초기화 실패");
   }
   await refreshStatus(true);
+  // 부팅 시점 상태 읽기가 실패해 세션 폴백 문서가 남았을 수 있어 잠시 뒤 한 번 더 동기화한다.
+  // 키가 이미 맞으면 no-op이라 무해하다(runbook 33-c 자기치유).
+  setTimeout(() => {
+    void refreshStatus(true);
+  }, 2500);
   activity.add("info", "ShortFlow Studio가 준비되었습니다.");
 }
 
