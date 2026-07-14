@@ -26,6 +26,7 @@ import {
 } from "./subtitles";
 import { parseWhisperJson } from "./whisper-subtitles";
 import { planHighlightCuts, type HighlightCutOptions, type HighlightCutSegment } from "./highlight-cut";
+import { segmentsFromModelPlan } from "./shorts-plan";
 
 export const DEFAULT_SUBTITLE_DOM_LIMIT = 300;
 export const MAX_SUBTITLE_DOM_LIMIT = 1_000;
@@ -108,11 +109,13 @@ export interface SubtitleAiRequest {
   targetLanguage?: string;
 }
 
-export type SubtitleAnalysisAction = "interview-highlight" | "edit-outline" | "youtube-metadata";
+export type SubtitleAnalysisAction = "interview-highlight" | "edit-outline" | "youtube-metadata" | "shorts-plan";
 
 export interface SubtitleAnalysisRequest {
   action: SubtitleAnalysisAction;
   document: SubtitleDocument;
+  // shorts-plan few-shot용 스타일 예시(선택). 사용자 과거 편집을 시연으로 넣어 스타일을 학습시킨다.
+  styleExamples?: string;
 }
 
 export interface SubtitleHighlight {
@@ -127,10 +130,20 @@ export interface EditOutlineSegment {
   reason: string;
 }
 
+// shorts-plan: 모델이 직접 제안하는 숏폼 구간(cueId 집합 + 훅·제목·점수·근거).
+export interface ShortsPlanItem {
+  cueIds: string[];
+  hook: string;
+  title: string;
+  score: number;
+  reason: string;
+}
+
 export type SubtitleAnalysisResult =
   | { action: "interview-highlight"; highlights: SubtitleHighlight[] }
   | { action: "edit-outline"; segments: EditOutlineSegment[] }
-  | { action: "youtube-metadata"; title: string; description: string; tags: string[] };
+  | { action: "youtube-metadata"; title: string; description: string; tags: string[] }
+  | { action: "shorts-plan"; shorts: ShortsPlanItem[] };
 
 export interface SubtitleAiValidationOptions {
   maxCueCount?: number;
@@ -385,6 +398,29 @@ export function validateAnalysisResponse(
       });
     }
     return { action: "edit-outline", segments };
+  }
+
+  if (request.action === "shorts-plan") {
+    const raw = Array.isArray(payload.shorts) ? payload.shorts : [];
+    const shorts: ShortsPlanItem[] = [];
+    for (const item of raw) {
+      if (!isRecord(item)) continue;
+      const segCueIds = Array.isArray(item.cueIds)
+        ? item.cueIds.filter((id): id is string => typeof id === "string" && cueIds.has(id))
+        : [];
+      if (segCueIds.length === 0) continue;
+      const score = typeof item.score === "number" && Number.isFinite(item.score)
+        ? Math.min(1, Math.max(0, item.score)) : 0.5;
+      shorts.push({
+        cueIds: segCueIds,
+        hook: typeof item.hook === "string" ? item.hook.trim().slice(0, 200) : "",
+        title: (typeof item.title === "string" ? item.title.trim().slice(0, 60) : "") || `숏폼 ${shorts.length + 1}`,
+        score,
+        reason: typeof item.reason === "string" ? item.reason.trim().slice(0, 200) : "",
+      });
+      if (shorts.length >= 30) break;
+    }
+    return { action: "shorts-plan", shorts };
   }
 
   const title = typeof payload.title === "string" ? payload.title.trim().slice(0, 100) : "";
@@ -828,7 +864,10 @@ export class SubtitleController {
    * 문서를 변경하지 않는 읽기 전용 경로. provider가 돌려준 값은 validateAnalysisResponse로
    * 검증한 뒤에만 순수 판단 로직(planHighlightCuts)에 넘긴다(신뢰 경계 유지).
    */
-  async planAutoCuts(options?: Partial<HighlightCutOptions>): Promise<HighlightCutSegment[]> {
+  async planAutoCuts(
+    options?: Partial<HighlightCutOptions>,
+    styleExamples?: string,
+  ): Promise<HighlightCutSegment[]> {
     if (!this.options.analysisProvider) throw new Error("AI 자막 분석 provider가 연결되지 않았습니다.");
     if (this.documentValue.cues.length === 0) {
       throw new Error("먼저 자막을 불러오세요. 자동 컷은 자막 타임코드를 근거로 구간을 판단합니다.");
@@ -838,17 +877,32 @@ export class SubtitleController {
       const requestRevision = this.documentRevision;
       const requestLoadGeneration = this.projectLoadGeneration;
       const document = this.document;
-      const analyze = async (action: SubtitleAnalysisAction): Promise<SubtitleAnalysisResult> => {
-        const request: SubtitleAnalysisRequest = { action, document };
+      const analyze = async (request: SubtitleAnalysisRequest): Promise<SubtitleAnalysisResult> => {
         const payload = await this.options.analysisProvider?.(request);
         this.assertAiRequestCurrent(requestRevision, requestLoadGeneration, document.projectKey);
         return validateAnalysisResponse(payload, request);
       };
-      const highlightResult = await analyze("interview-highlight");
-      const outlineResult = await analyze("edit-outline");
-      const highlights = highlightResult.action === "interview-highlight" ? highlightResult.highlights : [];
-      const outline = outlineResult.action === "edit-outline" ? outlineResult.segments : null;
-      plan = planHighlightCuts(document, highlights, outline, options);
+      // 1) 모델 주도 shorts-plan 우선(스타일 예시 있으면 few-shot 주입).
+      try {
+        const planResult = await analyze({
+          action: "shorts-plan",
+          document,
+          ...(styleExamples ? { styleExamples } : {}),
+        });
+        if (planResult.action === "shorts-plan" && planResult.shorts.length > 0) {
+          plan = segmentsFromModelPlan(document, planResult.shorts, options);
+        }
+      } catch {
+        this.options.onActivity?.("AI 숏폼 플랜을 건너뛰고 하이라이트 기반으로 대체합니다.");
+      }
+      // 2) 폴백: 하이라이트+아웃라인 휴리스틱(항상 안전망).
+      if (plan.length === 0) {
+        const highlightResult = await analyze({ action: "interview-highlight", document });
+        const outlineResult = await analyze({ action: "edit-outline", document });
+        const highlights = highlightResult.action === "interview-highlight" ? highlightResult.highlights : [];
+        const outline = outlineResult.action === "edit-outline" ? outlineResult.segments : null;
+        plan = planHighlightCuts(document, highlights, outline, options);
+      }
     });
     return plan;
   }
@@ -1352,6 +1406,9 @@ export class SubtitleController {
       panel.append(list);
       return;
     }
+
+    // shorts-plan은 자동 컷 카드에서 별도로 렌더하며 이 분석 패널에는 표시하지 않는다.
+    if (result.action !== "youtube-metadata") return;
 
     const copy = this.create("div", "subtitle-analysis-youtube");
     copy.append(
