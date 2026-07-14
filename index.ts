@@ -22,6 +22,7 @@ import {
   activeSequenceFrameSize,
   applyShotFocalPositionCorrection,
   applyShotFocalAdjustment,
+  attachTranscriptToActiveSequence,
   listSequenceNames,
   type ShortSegmentInput,
   errorMessage,
@@ -87,6 +88,7 @@ import {
 import { SubtitleController, type SubtitleAiRequest, type SubtitleAnalysisRequest } from "./src/subtitle-controller";
 import { resolveAutomationTranscript, subtitleDocumentToAutomationTranscript } from "./src/automation-transcript";
 import { createSubtitleDocument, parseSrt, type SubtitleDocument } from "./src/subtitles";
+import { buildPremiereTranscript } from "./src/transcript-export";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus, removeStyleExample } from "./src/style-corpus";
 import { computeDuckingEnvelope, duckLevelValueFromDb, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
 import { resolveSubjectFocal, type SubjectPoint } from "./src/subject-focus";
@@ -1493,6 +1495,21 @@ async function handleLearnPair(): Promise<void> {
   toast(`쌍을 학습했습니다. 스타일 예시 ${corpus.length}개가 다음 자동 컷에 반영됩니다.`, "success");
 }
 
+// 현재 자막 문서를 Premiere 트랜스크립트로 변환해 활성 시퀀스의 텍스트 패널에 첨부한다(§42).
+async function handleAttachTranscript(): Promise<void> {
+  const controller = subtitleController;
+  if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다.");
+  const doc = controller.document;
+  if (doc.cues.length === 0) throw new Error("먼저 자막을 불러오세요(STT 또는 SRT).");
+  const built = buildPremiereTranscript(doc);
+  if (built.segmentCount === 0) throw new Error("보낼 수 있는 자막이 없습니다(모두 비활성 또는 숨김).");
+  const result = await busy.during("트랜스크립트를 텍스트 패널로 보내는 중…", () =>
+    attachTranscriptToActiveSequence(built.json));
+  const replaced = result.replaced ? " · 기존 트랜스크립트 교체" : "";
+  activity.add("success", `트랜스크립트 첨부 · ${result.sequenceName} · 단어 ${result.words}개${replaced}`);
+  toast("텍스트 패널에 첨부했습니다. 캡션이 필요하면 텍스트 패널의 '캡션 만들기'를 사용하세요.", "success", 7000);
+}
+
 // 학습된 예시 목록을 그린다. 문구는 전부 textContent로만 넣는다(주입 방지 하우스 룰).
 function renderLearnCorpusList(): void {
   const container = optionalElement<HTMLElement>("learn-corpus-list");
@@ -1864,6 +1881,7 @@ function bindCoreEvents(): void {
   bind("learn-capture-original-btn", "click", guarded(async () => handleLearnCaptureOriginal(), "학습 원본 지정 실패"));
   bind("learn-from-short-btn", "click", guarded(handleLearnFromShort, "숏폼으로 학습 실패"));
   bind("learn-pair-btn", "click", guarded(handleLearnPair, "스타일 쌍 등록 실패"));
+  bind("subtitle-attach-transcript-btn", "click", guarded(handleAttachTranscript, "트랜스크립트 첨부 실패"));
   bind("learn-clear-btn", "click", guarded(async () => handleLearnClear(), "학습 초기화 실패"));
   bind("scan-markers-btn", "click", guarded(() => markersQcPanel.scanMarkers(), "마커 검색 실패"));
   bind("batch-create-btn", "click", guarded(() => markersQcPanel.batchCreate(), "일괄 생성 실패"));

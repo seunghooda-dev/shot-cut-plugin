@@ -3277,6 +3277,60 @@ export async function applyShotFocalPositionCorrection(
   return { changed, warnings: [...new Set(warnings)] };
 }
 
+function countTranscriptWords(json: string): number {
+  const parsed = JSON.parse(String(json)) as { segments?: Array<{ words?: unknown[] }> };
+  if (!parsed || !Array.isArray(parsed.segments)) return 0;
+  return parsed.segments.reduce(
+    (sum, segment) => sum + (Array.isArray(segment.words) ? segment.words.length : 0),
+    0,
+  );
+}
+
+/**
+ * 자막 트랜스크립트 JSON을 활성 시퀀스의 프로젝트 아이템에 첨부한다(§42 프로브 확정 경로).
+ * Premiere 텍스트 패널에 즉시 나타나며, 사용자는 거기서 '캡션 만들기'로 캡션 트랙을 얻는다.
+ * 기존 트랜스크립트는 교체된다(빈 자동 컨테이너 포함).
+ */
+export async function attachTranscriptToActiveSequence(
+  transcriptJson: string,
+): Promise<{ sequenceName: string; replaced: boolean; words: number }> {
+  const { project, sequence } = await getActiveContext();
+  const projectItem = await sequence.getProjectItem();
+  const clipItem = ppro.ClipProjectItem.cast(projectItem);
+  if (!clipItem) {
+    throw new ShortFlowError("TRANSCRIPT_TARGET_INVALID", "활성 시퀀스의 프로젝트 아이템에 접근하지 못했습니다.");
+  }
+  let previousWords = 0;
+  try {
+    previousWords = countTranscriptWords(await ppro.Transcript.exportToJSON(clipItem));
+  } catch {
+    previousWords = 0;
+  }
+  try {
+    JSON.parse(transcriptJson);
+  } catch (error) {
+    throw new ShortFlowError("TRANSCRIPT_JSON_INVALID", `트랜스크립트 JSON을 해석하지 못했습니다: ${errorMessage(error)}`);
+  }
+  // TextSegments는 트랜잭션(lockedAccess) 안에서 생성해야 실제로 첨부된다 —
+  // 밖에서 만든 핸들은 커밋이 true여도 무효가 된다(§42 R7/R8 프로브 대조로 확정).
+  const committed = commitActionFactories(
+    project,
+    [() => ppro.Transcript.createImportTextSegmentsAction(ppro.Transcript.importFromJSON(transcriptJson), clipItem)],
+    "ShortFlow: 트랜스크립트 첨부",
+  );
+  if (!committed) {
+    throw new ShortFlowError("TRANSCRIPT_COMMIT_FAILED", "트랜스크립트 첨부 트랜잭션이 거부되었습니다.");
+  }
+  await wait(500);
+  let words = 0;
+  try {
+    words = countTranscriptWords(await ppro.Transcript.exportToJSON(clipItem));
+  } catch {
+    words = 0;
+  }
+  return { sequenceName: String(sequence.name), replaced: previousWords > 0, words };
+}
+
 // 프로젝트의 시퀀스 이름 목록(컷별 조정 패널의 계획 정리·존재 확인용).
 export async function listSequenceNames(): Promise<string[]> {
   const { project } = await getActiveContext();
