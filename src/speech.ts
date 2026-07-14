@@ -109,6 +109,17 @@ export class SpeechApiError extends Error {
   }
 }
 
+// STT가 빈 원고를 반환한 에러인지 판정한다. 기본 모델(diarize)이 방송·다화자 오디오에서
+// 빈 결과를 낼 때 whisper-1로 폴백할지 결정하는 데 쓴다. AI 큐를 거치며 래핑돼도 잡도록 관대하게 검사.
+export function isEmptyTranscriptError(error: unknown): boolean {
+  if (!error) return false;
+  if (error instanceof SpeechApiError && error.code === "EMPTY_RESPONSE") return true;
+  const code = (error as { code?: unknown }).code;
+  if (code === "EMPTY_RESPONSE") return true;
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return message.includes("빈 원고") || message.includes("EMPTY_RESPONSE");
+}
+
 function requiredString(value: unknown, label: string, maximum: number): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new SpeechApiError("INVALID_INPUT", `${label}을(를) 입력해 주세요.`);

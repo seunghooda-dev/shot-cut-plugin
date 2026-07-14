@@ -10,6 +10,7 @@ import {
   OPENAI_API_KEY_STORAGE_KEY,
   SpeechApiClient,
   SpeechApiError,
+  isEmptyTranscriptError,
   readOpenAIApiKey,
   transcriptToSrt,
   validateSttResult,
@@ -765,5 +766,21 @@ describe("injected provider response validation", () => {
       () => validateSttResult({ text: "ok", srt: "", segments, model: "whisper-1" }, "whisper-1"),
       /정규화된/u,
     );
+  });
+});
+
+describe("isEmptyTranscriptError", () => {
+  it("detects the SpeechApiError empty-transcript code", () => {
+    assert.equal(isEmptyTranscriptError(new SpeechApiError("EMPTY_RESPONSE", "AI가 빈 원고를 반환했습니다.")), true);
+  });
+  it("detects a wrapped error by code or message (AI queue may re-wrap)", () => {
+    assert.equal(isEmptyTranscriptError({ code: "EMPTY_RESPONSE" }), true);
+    assert.equal(isEmptyTranscriptError(new Error("STT · 실패 AI가 빈 원고를 반환했습니다.")), true);
+  });
+  it("does not match other errors or empty values", () => {
+    assert.equal(isEmptyTranscriptError(new SpeechApiError("RATE_LIMIT", "429")), false);
+    assert.equal(isEmptyTranscriptError(new Error("네트워크 오류")), false);
+    assert.equal(isEmptyTranscriptError(null), false);
+    assert.equal(isEmptyTranscriptError(undefined), false);
   });
 });
