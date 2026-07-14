@@ -2,6 +2,7 @@
 import type { SubtitleDocument, SubtitleWord } from "./subtitles";
 import type { ShortsPlanItem } from "./subtitle-controller";
 import { DEFAULT_HIGHLIGHT_CUT_OPTIONS, type HighlightCutOptions, type HighlightCutSegment } from "./highlight-cut";
+import { snapCutPointToSilence, type SilenceGap } from "./audio-silence";
 
 function num(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
@@ -80,4 +81,23 @@ export function segmentsFromModelPlan(
     if (accepted.length >= maxSegments) break;
   }
   return accepted;
+}
+
+/**
+ * 컷 구간의 시작·끝을 근처 무음 gap 경계에 스냅한다(자연스러운 컷). 순수 함수.
+ * 시퀀스 오디오에서 detectSilenceGaps로 얻은 gap을 넘기면 되고, gap이 없으면 그대로 둔다.
+ * 스냅이 구간을 뒤집거나 1초 미만으로 무너뜨리면 해당 구간은 원본을 유지한다.
+ */
+export function snapSegmentsToSilence(
+  segments: HighlightCutSegment[],
+  gaps: SilenceGap[],
+  maxShiftSeconds: number,
+): HighlightCutSegment[] {
+  if (!Array.isArray(gaps) || gaps.length === 0) return segments;
+  return segments.map((segment) => {
+    const start = snapCutPointToSilence(segment.start, gaps, maxShiftSeconds);
+    const end = snapCutPointToSilence(segment.end, gaps, maxShiftSeconds);
+    if (!(start >= 0) || !(end - start >= 1)) return segment;
+    return { ...segment, start, end, duration: end - start };
+  });
 }

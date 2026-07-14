@@ -1,7 +1,8 @@
 // segmentsFromModelPlan(순수 변환) + validateAnalysisResponse shorts-plan 검증 테스트
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { segmentsFromModelPlan } from "../src/shorts-plan";
+import { segmentsFromModelPlan, snapSegmentsToSilence } from "../src/shorts-plan";
+import type { HighlightCutSegment } from "../src/highlight-cut";
 import { validateAnalysisResponse, type ShortsPlanItem, type SubtitleAnalysisRequest } from "../src/subtitle-controller";
 import type { SubtitleCue, SubtitleDocument } from "../src/subtitles";
 
@@ -120,5 +121,30 @@ describe("validateAnalysisResponse (shorts-plan)", () => {
     const result = validateAnalysisResponse({ shorts: "nope" }, request);
     if (result.action !== "shorts-plan") throw new Error("wrong action");
     assert.deepEqual(result.shorts, []);
+  });
+});
+
+describe("snapSegmentsToSilence", () => {
+  const seg = (start: number, end: number): HighlightCutSegment => ({
+    start, end, duration: end - start, cueIds: ["c"], title: "t", reason: "r", score: 0.5, highlightCount: 1,
+  });
+
+  it("snaps segment boundaries to nearby silence gap centers", () => {
+    const gaps = [{ start: 9.5, end: 10.5 }, { start: 40, end: 41 }];
+    const [s] = snapSegmentsToSilence([seg(9.7, 40.3)], gaps, 1);
+    assert.equal(s!.start, 10);
+    assert.equal(s!.end, 40.5);
+    assert.equal(s!.duration, 30.5);
+  });
+
+  it("leaves segments unchanged when there are no gaps", () => {
+    const input = [seg(5, 20)];
+    assert.deepEqual(snapSegmentsToSilence(input, [], 1), input);
+  });
+
+  it("keeps the original when snapping would collapse the segment", () => {
+    const original = seg(9.95, 10.05);
+    const [s] = snapSegmentsToSilence([original], [{ start: 9.9, end: 10.1 }], 1);
+    assert.deepEqual(s, original);
   });
 });
