@@ -805,3 +805,22 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 - **A1 순수 통합**(`4d87f44`): `snapSegmentsToSilence` — 무음 gap이 주어지면 컷 경계 스냅. 남은 건 시퀀스 오디오 추출(Host)뿐.
 - **D 순수 계층 + 마커 폴백 완성**(`c110d64`·`aa7a0c6`): `speechSpansFromCues`·`duckRangesFromEnvelope` 순수(유닛4) + `writeDuckMarkers`로 발화 구간을 'BGM 덕킹' 마커로 표시(자막→발화→엔벨로프→덕킹범위→마커). Host Tier1 통과(버튼 254×34·콘솔0, `cdt-duck-smoke.mjs`). **Level 키프레임 자동 적용(dB↔Level 매핑)만 후속 리스크로 남음.**
 - 게이트 **1664/1664**. 이 배치 8커밋 전부 push.
+
+## 32. 실제 방송 파일(newswide.mxf) 엔드투엔드 검증 + STT 폴백 수정(2026-07-14)
+
+사용자 로컬 `C:\Users\seung\Videos\newswide.mxf`(20.5분 1080i 방송 MXF, 8ch)로 숏폼 제작 전 과정을 CDP로 실검증. 네이티브 피커는 `project.importFiles([path])`(경로 임포트)로 우회.
+
+### 32-a. 전체 파이프라인 성공 (2개 구간)
+- **구간1(0:30~5:30)**: ffmpeg로 5분 MP4 트림 → 임포트 → `newswide_src` 시퀀스 → **STT(whisper-1) 자막 39개**(구례군수 후보 인터뷰) → **AI 자동 컷 후보 3개**(0.90~0.95, 훅·제목·근거) → **숏폼 3개 생성**(리프레임, 초점 posX=0.932 확인) → 덕킹 마커 1개. 콘솔 0.
+- **구간2(10:00~15:00)**: 동일 흐름 → STT → **자동 컷 후보 5개**(축산AI·악취·육아·교육·주거, 0.84~0.92) → **숏폼 5개 생성**. 다른 콘텐츠에서도 견고. 콘솔 0.
+- 결론: "긴 방송 영상 → AI가 자막·구간·숏폼 자동 판단·생성"이 실파일로 처음부터 끝까지 동작.
+
+### 32-b. STT 폴백 수정(실검증에서 발견)
+- **기본 STT 모델 `gpt-4o-transcribe-diarize`가 이 방송 오디오에서 실패** — 두 양상: (1) 빈 원고(`EMPTY_RESPONSE`, 첫 시도) (2) 시간 초과(`TIMEOUT`, 큐 3회 재시도 ~360s 후). whisper-1은 같은 오디오를 ~1분에 정상 전사.
+- **수정**: `runStt`가 `EMPTY_RESPONSE || TIMEOUT`이면 whisper-1로 1회 자동 폴백(`isEmptyTranscriptError`·`isSttTimeoutError` 순수 헬퍼, 유닛 6). **Host 검증**: 기본 diarize→timeout→[372s] "whisper-1로 다시 시도" 로그→whisper-1 성공. 커밋 `…`+`0b72849`.
+- 유닛 테스트로는 절대 못 잡는, 실콘텐츠에서만 드러난 문제.
+
+### 32-c. 남은 관찰(후속 최적화)
+- diarize timeout 시 AI 큐가 3회 재시도해 폴백까지 ~6분 — diarize의 timeout 재시도 축소 여지.
+- STT는 단일 Whisper 호출(25MB≈13분 상한) — 20분 전체는 청킹 필요(현재 미지원).
+- 테스트 아티팩트: `Videos\newswide_5min.mp4`·`newswide_seg2.mp4`, 프로젝트에 `newswide_src`·`newswide_seg2` + 숏폼 8개(구간1 3 + 구간2 5) — 정리 대상(일부는 실사용 가능).
