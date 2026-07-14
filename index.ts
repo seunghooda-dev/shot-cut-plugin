@@ -89,8 +89,15 @@ import {
   type AssetRightsInput,
   type AssetRightsRecord,
 } from "./src/asset-rights";
-import { SubtitleController, validateAiSubtitleResponse, type SubtitleAiRequest, type SubtitleAnalysisRequest } from "./src/subtitle-controller";
-import { MULTILANG_TARGETS, buildMultilangManifest, multilangManifestFileName, multilangSrtFileName } from "./src/multilang";
+import { SubtitleController, type SubtitleAiRequest, type SubtitleAnalysisRequest } from "./src/subtitle-controller";
+import {
+  MULTILANG_TARGETS,
+  buildMultilangManifest,
+  multilangManifestFileName,
+  multilangSrtFileName,
+  translatedCuesToSrt,
+  validateTranslatedCuesForExport,
+} from "./src/multilang";
 import { resolveAutomationTranscript, subtitleDocumentToAutomationTranscript } from "./src/automation-transcript";
 import { buildSrt, createSubtitleDocument, parseSrt, type SubtitleDocument } from "./src/subtitles";
 import { buildPremiereTranscript } from "./src/transcript-export";
@@ -1675,11 +1682,12 @@ async function handleMultilangExport(): Promise<void> {
       try {
         const request: SubtitleAiRequest = { action: "translate", document: doc, maxChars, targetLanguage: target.label };
         const payload = await runSubtitleAI(request);
-        const validated = validateAiSubtitleResponse(payload, request);
+        // 내보내기 전용 관대 검증 — 무공백 언어(ja/zh)는 단어 수 보존이 깨져도 큐 텍스트만 있으면 된다.
+        const cues = validateTranslatedCuesForExport(payload, doc);
         const name = multilangSrtFileName(baseName, target.code);
         const entry = await parent.createFile(name, { overwrite: true });
-        await entry.write(buildSrt(validated), { format: formats?.utf8 });
-        results.push({ code: target.code, koreanName: target.koreanName, file: name, cueCount: validated.cues.length });
+        await entry.write(translatedCuesToSrt(cues), { format: formats?.utf8 });
+        results.push({ code: target.code, koreanName: target.koreanName, file: name, cueCount: cues.length });
       } catch (error) {
         failures.push({ code: target.code, koreanName: target.koreanName, error: errorMessage(error) });
       }
@@ -2376,6 +2384,8 @@ async function bootstrap(): Promise<void> {
       onError: (error, context) => reportError(error, context),
     });
     await subtitleController.initialize();
+    // 컨트롤러가 프로젝트 키·자동 저장을 복원한 뒤라야 기존 스냅샷이 보인다(부팅 초기 렌더는 키가 비어 숨김).
+    renderSubtitleSnapshotList();
   } catch (error) {
     subtitleController = null;
     reportError(error, "자막 편집기 초기화 실패");

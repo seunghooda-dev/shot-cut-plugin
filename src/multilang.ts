@@ -1,5 +1,6 @@
-// 다국어 패키지 v1 — 대상 언어 정의·파일명 규칙·매니페스트 빌더 순수 계층(번역 AI 호출은 index.ts 담당)
+// 다국어 패키지 v1 — 대상 언어 정의·파일명 규칙·내보내기 전용 번역 검증·매니페스트 빌더 순수 계층
 import { sanitizeFileName } from "./core";
+import { secondsToSrtTime, type SubtitleDocument } from "./subtitles";
 
 export interface MultilangTarget {
   /** 파일명에 쓰는 짧은 코드. */
@@ -70,4 +71,56 @@ export function buildMultilangManifest(
 export function multilangManifestFileName(baseName: string): string {
   const base = sanitizeFileName(baseName.trim() || "ShortFlow").replace(/\.+$/u, "");
   return `${base}.multilang.md`;
+}
+
+export interface TranslatedCue {
+  start: number;
+  end: number;
+  text: string;
+}
+
+const MAX_TRANSLATION_PAYLOAD_CHARS = 2_000_000;
+const MAX_TRANSLATED_TEXT_CHARS = 2_000;
+
+/**
+ * 내보내기 전용 관대 검증 — 큐 수·cueId 순서·타이밍은 강제하되 단어 토큰은 요구하지 않는다.
+ * 일본어·중국어처럼 띄어쓰기가 없는 언어는 단어 수 보존(뮤테이션 경로의 엄격 규칙)이 자주 깨지는데,
+ * SRT 파일은 큐 텍스트만 쓰므로 이 경로에서는 그 규칙이 불필요하다. 시각은 원본 값을 그대로 쓴다.
+ */
+export function validateTranslatedCuesForExport(payload: unknown, original: SubtitleDocument): TranslatedCue[] {
+  let value: unknown = payload;
+  if (typeof value === "string") {
+    if (value.length > MAX_TRANSLATION_PAYLOAD_CHARS) throw new Error("번역 응답이 허용 크기를 초과했습니다.");
+    value = JSON.parse(value) as unknown;
+  }
+  if (value && typeof value === "object" && "document" in (value as Record<string, unknown>)) {
+    value = (value as Record<string, unknown>).document;
+  }
+  const cues = value && typeof value === "object" ? (value as Record<string, unknown>).cues : null;
+  if (!Array.isArray(cues) || cues.length !== original.cues.length) {
+    throw new Error("번역 응답의 큐 개수가 원본과 다릅니다.");
+  }
+  return original.cues.map((originalCue, index) => {
+    const cue = cues[index];
+    if (!cue || typeof cue !== "object") throw new Error(`번역 큐 ${index + 1}이 객체가 아닙니다.`);
+    const record = cue as Record<string, unknown>;
+    if (record.cueId !== originalCue.cueId) throw new Error(`번역 큐 ${index + 1}의 cueId가 원본과 다릅니다.`);
+    for (const key of ["start", "end"] as const) {
+      const numeric = record[key];
+      if (typeof numeric !== "number" || Math.abs(numeric - originalCue[key]) > 0.001) {
+        throw new Error(`번역 큐 ${index + 1}의 시간이 원본과 다릅니다.`);
+      }
+    }
+    const text = typeof record.text === "string" ? record.text.trim() : "";
+    if (!text) throw new Error(`번역 큐 ${index + 1}의 텍스트가 비어 있습니다.`);
+    return { start: originalCue.start, end: originalCue.end, text: text.slice(0, MAX_TRANSLATED_TEXT_CHARS) };
+  });
+}
+
+/** 검증된 번역 큐를 SRT 문자열로 만든다(빈 배열이면 빈 문자열). */
+export function translatedCuesToSrt(cues: readonly TranslatedCue[]): string {
+  if (cues.length === 0) return "";
+  return cues
+    .map((cue, index) => `${index + 1}\n${secondsToSrtTime(cue.start)} --> ${secondsToSrtTime(cue.end)}\n${cue.text}`)
+    .join("\n\n") + "\n";
 }

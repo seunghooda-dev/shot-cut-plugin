@@ -1,4 +1,4 @@
-// multilang — 대상 언어 정의·파일명·매니페스트 빌더 테스트
+// multilang — 대상 언어 정의·파일명·내보내기 전용 번역 검증·매니페스트 빌더 테스트
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
@@ -7,7 +7,10 @@ import {
   multilangManifestFileName,
   multilangSrtFileName,
   multilangTargetByCode,
+  translatedCuesToSrt,
+  validateTranslatedCuesForExport,
 } from "../src/multilang";
+import type { SubtitleDocument } from "../src/subtitles";
 
 describe("multilang", () => {
   it("keeps target codes unique and resolvable", () => {
@@ -36,5 +39,64 @@ describe("multilang", () => {
     const empty = buildMultilangManifest("테스트", "t", [], []);
     assert.match(empty, /- \(없음\)/u);
     assert.doesNotMatch(empty, /실패한 언어/u);
+  });
+});
+
+describe("validateTranslatedCuesForExport + translatedCuesToSrt", () => {
+  const original: SubtitleDocument = {
+    version: 1,
+    projectKey: "ml-test",
+    cues: [
+      { cueId: "c1", start: 40, end: 46, text: "첫 큐", enabled: true, hidden: false, words: [{ wordId: "w1", s: 40, e: 46, t: "첫 큐", hidden: false }] },
+      { cueId: "c2", start: 60, end: 66, text: "둘째 큐", enabled: true, hidden: false, words: [{ wordId: "w2", s: 60, e: 66, t: "둘째 큐", hidden: false }] },
+    ],
+  };
+  const translated = (overrides?: Array<Record<string, unknown>>) => ({
+    document: {
+      version: 1,
+      projectKey: "ml-test",
+      cues: overrides ?? [
+        // 무공백 언어 응답 시나리오 — 단어 토큰이 원본과 달라도(없어도) 통과해야 한다.
+        { cueId: "c1", start: 40, end: 46, text: "苦情が急増しました" },
+        { cueId: "c2", start: 60, end: 66, text: "点検班を編成しました", words: [] },
+      ],
+    },
+  });
+
+  it("accepts word-less translated cues and preserves original timings (ja/zh 대응)", () => {
+    const direct = validateTranslatedCuesForExport(translated().document, original);
+    const wrappedJson = validateTranslatedCuesForExport(JSON.stringify(translated()), original);
+    assert.deepEqual(direct, wrappedJson);
+    assert.equal(direct.length, 2);
+    assert.equal(direct[0]!.text, "苦情が急増しました");
+    assert.equal(direct[0]!.start, 40);
+    const srt = translatedCuesToSrt(direct);
+    assert.match(srt, /^1\n00:00:40,000 --> 00:00:46,000\n苦情が急増しました\n\n2\n/u);
+    assert.equal(translatedCuesToSrt([]), "");
+  });
+
+  it("rejects cue count, cueId, timing, and blank-text drift", () => {
+    assert.throws(() => validateTranslatedCuesForExport({ cues: [] }, original), /큐 개수/u);
+    assert.throws(
+      () => validateTranslatedCuesForExport(translated([
+        { cueId: "cX", start: 40, end: 46, text: "a" },
+        { cueId: "c2", start: 60, end: 66, text: "b" },
+      ]).document, original),
+      /cueId/u,
+    );
+    assert.throws(
+      () => validateTranslatedCuesForExport(translated([
+        { cueId: "c1", start: 41.5, end: 46, text: "a" },
+        { cueId: "c2", start: 60, end: 66, text: "b" },
+      ]).document, original),
+      /시간/u,
+    );
+    assert.throws(
+      () => validateTranslatedCuesForExport(translated([
+        { cueId: "c1", start: 40, end: 46, text: "   " },
+        { cueId: "c2", start: 60, end: 66, text: "b" },
+      ]).document, original),
+      /비어/u,
+    );
   });
 });
