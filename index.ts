@@ -1611,7 +1611,11 @@ function renderSubtitleSnapshotList(): void {
     const row = document.createElement("div");
     row.className = "learn-corpus-row";
     const label = document.createElement("span");
-    label.textContent = `${snapshot.label} · ${snapshot.createdAt.slice(11, 16)} · 큐 ${snapshot.document.cues.length}개`;
+    const at = new Date(snapshot.createdAt);
+    const stamp = Number.isNaN(at.getTime())
+      ? ""
+      : ` · ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+    label.textContent = `${snapshot.label}${stamp}`;
     const actions = document.createElement("span");
     const restoreBtn = document.createElement("button");
     restoreBtn.type = "button";
@@ -1649,6 +1653,12 @@ function handleSaveSubtitleSnapshot(): void {
   renderSubtitleSnapshotList();
   activity.add("success", `자막 스냅샷 저장 · 큐 ${doc.cues.length}개`);
   toast("현재 자막을 스냅샷으로 저장했습니다.", "success");
+}
+
+// 파일·폴더 이름용 로컬 타임스탬프(YYYYMMDDTHHMMSS) — ISO(UTC)를 쓰면 자정 부근 날짜가 어긋난다.
+function localTimestamp(now = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}T${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
 // 다국어 패키지 v1 — 선택 언어마다 원본 불변 번역을 돌려 언어별 SRT + 매니페스트를 폴더에 저장한다(로드맵 15).
@@ -1692,9 +1702,8 @@ async function handleMultilangExport(): Promise<void> {
         failures.push({ code: target.code, koreanName: target.koreanName, error: errorMessage(error) });
       }
     }
-    const timestamp = new Date().toISOString().replace(/[-:]/gu, "").slice(0, 15);
     const manifest = await parent.createFile(multilangManifestFileName(baseName), { overwrite: true });
-    await manifest.write(buildMultilangManifest(baseName, timestamp, results, failures), { format: formats?.utf8 });
+    await manifest.write(buildMultilangManifest(baseName, localTimestamp(), results, failures), { format: formats?.utf8 });
   });
   const summary = `다국어 SRT · 성공 ${results.length} · 실패 ${failures.length}`;
   activity.add(failures.length > 0 ? "warning" : "success", summary);
@@ -1724,10 +1733,9 @@ async function handleExportUploadPackage(): Promise<void> {
   } catch {
     // 권리 리포트를 만들 수 없어도 패키지는 계속 만든다(README에 빠짐 안내).
   }
-  const timestamp = new Date().toISOString().replace(/[-:]/gu, "").slice(0, 15);
   const plan = planUploadPackage({
     baseName: valueOf("name-input") || "ShortFlow",
-    timestamp,
+    timestamp: localTimestamp(),
     srt,
     metadata,
     thumbnails,

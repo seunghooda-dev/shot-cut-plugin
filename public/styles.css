@@ -23,13 +23,13 @@
   --radius-lg: 14px;
   --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.16);
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
-  --fs-2xs: 10px;
-  --fs-xs: 11.5px;
-  --fs-sm: 12px;
-  --fs-base: 13px;
-  --fs-md: 14px;
-  --fs-lg: 16px;
-  --fs-xl: 19px;
+  --fs-2xs: 9.5px;
+  --fs-xs: 11px;
+  --fs-sm: 11.5px;
+  --fs-base: 12px;
+  --fs-md: 13px;
+  --fs-lg: 14.5px;
+  --fs-xl: 16px;
 }
 
 * {
@@ -45,7 +45,7 @@ body {
   background: var(--bg-deep);
   color: var(--text-primary);
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -133,8 +133,8 @@ strong {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 72px;
-  padding: 14px 20px;
+  min-height: 54px;
+  padding: 9px 14px;
   border-bottom: 1px solid var(--line-subtle);
   background: rgba(17, 18, 23, 0.88);
 }
@@ -298,9 +298,9 @@ strong {
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 9px;
-  min-height: 47px;
-  padding: 0 15px;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
   border: 0;
   background: var(--bg-raised);
   color: var(--text-primary);
@@ -322,7 +322,7 @@ strong {
 
 .nav-toggle-icon {
   color: var(--accent-bright);
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .nav-toggle-label {
@@ -363,13 +363,13 @@ strong {
   min-width: 76px;
   align-items: center;
   justify-content: center;
-  min-height: 38px;
+  min-height: 31px;
   padding: 3px 5px;
   border: 1px solid var(--line-subtle);
   border-radius: 8px;
   background: var(--bg-raised);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.14;
   text-align: center;
@@ -407,7 +407,7 @@ strong {
   min-height: 0;
   margin: 0 auto;
   overflow-y: auto;
-  padding: 24px 20px 34px;
+  padding: 16px 14px 24px;
 }
 
 .workflow-panel {
@@ -429,12 +429,12 @@ strong {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 20px;
+  gap: 14px;
+  margin-bottom: 12px;
 }
 
 .eyebrow {
-  margin-bottom: 5px;
+  margin-bottom: 3px;
   color: var(--accent-bright);
   font-size: var(--fs-2xs);
   font-weight: 750;
@@ -448,7 +448,7 @@ strong {
 
 .panel-description {
   max-width: 640px;
-  margin-top: 5px;
+  margin-top: 3px;
   color: var(--text-secondary);
   font-size: var(--fs-base);
 }
@@ -459,8 +459,8 @@ strong {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 34px;
-  padding: 0 14px;
+  min-height: 29px;
+  padding: 0 11px;
   border-radius: var(--radius-sm);
   font-size: var(--fs-sm);
   font-weight: 650;
@@ -527,20 +527,20 @@ strong {
 
 .primary-button-large,
 .secondary-button-large {
-  min-height: 40px;
-  padding: 0 18px;
+  min-height: 33px;
+  padding: 0 14px;
   font-size: var(--fs-base);
 }
 
 .small-button {
-  min-height: 29px;
-  padding: 0 10px;
+  min-height: 25px;
+  padding: 0 9px;
   font-size: var(--fs-xs);
 }
 
 .full-width-button {
   width: 100%;
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 .ai-gen-field {
@@ -645,18 +645,18 @@ strong {
 
 .metric-card {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: 34px minmax(0, 1fr);
   grid-template-rows: auto auto;
   align-items: center;
-  min-height: 76px;
-  padding: 12px;
+  min-height: 60px;
+  padding: 9px;
 }
 
 .metric-icon {
   display: grid;
   grid-row: 1 / 3;
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   border: 1px solid var(--accent-line);
   border-radius: 8px;
@@ -686,14 +686,14 @@ strong {
 
 .result-card,
 .settings-card {
-  padding: 18px;
+  padding: 13px;
 }
 
 .card-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 12px;
+  padding-bottom: 9px;
   border-bottom: 1px solid var(--line-subtle);
 }
 
@@ -801,8 +801,8 @@ strong {
 }
 
 .section-heading {
-  gap: 11px;
-  margin-bottom: 15px;
+  gap: 9px;
+  margin-bottom: 10px;
 }
 
 .section-heading-action {
@@ -819,11 +819,11 @@ strong {
 .section-number {
   display: grid;
   flex: 0 0 auto;
-  width: 27px;
-  height: 27px;
+  width: 22px;
+  height: 22px;
   place-items: center;
   border: 1px solid var(--accent-line);
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--accent-soft);
   color: var(--accent-bright);
   font-size: var(--fs-2xs);
@@ -842,7 +842,7 @@ strong {
 .form-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 13px;
+  gap: 10px;
 }
 
 .form-grid > .field {
@@ -885,8 +885,8 @@ input,
 textarea,
 select {
   width: 100%;
-  height: 34px;
-  padding: 0 10px;
+  height: 29px;
+  padding: 0 9px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: var(--bg-input);
@@ -913,9 +913,9 @@ select {
 }
 
 textarea {
-  min-height: 72px;
+  min-height: 60px;
   height: auto;
-  padding: 9px 10px;
+  padding: 8px 9px;
   line-height: 1.45;
   resize: vertical;
 }
@@ -937,16 +937,16 @@ textarea {
 
 .section-divider {
   height: 1px;
-  margin: 19px 0;
+  margin: 13px 0;
   background: var(--line-subtle);
 }
 
 .checkbox-row {
   position: relative;
   align-items: flex-start;
-  gap: 10px;
-  margin-top: 15px;
-  padding: 11px;
+  gap: 9px;
+  margin-top: 11px;
+  padding: 9px;
   border: 1px solid var(--line-subtle);
   border-radius: var(--radius-sm);
   background: rgba(17, 18, 23, 0.38);
@@ -3850,7 +3850,7 @@ input[type="color"],
 
   .result-card,
   .settings-card {
-    padding: 14px;
+    padding: 11px;
   }
 
   .form-actions,

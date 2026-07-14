@@ -507,8 +507,8 @@
             </div>
             <div class="form-actions">
               <p class="action-note">AI가 후보를 랭킹해 제안하면, 원하는 구간만 골라 일괄 생성합니다.</p>
-              <button id="auto-cut-scan-btn" class="secondary-button" type="button">AI 하이라이트로 자동 컷 후보 만들기</button>
-              <button id="auto-cut-stt-scan-btn" class="secondary-button" type="button">자막 생성부터 한 번에 (STT→자동 컷)</button>
+              <button id="auto-cut-scan-btn" class="secondary-button" type="button" title="현재 자막에서 AI가 하이라이트 후보 구간을 추려 제안합니다.">AI 후보 스캔</button>
+              <button id="auto-cut-stt-scan-btn" class="secondary-button" type="button" title="활성 시퀀스에서 STT로 자막을 만든 뒤 곧바로 후보 스캔까지 실행합니다.">STT부터 한 번에</button>
             </div>
             <div id="auto-cut-candidates" class="auto-cut-candidates" hidden></div>
             <div id="auto-cut-generate-row" class="form-actions auto-cut-generate-row" hidden>
@@ -532,7 +532,7 @@
                 <small>원본 자막을 불러와 '원본으로 지정' → 그 원본으로 만든 숏폼 자막을 불러와 '숏폼으로 학습'. 다음 자동 컷이 당신 편집 스타일을 모방합니다.</small>
               </div>
               <div class="autocut-learn-actions">
-                <button id="learn-pair-btn" class="primary-button" type="button">샘플 쌍 등록 (SRT 2개 선택)</button>
+                <button id="learn-pair-btn" class="primary-button" type="button" title="원본·숏폼 SRT 2개를 한 번에 선택하면 어느 쪽이 원본인지 자동 판별해 학습합니다.">SRT 쌍 등록</button>
                 <button id="learn-capture-original-btn" class="secondary-button" type="button">현재 자막을 원본으로 지정</button>
                 <button id="learn-from-short-btn" class="secondary-button" type="button" disabled>현재 자막을 숏폼으로 → 학습</button>
                 <button id="learn-clear-btn" class="secondary-button" type="button">학습 초기화</button>
@@ -864,7 +864,7 @@
                 <button id="safe-check-btn" class="secondary-button" type="button">침범 검사</button>
                 <button id="safe-align-btn" class="primary-button" type="button">안전 영역으로 자동 정렬</button>
               </div>
-              <button id="safe-overlay-btn" class="secondary-button full-width-button" type="button">Premiere 가이드 오버레이 만들기</button>
+              <button id="safe-overlay-btn" class="secondary-button full-width-button" type="button" title="Safe Zone 가이드 이미지를 최상단 트랙에 오버레이로 삽입합니다. 내보내기 전 삭제하세요.">가이드 오버레이 삽입</button>
               <p class="action-note">플랫폼 UI는 업데이트될 수 있습니다. 내보내기 전 최신 가이드와 결과 화면을 한 번 더 확인해 주세요.</p>
             </section>
           </div>
