@@ -127,3 +127,63 @@ describe("distillStyleProfile", () => {
     assert.equal(formatStyleProfileForPrompt(null), "");
   });
 });
+
+describe("classifyStylePair", () => {
+  const { classifyStylePair } = require("../src/shorts-learning") as typeof import("../src/shorts-learning");
+  const doc = (cueCount: number, endSeconds: number) => {
+    const cues = Array.from({ length: cueCount }, (_, index) => ({
+      cueId: `c${index}`,
+      start: (endSeconds / cueCount) * index,
+      end: (endSeconds / cueCount) * (index + 1),
+      text: `문장 ${index}`,
+      words: [],
+    }));
+    return { projectKey: "t", cues } as unknown as import("../src/subtitles").SubtitleDocument;
+  };
+
+  it("picks the substantially longer document as original", () => {
+    const long = doc(40, 600);
+    const short = doc(6, 50);
+    assert.deepEqual(classifyStylePair(long, short), { original: long, short });
+    assert.deepEqual(classifyStylePair(short, long), { original: long, short });
+  });
+
+  it("uses cue-count as tiebreaker in the 1.2~1.5x band", () => {
+    const original = doc(40, 130);
+    const short = doc(10, 100); // 길이 1.3배 + cue 4배 → 판별
+    assert.equal(classifyStylePair(original, short)?.original, original);
+  });
+
+  it("returns null when ambiguous or empty", () => {
+    assert.equal(classifyStylePair(doc(10, 100), doc(10, 95)), null);
+    assert.equal(classifyStylePair(doc(0, 0), doc(10, 100)), null);
+  });
+});
+
+describe("removeStyleExample", () => {
+  const { removeStyleExample, saveStyleCorpus, loadStyleCorpus } = require("../src/style-corpus") as typeof import("../src/style-corpus");
+  const example = (label: string) => ({
+    transcript: `원고 ${label} 내용입니다`,
+    chosen: [{ cueIds: ["a"], title: label, durationSeconds: 30 }],
+  });
+  const memory = () => {
+    const map = new Map<string, string>();
+    return {
+      get length() { return map.size; },
+      clear: () => map.clear(),
+      getItem: (k: string) => map.get(k) ?? null,
+      key: () => null,
+      removeItem: (k: string) => { map.delete(k); },
+      setItem: (k: string, v: string) => { map.set(k, v); },
+    } as Storage;
+  };
+
+  it("removes by index and ignores out-of-range", () => {
+    const storage = memory();
+    saveStyleCorpus([example("A"), example("B"), example("C")] as never, storage);
+    const after = removeStyleExample(1, storage);
+    assert.deepEqual(after.map((item) => item.chosen[0]!.title), ["A", "C"]);
+    assert.equal(removeStyleExample(9, storage).length, 2);
+    assert.equal(loadStyleCorpus(storage).length, 2);
+  });
+});

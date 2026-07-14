@@ -86,8 +86,8 @@ import {
 } from "./src/asset-rights";
 import { SubtitleController, type SubtitleAiRequest, type SubtitleAnalysisRequest } from "./src/subtitle-controller";
 import { resolveAutomationTranscript, subtitleDocumentToAutomationTranscript } from "./src/automation-transcript";
-import { createSubtitleDocument, type SubtitleDocument } from "./src/subtitles";
-import { addStyleExample, clearStyleCorpus, loadStyleCorpus } from "./src/style-corpus";
+import { createSubtitleDocument, parseSrt, type SubtitleDocument } from "./src/subtitles";
+import { addStyleExample, clearStyleCorpus, loadStyleCorpus, removeStyleExample } from "./src/style-corpus";
 import { computeDuckingEnvelope, duckLevelValueFromDb, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
 import { resolveSubjectFocal, type SubjectPoint } from "./src/subject-focus";
 import { annotateSpanTransitions, correctedFocalX, planSampleTimes, planShotFocalSpans, type FocalSpan, type TimedSubjectSample } from "./src/shot-focus";
@@ -96,6 +96,7 @@ import { updateShotPlanSpans, upsertShotPlan } from "./src/shot-plan-store";
 import {
   alignShortToOriginal,
   buildStyleExample,
+  classifyStylePair,
   distillStyleProfile,
   formatStyleExamplesForPrompt,
   formatStyleProfileForPrompt,
@@ -437,6 +438,38 @@ async function readSrtFile(): Promise<string | null> {
   if (value instanceof ArrayBuffer) return new TextDecoder().decode(value);
   if (ArrayBuffer.isView(value)) return new TextDecoder().decode(value as ArrayBufferView);
   throw new Error("SRT/Whisper JSON 파일을 UTF-8 텍스트로 읽지 못했습니다.");
+}
+
+// 스타일 쌍 등록용 SRT 2개 선택. 다중 선택을 지원하면 한 번에, 아니면 순차 2회로 받는다.
+async function readSrtFilePair(): Promise<Array<{ name: string; text: string }> | null> {
+  const uxpRoot = require("uxp") as any;
+  const lfs = uxpRoot?.storage?.localFileSystem;
+  const utf8 = uxpRoot?.storage?.formats?.utf8;
+  if (!lfs?.getFileForOpening) throw new Error("파일 선택기를 사용할 수 없습니다.");
+  const readEntry = async (file: any): Promise<{ name: string; text: string }> => {
+    const value = await file.read({ format: utf8 });
+    const text = typeof value === "string"
+      ? value
+      : value instanceof ArrayBuffer
+        ? new TextDecoder().decode(value)
+        : ArrayBuffer.isView(value)
+          ? new TextDecoder().decode(value as ArrayBufferView)
+          : null;
+    if (text === null) throw new Error(`SRT 파일을 UTF-8 텍스트로 읽지 못했습니다: ${String(file.name)}`);
+    return { name: String(file.name), text };
+  };
+  const selected = await lfs.getFileForOpening({ types: ["srt"], allowMultiple: true });
+  const files = Array.isArray(selected) ? selected.filter(Boolean) : selected ? [selected] : [];
+  if (files.length === 0) return null;
+  if (files.length > 2) throw new Error("SRT는 정확히 2개(원본·숏폼)만 선택해 주세요.");
+  if (files.length === 1) {
+    toast("나머지 한 파일(숏폼 또는 원본 SRT)을 이어서 선택해 주세요.", "info");
+    const second = await lfs.getFileForOpening({ types: ["srt"], allowMultiple: false });
+    const secondFile = Array.isArray(second) ? second[0] : second;
+    if (!secondFile) return null;
+    files.push(secondFile);
+  }
+  return [await readEntry(files[0]), await readEntry(files[1])];
 }
 
 async function writeSrtFile(srt: string, suggestedName: string): Promise<void> {
@@ -1371,6 +1404,7 @@ function renderLearnStatus(): void {
   setText("learn-status", `학습 예시 ${count}개${pending}`);
   const fromShortBtn = optionalElement<HTMLButtonElement>("learn-from-short-btn");
   if (fromShortBtn) fromShortBtn.disabled = !pendingLearnOriginal;
+  renderLearnCorpusList();
 }
 
 // 현재 편집 중인 자막을 학습 '원본'으로 스냅샷한다(이후 숏폼 자막과 정렬).
@@ -1417,6 +1451,77 @@ function handleLearnClear(): void {
   pendingLearnOriginal = null;
   renderLearnStatus();
   toast("학습 예시를 초기화했습니다.", "info");
+}
+
+// SRT 파일 쌍(원본+숏폼) 한 번 선택으로 스타일 예시를 등록한다. 원본/숏폼은 길이로 자동 판별.
+async function handleLearnPair(): Promise<void> {
+  const pair = await readSrtFilePair();
+  if (!pair) return;
+  const docs = pair.map((entry) => {
+    try {
+      return parseSrt(entry.text, { projectKey: `style-pair:${entry.name}` });
+    } catch (error) {
+      throw new Error(`${entry.name}: SRT를 해석하지 못했습니다 — ${errorMessage(error)}`);
+    }
+  });
+  const classified = classifyStylePair(docs[0]!, docs[1]!);
+  if (!classified) {
+    toast(
+      "두 SRT의 길이가 비슷해 원본/숏폼을 판별하지 못했습니다. 기존 버튼(원본 지정→숏폼 학습)으로 순서를 지정해 주세요.",
+      "warning",
+    );
+    return;
+  }
+  const alignment = alignShortToOriginal(classified.original, classified.short);
+  if (alignment.spans.length === 0) {
+    toast(
+      `숏폼이 원본과 충분히 매칭되지 않았습니다(일치도 ${Math.round(alignment.coverage * 100)}%). 원본 오디오를 잘라 만든 숏폼인지 확인해 주세요.`,
+      "warning",
+    );
+    return;
+  }
+  const example = buildStyleExample(classified.original, alignment.spans);
+  if (!example) {
+    toast("학습 예시를 만들지 못했습니다.", "warning");
+    return;
+  }
+  const corpus = addStyleExample(example);
+  renderLearnStatus();
+  const originalName = pair[docs.indexOf(classified.original)]!.name;
+  activity.add("success", `스타일 쌍 등록 · 원본=${originalName} · 예시 ${corpus.length}개 (일치도 ${Math.round(alignment.coverage * 100)}%)`);
+  toast(`쌍을 학습했습니다. 스타일 예시 ${corpus.length}개가 다음 자동 컷에 반영됩니다.`, "success");
+}
+
+// 학습된 예시 목록을 그린다. 문구는 전부 textContent로만 넣는다(주입 방지 하우스 룰).
+function renderLearnCorpusList(): void {
+  const container = optionalElement<HTMLElement>("learn-corpus-list");
+  if (!container) return;
+  const corpus = loadStyleCorpus();
+  container.replaceChildren();
+  if (corpus.length === 0) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  corpus.forEach((example, index) => {
+    const row = document.createElement("div");
+    row.className = "learn-corpus-row";
+    const label = document.createElement("span");
+    const cuts = example.chosen.length;
+    const seconds = Math.round(example.chosen.reduce((sum, choice) => sum + choice.durationSeconds, 0));
+    label.textContent = `예시 ${index + 1} · 선택 ${cuts}컷 · ${seconds}초 · 원고 ${example.transcript.length.toLocaleString()}자`;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "secondary-button";
+    remove.textContent = "삭제";
+    remove.addEventListener("click", () => {
+      removeStyleExample(index);
+      renderLearnStatus();
+      activity.add("info", `스타일 예시 ${index + 1} 삭제`);
+    });
+    row.append(label, remove);
+    container.appendChild(row);
+  });
 }
 
 // 자막(발화) 구간을 근거로 BGM 볼륨 레벨 키프레임을 실제 적용한다(runbook 39 인코딩 실측).
@@ -1757,6 +1862,7 @@ function bindCoreEvents(): void {
   bind("auto-cut-reel-btn", "click", guarded(handleAutoCutReel, "하이라이트 릴 생성 실패"));
   bind("learn-capture-original-btn", "click", guarded(async () => handleLearnCaptureOriginal(), "학습 원본 지정 실패"));
   bind("learn-from-short-btn", "click", guarded(handleLearnFromShort, "숏폼으로 학습 실패"));
+  bind("learn-pair-btn", "click", guarded(handleLearnPair, "스타일 쌍 등록 실패"));
   bind("learn-clear-btn", "click", guarded(async () => handleLearnClear(), "학습 초기화 실패"));
   bind("scan-markers-btn", "click", guarded(() => markersQcPanel.scanMarkers(), "마커 검색 실패"));
   bind("batch-create-btn", "click", guarded(() => markersQcPanel.batchCreate(), "일괄 생성 실패"));

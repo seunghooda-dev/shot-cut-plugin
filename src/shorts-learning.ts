@@ -187,3 +187,32 @@ export function formatStyleExamplesForPrompt(examples: StyleExample[]): string {
   }
   return blocks.join("\n\n");
 }
+
+/**
+ * SRT 파일 2개로 쌍을 등록할 때 어느 쪽이 원본인지 자동 판별한다. 원본은 항상 숏폼보다
+ * 실질적으로 길다(총 길이 1.5배·cue 수 기준 병행 확인). 애매하면 null — 호출부가 사용자에게
+ * 순서를 확인한다. 결정적 순수 함수.
+ */
+export function classifyStylePair(
+  a: SubtitleDocument,
+  b: SubtitleDocument,
+): { original: SubtitleDocument; short: SubtitleDocument } | null {
+  const durationOf = (doc: SubtitleDocument): number => {
+    let max = 0;
+    for (const cue of doc.cues) { if (cue.end > max) max = cue.end; }
+    return max;
+  };
+  const durA = durationOf(a);
+  const durB = durationOf(b);
+  if (!(durA > 0) || !(durB > 0)) return null;
+  const longerIsA = durA >= durB;
+  const ratio = longerIsA ? durA / durB : durB / durA;
+  const cueRatio = longerIsA
+    ? a.cues.length / Math.max(1, b.cues.length)
+    : b.cues.length / Math.max(1, a.cues.length);
+  // 길이 1.5배 이상이면 명확. 1.2~1.5배는 cue 수까지 원본이 우세할 때만 인정.
+  if (ratio >= 1.5 || (ratio >= 1.2 && cueRatio >= 1.2)) {
+    return longerIsA ? { original: a, short: b } : { original: b, short: a };
+  }
+  return null;
+}

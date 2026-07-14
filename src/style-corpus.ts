@@ -72,3 +72,11 @@ export function addStyleExample(example: StyleExample, storage: Storage = localS
 export function clearStyleCorpus(storage: Storage = localStorage): void {
   storage.removeItem(STYLE_CORPUS_KEY);
 }
+
+/** 코퍼스에서 index번째 예시를 제거한다(범위 밖이면 그대로). */
+export function removeStyleExample(index: number, storage: Storage = localStorage): StyleExample[] {
+  const corpus = loadStyleCorpus(storage);
+  if (!Number.isInteger(index) || index < 0 || index >= corpus.length) return corpus;
+  corpus.splice(index, 1);
+  return saveStyleCorpus(corpus, storage);
+}
