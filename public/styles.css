@@ -741,6 +741,8 @@ strong {
 
 .thumb-variant-preview {
   width: 100%;
+  /* UXP가 aspect-ratio를 적용하지 않아 높이가 0으로 붕괴한다(Host 실측) — 고정 높이로 보장. */
+  height: 124px;
   aspect-ratio: 16 / 9;
   border-radius: 4px;
   background: #0f1014;
