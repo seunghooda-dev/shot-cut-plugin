@@ -634,6 +634,26 @@ describe("focalReframePosition", () => {
     );
   });
 
+  it("centers a mid-range focal subject exactly (shift = (0.5-fx)×ratio)", () => {
+    // src 2000x1000(비율 4배) → tgt 1000x2000. fx=0.35 → 이동 0.15×4=0.6 → x=500+600=1100.
+    // ×overflow(3)면 피사체가 중앙이 아닌 화면의 fx 지점에 놓인다(§33 프레임 실측 결함).
+    assert.deepEqual(
+      focalReframePosition([600, 400], 1000, 2000, 2000, 1000, 0.35, 0.5),
+      { x: 1100, y: 1000 },
+    );
+    // 피사체 중앙 검증: 크롭 창 중심 = 0.5 - shift/ratio = fx.
+    const shiftNorm = (1100 - 500) / 1000;
+    assert.ok(Math.abs((0.5 - shiftNorm / 4) - 0.35) < 1e-9);
+  });
+
+  it("clamps the shift so the crop window never leaves the source (edge focal)", () => {
+    // fx=0.05 → raw 이동 0.45×4=1.8 > 최대 1.5(overflow/2) → 클램프(= fx=0과 동일).
+    assert.deepEqual(
+      focalReframePosition([600, 400], 1000, 2000, 2000, 1000, 0.05, 0.5),
+      focalReframePosition([600, 400], 1000, 2000, 2000, 1000, 0, 0.5),
+    );
+  });
+
   it("clamps focal coordinates outside 0..1", () => {
     assert.deepEqual(
       focalReframePosition([600, 400], tgt.w, tgt.h, src.w, src.h, -3, 0.5),

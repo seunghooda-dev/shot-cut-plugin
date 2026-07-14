@@ -326,13 +326,22 @@ export function focalReframePosition(
   const fy = clamp01(focalY);
   const sourceAspect = sourceWidth / sourceHeight;
   const targetAspect = targetWidth / targetHeight;
-  // fill 시 넘치는 비율(타깃 대비). 넓은 소스는 가로, 높은 소스는 세로가 넘친다.
-  const horizontalOverflow = Math.max(0, sourceAspect / targetAspect - 1);
-  const verticalOverflow = Math.max(0, targetAspect / sourceAspect - 1);
-  // 초점을 프레임 중앙에 맞추는 정규화 이동량(±0.5×오버플로 범위 안에서만 움직여
-  // 프레임에 빈 여백이 생기지 않는다). fx<0.5(피사체 왼쪽)면 오른쪽으로 밀어 왼쪽을 보인다.
-  const shiftXNorm = (0.5 - fx) * horizontalOverflow;
-  const shiftYNorm = (0.5 - fy) * verticalOverflow;
+  // fill 시 소스가 타깃보다 커지는 비율과 넘치는 양. 넓은 소스는 가로, 높은 소스는 세로가 넘친다.
+  const horizontalRatio = sourceAspect / targetAspect;
+  const verticalRatio = targetAspect / sourceAspect;
+  const horizontalOverflow = Math.max(0, horizontalRatio - 1);
+  const verticalOverflow = Math.max(0, verticalRatio - 1);
+  // 피사체(fx,fy)가 프레임 "정중앙"에 오도록 전체 비율로 이동하되(×ratio — ×overflow면 피사체가
+  // 화면의 fx 지점에 놓여 가장자리에 걸린다. Host 프레임 실측 §33), 크롭 창이 소스를 벗어나
+  // 여백이 생기지 않도록 ±오버플로/2로 클램프한다(경계 근처 피사체는 가능한 만큼만 중앙으로).
+  const clampShift = (value: number, limit: number): number =>
+    Math.min(limit, Math.max(-limit, value));
+  const shiftXNorm = horizontalOverflow > 0
+    ? clampShift((0.5 - fx) * horizontalRatio, horizontalOverflow / 2)
+    : 0;
+  const shiftYNorm = verticalOverflow > 0
+    ? clampShift((0.5 - fy) * verticalRatio, verticalOverflow / 2)
+    : 0;
   const normalized = Math.abs(point.x) <= 2 && Math.abs(point.y) <= 2;
   return normalized
     ? { x: 0.5 + shiftXNorm, y: 0.5 + shiftYNorm }
