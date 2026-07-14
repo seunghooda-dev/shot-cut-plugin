@@ -142,8 +142,10 @@ export function duckRangesFromEnvelope(keyframes: readonly DuckKeyframe[], baseG
   const base = isFiniteNumber(baseGainDb) ? baseGainDb : 0;
   const ranges: DuckRange[] = [];
   let start: number | null = null;
+  let lastTime = Number.NaN;
   for (const keyframe of Array.isArray(keyframes) ? keyframes : []) {
     if (!keyframe || !isFiniteNumber(keyframe.time) || !isFiniteNumber(keyframe.gainDb)) continue;
+    lastTime = keyframe.time;
     const ducked = keyframe.gainDb < base - 1e-9;
     if (ducked && start === null) {
       start = keyframe.time;
@@ -152,5 +154,7 @@ export function duckRangesFromEnvelope(keyframes: readonly DuckKeyframe[], baseG
       start = null;
     }
   }
+  // 엔벨로프가 덕된 채로 끝나면(정상 경로엔 없지만 독립 재사용 대비) 마지막 범위를 닫는다.
+  if (start !== null && isFiniteNumber(lastTime) && lastTime > start) ranges.push({ start, end: lastTime });
   return ranges;
 }

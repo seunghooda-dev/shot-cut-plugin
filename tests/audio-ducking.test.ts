@@ -121,4 +121,13 @@ describe("duckRangesFromEnvelope", () => {
     assert.deepEqual(duckRangesFromEnvelope([{ time: 0, gainDb: 0 }, { time: 30, gainDb: 0 }]), []);
     assert.deepEqual(duckRangesFromEnvelope([]), []);
   });
+
+  it("closes a trailing range when the envelope ends while still ducked", () => {
+    const ranges = duckRangesFromEnvelope([
+      { time: 0, gainDb: 0 },
+      { time: 5, gainDb: -12 },
+      { time: 10, gainDb: -12 },
+    ]);
+    assert.deepEqual(ranges, [{ start: 5, end: 10 }]);
+  });
 });
