@@ -688,6 +688,10 @@ export class ThumbnailController {
       () => this.saveVariant(),
       "썸네일 변형 저장 실패",
     ));
+    bind("thumb-export-variants-btn", "click", () => this.guard(
+      () => this.exportVariants(),
+      "썸네일 변형 내보내기 실패",
+    ));
     bind("thumb-ai-run-btn", "click", () => this.guard(
       () => this.runAI(),
       "AI 썸네일 보정 실패",
@@ -1066,6 +1070,31 @@ export class ThumbnailController {
         if (!href) throw new Error(`레이어 ${layer.id}의 SVG 이미지 경로를 찾지 못했습니다.`);
         return href;
       },
+    });
+  }
+
+  /** 저장된 변형 전체를 SVG 파일로 일괄 내보낸다(로드맵 16 — 수동 선택용, A/B 자동 판정 없음). */
+  async exportVariants(): Promise<void> {
+    if (this.variants.length === 0) {
+      toast("내보낼 변형이 없습니다. 먼저 '변형으로 저장'을 눌러 주세요.", "warning");
+      return;
+    }
+    await this.withExportLock(async () => {
+      const folder = await this.resolveOutputFolder();
+      if (!folder) return;
+      const base = timestampSvgName(this.now()).replace(/\.svg$/u, "");
+      let saved = 0;
+      for (const variant of this.variants) {
+        await this.writeExportFile(
+          folder,
+          `${base}_${variant.label}.svg`,
+          utf8Encode(variant.svg),
+          "생성한 SVG 파일에 쓰기 기능이 없습니다.",
+        );
+        saved += 1;
+      }
+      this.options.onActivity?.(`썸네일 변형 ${saved}종을 SVG로 저장했습니다.`);
+      toast(`변형 ${saved}종을 SVG 파일로 저장했습니다.`, "success");
     });
   }
 

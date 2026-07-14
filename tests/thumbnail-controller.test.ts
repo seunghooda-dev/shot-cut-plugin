@@ -282,6 +282,8 @@ function controllerDom(canvasCapable: boolean): { document: FakeDocument; canvas
   });
   document.add("thumb-export-btn", "button");
   document.add("thumb-export-svg-btn", "button");
+  document.add("thumb-export-variants-btn", "button");
+  document.add("thumb-save-variant-btn", "button");
   document.add("thumb-export-format-select", "select", "png");
   document.add("thumb-ai-run-btn", "button");
   document.add("thumb-ai-preset-select", "select", "basic");
@@ -575,6 +577,35 @@ describe("ThumbnailController DOM/UXP integration harness", () => {
       assert.match(svg, /^<\?xml[^]*<svg/u);
       assert.match(svg, /data:image\/png;base64,/u);
       assert.match(svg, /ShortFlow Studio thumbnail fallback/u);
+      await controller.dispose();
+    });
+  });
+
+  it("exports every saved variant as its own SVG file and skips when none exist", async () => {
+    const dom = controllerDom(false).document;
+    const fileSystem = new FakeLocalFileSystem();
+    const storage = new MemoryStorage();
+    const activity: string[] = [];
+    await withDocument(dom, async () => {
+      const controller = createControllerWithLog(fileSystem, storage, [], activity);
+      await controller.initialize();
+      // 변형이 없으면 아무 파일도 만들지 않는다.
+      dom.getElementById("thumb-export-variants-btn")!.emit("click");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(fileSystem.output.files.length, 0);
+      // 변형 2종 저장 후 일괄 내보내기 → 라벨별 SVG 2파일.
+      dom.getElementById("thumb-save-variant-btn")!.emit("click");
+      await waitUntil(() => activity.some((message) => message.includes("변형 A")));
+      dom.getElementById("thumb-save-variant-btn")!.emit("click");
+      await waitUntil(() => activity.some((message) => message.includes("변형 B")));
+      dom.getElementById("thumb-export-variants-btn")!.emit("click");
+      await waitUntil(() => fileSystem.output.files.length === 2);
+      const names = fileSystem.output.files.map((file) => file.name);
+      assert.match(names[0]!, /_A\.svg$/u);
+      assert.match(names[1]!, /_B\.svg$/u);
+      const svg = new TextDecoder().decode(fileSystem.output.files[0]!.bytes);
+      assert.match(svg, /<svg/u);
+      assert.ok(activity.some((message) => message.includes("변형 2종을 SVG로 저장")));
       await controller.dispose();
     });
   });
