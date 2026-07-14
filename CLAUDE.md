@@ -9,6 +9,7 @@ Run from this directory (`npm install` first).
 - `npm run check` — typecheck + lint + build + test; the required gate before any checkpoint commit
 - `npm run typecheck` / `npm run lint` / `npm test` / `npm run build` — individual gates
 - `npm run dev` — `vite build --watch`
+- `npm run host:smoke` / `host:smoke:full` — 실행 중인 Premiere 실기 회귀 스모크(UDT 서비스 14001 필요). 새 실기 프로브는 `scripts/host-smoke/lib.mjs`를 import해 단일 세션 원칙을 지킬 것(런북 §40-d·§43)
 
 ## Architecture: 3 layers
 

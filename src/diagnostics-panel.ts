@@ -7,7 +7,7 @@ import {
   type DiagnosticStatus,
   type DiagnosticsReport,
 } from "./diagnostics";
-import { optionalElement, toast } from "./ui";
+import { clearChildren, optionalElement, toast } from "./ui";
 
 export interface DiagnosticsPanelOptions {
   runBusy: <T>(message: string, task: () => Promise<T>) => Promise<T>;
@@ -101,14 +101,14 @@ export function createDiagnosticsPanel(options: DiagnosticsPanelOptions): {
     if (!report) {
       summary.className = "diagnostics-summary is-idle";
       summary.textContent = "아직 진단을 실행하지 않았습니다.";
-      list.replaceChildren();
+      clearChildren(list); // UXP replaceChildren 스테일 버그 회피(§25-b)
       return;
     }
     summary.className = `diagnostics-summary is-${report.overall}`;
     summary.textContent = report.compatible
       ? `호환성 ${diagnosticsStatusLabel(report.overall)} · Premiere ${report.host.version} · UXP ${report.uxp.version}`
       : `호환성 차단 · Premiere ${report.minimumHostVersion} 이상과 필수 API를 확인해 주세요.`;
-    list.replaceChildren();
+    clearChildren(list); // UXP replaceChildren 스테일 버그 회피(§25-b)
     for (const check of report.checks) {
       const row = document.createElement("div");
       row.className = `diagnostic-row is-${check.status}`;

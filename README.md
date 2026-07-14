@@ -117,6 +117,8 @@ npm run check
 - `npm run verify:speech`: OpenAI 키 없이 TTS/STT smoke 검증 계획과 증거 템플릿 생성
 - `npm run verify:speech:live`: `OPENAI_API_KEY` 환경변수로 실제 OpenAI TTS→STT smoke 검증 실행
 - `npm run verify:speech:local`: 로컬 `openai-whisper` 패키지로 한국어 테스트 WAV를 전사하고 TXT/SRT/단어 타임스탬프 JSON 검증
+- `npm run host:smoke`: 실행 중인 Premiere 실기에서 비파괴 회귀 스모크(부팅·12탭·호스트 컨텍스트·UI 계약) 실행 — UDT 서비스 필요
+- `npm run host:smoke:full`: 위에 자체 정리 E2E(자막 SRT 라운드트립·트랜스크립트 첨부)까지 추가 실행
 - `npm run check`: typecheck, lint, test, build 전체 게이트
 - `npm run package:ccx`: CCX 후보와 SHA-256 생성 후 릴리스 산출물 검증
 - `npm run package:ccx:force`: 같은 버전의 서로 다른 기존 CCX를 명시적으로 교체 후 릴리스 산출물 검증

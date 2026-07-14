@@ -20,7 +20,7 @@ import type { AssetRightsRegistry } from "./asset-rights";
 import { detectBeats } from "./audio-beats";
 import { parseWavPcm } from "./wav-pcm";
 import { computeWaveformPeaks, renderWaveformSvg } from "./waveform";
-import { element, numberOf, optionalElement, renderEmptyState, setText, toast, valueOf } from "./ui";
+import { clearChildren, element, numberOf, optionalElement, renderEmptyState, setText, toast, valueOf } from "./ui";
 
 const ASSET_ORDER_STORAGE_KEY = "shortflow.assetOrder.v1";
 const ASSET_REORDER_MIME = "application/x-shortflow-asset-order";
@@ -224,7 +224,7 @@ export function createAssetBrowserPanel(options: AssetBrowserPanelOptions): {
       if (filter === "sfx") return category.root === "sfx";
       return true;
     });
-    select.replaceChildren();
+    clearChildren(select); // UXP replaceChildren 스테일 버그 회피(§25-b)
     const all = document.createElement("option");
     all.value = "all";
     all.textContent = "전체 폴더";
@@ -256,7 +256,7 @@ export function createAssetBrowserPanel(options: AssetBrowserPanelOptions): {
       renderEmptyState(target, "조건에 맞는 음악·효과음이 없습니다", "폴더에 WAV, MP3, AIFF 또는 M4A 파일을 넣고 동기화해 주세요.");
       return;
     }
-    target.replaceChildren();
+    clearChildren(target); // UXP replaceChildren 스테일 버그 회피(§25-b)
     for (const asset of visible) {
       const card = document.createElement("button");
       card.type = "button";
@@ -493,7 +493,8 @@ export function createAssetBrowserPanel(options: AssetBrowserPanelOptions): {
       const image = document.createElement("img");
       image.src = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
       image.alt = `${asset.name} 파형`;
-      container.replaceChildren(image);
+      clearChildren(container); // UXP replaceChildren 스테일 버그 회피(§25-b)
+      container.append(image);
       container.hidden = false;
     }
     selectedAssetId = asset.id;

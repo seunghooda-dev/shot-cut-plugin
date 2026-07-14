@@ -21,6 +21,7 @@ import {
   exportFrameToFolder,
   activeSequenceFrameSize,
   applyShotFocalPositionCorrection,
+  activateSequenceByContextKey,
   applyShotFocalAdjustment,
   attachTranscriptToActiveSequence,
   listSequenceNames,
@@ -906,14 +907,29 @@ async function handleApplyClipMotion(): Promise<void> {
 }
 
 let autoCutSegments: HighlightCutSegment[] = [];
+// 후보를 스캔한 시점의 원본 시퀀스 컨텍스트 — 생성이 끝나면 활성 시퀀스가 숏폼으로 바뀌므로 복원 근거로 쓴다.
+let autoCutSourceKey = "";
 // 학습 흐름: 현재 자막을 원본으로 지정해 두었다가, 숏폼 자막과 정렬해 스타일 예시를 뽑는다.
 let pendingLearnOriginal: SubtitleDocument | null = null;
+
+// 자동 컷 후보는 스캔 시점의 원본 시퀀스를 전제한다 — 활성이 바뀌어 있으면 원본을 자동 재활성화한다.
+async function ensureAutoCutSourceActive(): Promise<void> {
+  if (!autoCutSourceKey) return;
+  const current = await readActiveContextKey().catch(() => "");
+  if (current === autoCutSourceKey) return;
+  const restored = await activateSequenceByContextKey(autoCutSourceKey);
+  if (!restored) {
+    throw new Error("자동 컷 후보를 만든 원본 시퀀스를 찾지 못했습니다. 원본 시퀀스를 활성화하고 후보를 다시 스캔해 주세요.");
+  }
+  activity.add("info", "자동 컷 원본 시퀀스를 다시 활성화했습니다.");
+}
 
 // AI가 자막 타임코드를 근거로 숏폼 컷 후보를 랭킹해 제안한다(shorts-plan 우선, 스타일 코퍼스 few-shot 주입).
 async function handleAutoCutScan(): Promise<void> {
   ensureAiConsent("AI 자동 컷");
   const controller = subtitleController;
   if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다. 패널을 다시 열어 주세요.");
+  autoCutSourceKey = await readActiveContextKey().catch(() => "");
   const corpus = loadStyleCorpus();
   const styleExamples = [
     formatStyleProfileForPrompt(distillStyleProfile(corpus)),
@@ -938,7 +954,7 @@ function renderAutoCutCandidates(): void {
   const container = optionalElement<HTMLElement>("auto-cut-candidates");
   const generateRow = optionalElement<HTMLElement>("auto-cut-generate-row");
   if (!container) return;
-  container.replaceChildren();
+  clearChildren(container); // UXP replaceChildren 스테일 버그 회피(§25-b)
   const hasCandidates = autoCutSegments.length > 0;
   container.hidden = !hasCandidates;
   if (generateRow) generateRow.hidden = !hasCandidates;
@@ -996,6 +1012,7 @@ async function handleAutoCutMarkers(): Promise<void> {
     toast("마커로 표시할 구간을 하나 이상 선택해 주세요.", "warning");
     return;
   }
+  await ensureAutoCutSourceActive();
   const count = await busy.during("자동 컷 구간을 타임라인 마커로 표시하고 있습니다…", () =>
     writeShortsMarkers(selected.map((segment) => ({
       start: segment.start,
@@ -1273,6 +1290,7 @@ async function handleAutoCutReel(): Promise<void> {
     toast("릴로 이어붙일 구간을 하나 이상 선택해 주세요.", "warning");
     return;
   }
+  await ensureAutoCutSourceActive();
   const baseName = valueOf("name-input") || "ShortFlow";
   const result = await busy.during("하이라이트 릴을 만들고 있습니다…", () =>
     buildHighlightReel(
@@ -1310,6 +1328,7 @@ async function handleAutoCutGenerate(): Promise<void> {
     return;
   }
   ensureAiConsent("AI 자동 컷 생성");
+  await ensureAutoCutSourceActive();
   // 뉴스 스타일: 크롭 없이 원본 비율(fit) 그대로 가운데 배치 — 인물 추적·비전이 불필요하다.
   const newsStyle = checkedOf("news-style-checkbox");
   type SegmentFocalPlan = { spans?: FocalSpan[]; focal?: { x: number; y: number } };

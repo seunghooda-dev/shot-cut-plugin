@@ -1,7 +1,7 @@
 // 시퀀스 QC 실행·숏폼 생성·마커 검색/일괄 생성·HOOK/CTA 스토리 마커 UI를 담당하는 패널 모듈
 import { formatDuration, type MarkerSegment, type QCItem } from "./core";
 import type { CreateShortOptions, CreateShortResult, SequenceStatus } from "./premiere";
-import { element, renderEmptyState, setText, toast } from "./ui";
+import { clearChildren, element, renderEmptyState, setText, toast } from "./ui";
 
 export interface MarkersQcPanelOptions {
   runBusy: <T>(message: string, task: () => Promise<T>) => Promise<T>;
@@ -36,7 +36,7 @@ function qcIcon(level: QCItem["level"]): string {
 function renderQC(items: QCItem[]): void {
   const target = element<HTMLElement>("qc-results");
   target.className = "qc-result-list";
-  target.replaceChildren();
+  clearChildren(target); // UXP replaceChildren 스테일 버그 회피(§25-b)
   for (const result of items) {
     const item = document.createElement("div");
     item.className = `qc-result qc-${result.level}`;
@@ -66,7 +66,7 @@ function renderMarkers(segments: MarkerSegment[]): void {
     button.disabled = true;
     return;
   }
-  target.replaceChildren();
+  clearChildren(target); // UXP replaceChildren 스테일 버그 회피(§25-b)
   segments.forEach((segment, index) => {
     const label = document.createElement("label");
     label.className = "marker-item";

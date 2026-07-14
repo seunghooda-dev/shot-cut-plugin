@@ -651,6 +651,24 @@ export async function readActiveContextKey(): Promise<string> {
   return contextKeyOf(await getActiveContext());
 }
 
+/**
+ * 컨텍스트 키(프로젝트·시퀀스 guid)에 해당하는 시퀀스를 찾아 다시 활성화한다.
+ * 숏폼 일괄 생성이 끝나면 활성 시퀀스가 마지막 생성물로 바뀌므로(§46),
+ * 원본 전제 작업(재생성·마커·릴)은 이 함수로 원본을 복원한 뒤 진행해야 한다.
+ */
+export async function activateSequenceByContextKey(contextKey: string): Promise<boolean> {
+  const { project, sequence } = await getActiveContext();
+  if (premiereContextKey(project.guid, sequence.guid) === contextKey) return true;
+  const sequences = await project.getSequences();
+  for (const candidate of sequences) {
+    if (premiereContextKey(project.guid, candidate.guid) === contextKey) {
+      await project.setActiveSequence(candidate);
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function setSequencePlayerPosition(seconds: number): Promise<void> {
   if (!Number.isFinite(seconds) || seconds < 0 || seconds > 86_400) {
     throw new ShortFlowError("INVALID_PLAYHEAD", "이동할 재생 위치가 올바르지 않습니다.");
