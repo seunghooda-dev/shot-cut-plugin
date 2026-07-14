@@ -561,6 +561,8 @@ function applySettingsToUI(): void {
   setValue("reframe-select", settings.reframeMode === "none" ? "keep" : settings.reframeMode);
   setValue("scope-select", settings.scope);
   setChecked("center-checkbox", settings.centerClips);
+  setValue("focal-x-input", Math.round(settings.focalX * 100));
+  setValue("focal-y-input", Math.round(settings.focalY * 100));
   setValue("hook-seconds-input", settings.hookSeconds);
   setValue("cta-seconds-input", settings.ctaSeconds);
   setValue("mogrt-track-input", settings.mogrtTrack);
@@ -584,6 +586,15 @@ function applySettingsToUI(): void {
   setValue("stt-language-input", settings.sttLanguage);
   setValue("stt-output-format-select", settings.sttOutputFormat);
   setText("stt-output-name", settings.sttOutputName || "선택되지 않음", settings.sttOutputName);
+  updateFocalReadouts();
+}
+
+// 초점 슬라이더(0~100%)의 현재 값을 사람이 읽을 위치 라벨로 표시한다.
+function updateFocalReadouts(): void {
+  const x = Math.round(Math.min(100, Math.max(0, numberOf("focal-x-input", settings.focalX * 100))));
+  const y = Math.round(Math.min(100, Math.max(0, numberOf("focal-y-input", settings.focalY * 100))));
+  setText("focal-x-readout", `${x}% · ${x < 50 ? "왼쪽" : x > 50 ? "오른쪽" : "중앙"}`);
+  setText("focal-y-readout", `${y}% · ${y < 50 ? "위" : y > 50 ? "아래" : "중앙"}`);
 }
 
 function rangeModeFromUI(raw: string): SequenceRangeMode {
@@ -606,6 +617,8 @@ function syncSettingsFromUI(): PluginSettings {
       ? "selected"
       : valueOf("scope-select") === "primary" ? "primary" : "video",
     centerClips: reframeRaw === "scale-only" ? false : checkedOf("center-checkbox"),
+    focalX: Math.min(1, Math.max(0, numberOf("focal-x-input", settings.focalX * 100) / 100)),
+    focalY: Math.min(1, Math.max(0, numberOf("focal-y-input", settings.focalY * 100) / 100)),
     hookSeconds: numberOf("hook-seconds-input", settings.hookSeconds),
     ctaSeconds: numberOf("cta-seconds-input", settings.ctaSeconds),
     mogrtTrack: numberOf("mogrt-track-input", settings.mogrtTrack),
@@ -649,6 +662,8 @@ function createOptions(): CreateShortOptions {
     reframeMode: current.reframeMode,
     scope: current.scope,
     centerClips: current.centerClips,
+    focalX: current.focalX,
+    focalY: current.focalY,
   };
 }
 
@@ -1144,7 +1159,8 @@ function bindCoreEvents(): void {
 
   for (const id of [
     "width-input", "height-input", "name-input", "range-select", "max-duration-input",
-    "reframe-select", "scope-select", "center-checkbox", "hook-seconds-input", "cta-seconds-input",
+    "reframe-select", "scope-select", "center-checkbox", "focal-x-input", "focal-y-input",
+    "hook-seconds-input", "cta-seconds-input",
     "mogrt-track-input", "export-mode-select", "export-range-select",
     "tts-model-select", "tts-voice-select", "tts-format-select", "tts-speed-input",
     "tts-audio-track-input", "stt-model-select", "stt-language-input", "stt-output-format-select",
@@ -1153,6 +1169,10 @@ function bindCoreEvents(): void {
     bind(id, "change", () => {
       syncSettingsFromUI();
     });
+  }
+  // 슬라이더를 드래그하는 동안 실시간으로 초점 위치 라벨을 갱신한다.
+  for (const id of ["focal-x-input", "focal-y-input"]) {
+    bind(id, "input", updateFocalReadouts);
   }
   assetBrowserPanel.setupDropZone();
 }

@@ -15,6 +15,7 @@ import {
   commitTimelineInsertAfterPreflight,
   errorMessage,
   exportTimestamp,
+  focalReframePosition,
   joinNativePath,
   keyframeValue,
   normalizeExportExtension,
@@ -574,6 +575,86 @@ describe("centeredPosition", () => {
   it("treats Motion positions within the +/-2 unit threshold as normalized coordinates", () => {
     assert.deepEqual(centeredPosition({ x: 2, y: -2 }, 1080, 1920), { x: 0.5, y: 0.5 });
     assert.deepEqual(centeredPosition({ x: 2.1, y: 0 }, 1080, 1920), { x: 540, y: 960 });
+  });
+});
+
+describe("focalReframePosition", () => {
+  // 소스 2000x1000(2:1) → 타깃 1000x2000(1:2). fill 시 가로 오버플로 = 2/0.5 - 1 = 3.
+  const src = { w: 2000, h: 1000 };
+  const tgt = { w: 1000, h: 2000 };
+
+  it("matches centeredPosition when the focal point is the center", () => {
+    // 초점 0.5,0.5면 이동량 0 → 프레임 중앙. 픽셀·정규화 모두 centeredPosition과 동일.
+    assert.deepEqual(
+      focalReframePosition([600, 400], tgt.w, tgt.h, src.w, src.h, 0.5, 0.5),
+      { x: 500, y: 1000 },
+    );
+    assert.deepEqual(
+      focalReframePosition([0.5, 0.5], tgt.w, tgt.h, src.w, src.h, 0.5, 0.5),
+      { x: 0.5, y: 0.5 },
+    );
+  });
+
+  it("shifts the clip right so a left-side subject (focalX=0) stays in frame", () => {
+    // shiftXNorm = (0.5-0)*3 = 1.5 → x = 500 + 1.5*1000 = 2000 (오버플로의 최대치).
+    assert.deepEqual(
+      focalReframePosition([600, 400], tgt.w, tgt.h, src.w, src.h, 0, 0.5),
+      { x: 2000, y: 1000 },
+    );
+  });
+
+  it("shifts symmetrically for a right-side subject (focalX=1)", () => {
+    assert.deepEqual(
+      focalReframePosition([600, 400], tgt.w, tgt.h, src.w, src.h, 1, 0.5),
+      { x: -1000, y: 1000 },
+    );
+  });
+
+  it("applies the focal offset in normalized space too", () => {
+    // 정규화 입력(|x|<=2) → 0.5 + (0.5×3) = 2.0 (픽셀 2000/타깃폭 1000과 같은 비율).
+    assert.deepEqual(
+      focalReframePosition([0.5, 0.5], tgt.w, tgt.h, src.w, src.h, 0, 0.5),
+      { x: 2, y: 0.5 },
+    );
+  });
+
+  it("shifts on the vertical axis when the source overflows vertically", () => {
+    // 세로가 긴 소스 1000x2000 → 가로 타깃 2000x1000. 세로 오버플로 = 2/0.5 - 1 = 3.
+    assert.deepEqual(
+      focalReframePosition([600, 400], 2000, 1000, 1000, 2000, 0.5, 0),
+      { x: 1000, y: 2000 },
+    );
+  });
+
+  it("does not shift when source and target share an aspect ratio (no crop)", () => {
+    // 정사각↔정사각: 두 축 오버플로 0 → 초점과 무관하게 중앙.
+    assert.deepEqual(
+      focalReframePosition([600, 400], 1000, 1000, 1000, 1000, 0, 1),
+      { x: 500, y: 500 },
+    );
+  });
+
+  it("clamps focal coordinates outside 0..1", () => {
+    assert.deepEqual(
+      focalReframePosition([600, 400], tgt.w, tgt.h, src.w, src.h, -3, 0.5),
+      focalReframePosition([600, 400], tgt.w, tgt.h, src.w, src.h, 0, 0.5),
+    );
+    assert.deepEqual(
+      focalReframePosition([600, 400], tgt.w, tgt.h, src.w, src.h, 5, 0.5),
+      focalReframePosition([600, 400], tgt.w, tgt.h, src.w, src.h, 1, 0.5),
+    );
+  });
+
+  it("rejects malformed points and unusable dimensions", () => {
+    assert.equal(focalReframePosition({ x: 1 }, tgt.w, tgt.h, src.w, src.h, 0.5, 0.5), null);
+    assert.equal(focalReframePosition([600, 400], 0, tgt.h, src.w, src.h, 0.5, 0.5), null);
+    assert.equal(focalReframePosition([600, 400], tgt.w, tgt.h, src.w, 0, 0.5, 0.5), null);
+  });
+
+  it("does not mutate the source PointF-like object", () => {
+    const point = { x: 600, y: 400 };
+    focalReframePosition(point, tgt.w, tgt.h, src.w, src.h, 0, 0.5);
+    assert.deepEqual(point, { x: 600, y: 400 });
   });
 });
 

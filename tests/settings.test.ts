@@ -93,6 +93,14 @@ describe("settings normalization", () => {
     assert.equal(normalized.ttsSpeed, 2.5);
   });
 
+  it("clamps the crop focal point to 0..1 and defaults when missing", () => {
+    assert.equal(normalizeSettings({ focalX: -0.5 }).focalX, 0);
+    assert.equal(normalizeSettings({ focalY: 3 }).focalY, 1);
+    assert.equal(normalizeSettings({ focalX: 0.3 }).focalX, 0.3);
+    assert.equal(normalizeSettings({}).focalX, DEFAULT_SETTINGS.focalX);
+    assert.equal(normalizeSettings({}).focalY, DEFAULT_SETTINGS.focalY);
+  });
+
   it("rejects unknown workflow enum values", () => {
     const normalized = normalizeSettings({
       rangeMode: "diagonal",

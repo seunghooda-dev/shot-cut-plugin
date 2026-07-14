@@ -742,3 +742,19 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 
 ### 27-d. 위치 값 `[x,y]` 버그 체계적 감사 — safe-zone 정렬도 동일 버그(`271de9e`)
 27-b에서 position 값이 `[x,y]` array-like임을 확인한 뒤, position 값을 읽는 모든 곳을 전수 감사했다. `translateSafeZonePosition`(premiere.ts:2242)도 `candidate.x`/`.y`를 직접 읽어 **safe-zone 정렬이 실제 Host에서 모든 클립을 건너뛰던(changed 0)** 세 번째 인스턴스였다. `readPointF`로 경유시켜 수정. 이제 position 값 reader 3곳(모션 `buildClipMotionActions`, reframe 중앙정렬 `centeredPosition`, safe-zone `translateSafeZonePosition`)이 모두 단일 `readPointF`를 통과한다. scale reader(1534·2145·2311)는 숫자라 `Number(keyframeValue())`로 무관. `readPointF`는 **strict**(x/y `typeof number` 요구) — 실측상 Host 배열 원소가 `Array(2) of typeof number`라 안전하고, safe-zone의 "문자열 좌표 거부" 계약도 보존. **모션 회귀 재검증**: strict readPointF로도 Position 16 + Opacity 16 키프레임 기록 확인 → 공유 헬퍼가 실제 Host `[x,y]` 숫자를 정확히 읽음을 확정. safe-zone는 `createSetValueAction`(정적 값)이라 setTimeVarying 불필요; readPointF 수정만으로 해결. 유닛 커버리지 `translateSafeZonePosition` `[x,y]` 케이스 추가, 게이트 **1589/1589**. (safe-zone 전용 UI 드라이브는 미실시 — 공유 헬퍼가 모션으로 Host 검증됐고 [x,y] 유닛 테스트가 있어 신뢰 충분.)
+
+## 28. 초점(focal point) 기반 리프레임 — 상용화 하드닝 신규 기능·Host 검증(2026-07-14)
+
+사용자 요청 "숏폼 제작 논리를 진짜 상용화 가능하게 탄탄하게"에 대해, 리프레임 로직을 정독해 최대 취약점을 특정했다. 기존 `buildReframeActions`는 fill(크롭) 모드에서 클립을 **무조건 프레임 중앙**(`centeredPosition` → `targetW/2, targetH/2`)에 놓아, 16:9→9:16 변환 시 화면 중앙에서 벗어난 피사체(말하는 사람·자막·액션)가 크롭돼 사라졌다 — 실제 콘텐츠 대부분이 비중앙 구도라 상용 품질의 #1 결함. 사용자가 4개 하드닝 방향 중 **"초점 기반 리프레임"**을 선택.
+
+### 28-a. 구현
+- **순수 함수 `focalReframePosition(value, tW, tH, sW, sH, fx, fy)`**(premiere.ts): fill 시 소스/타깃 **종횡비만으로** 넘치는 축의 오버플로를 구하고(`sourceAspect/targetAspect - 1` 등, Premiere scale 값과 독립), 초점 좌표(0~1)만큼 위치를 밀어 피사체를 프레임에 유지한다. `(0.5-fx)×overflow` 이동량은 ±0.5×오버플로 범위라 여백이 생기지 않는다. 초점 (0.5,0.5)이면 `centeredPosition`과 동일 → 하위호환. 정규화/픽셀 판정은 `readPointF`+`|x|≤2` 관례 유지.
+- **`buildReframeActions`**: fill 모드일 때만 `focalReframePosition` 사용, fit/none은 크롭이 없어 기존 `centeredPosition`(중앙). 기존 키프레임 클립 보존 가드는 그대로.
+- **설정·UI 배선**: `CreateShortOptions.focalX/Y`(옵션), `PluginSettings.focalX/Y`(0~1 클램프·기본 0.5), index.ts `applySettingsToUI`/`syncSettingsFromUI`/`createOptions` 3곳, `public/index.html` `.focal-field`(수평·수직 range 슬라이더 0~100% + 실시간 위치 라벨 `updateFocalReadouts`), `public/styles.css` 커스텀 range 트랙/썸.
+- 유닛 커버리지: `focalReframePosition` 8케이스(중앙=centeredPosition 일치, 좌/우 피사체 대칭 이동, 정규화 공간, 세로축 오버플로, 종횡비 일치 시 무이동, 초점 클램프, malformed 거부, 불변성) + settings 초점 클램프. 게이트 **1603/1603** green.
+
+### 28-b. Host 검증 — 순수 함수 수학이 실제 Premiere 리프레임과 소수점까지 일치(결정적)
+§27-e에서 "비키프레임 클립의 실제 위치 이동은 스모크 클립이 이미 중앙이라 관찰 곤란"이라 남긴 부분을 이번에 정확히 관찰해 냈다.
+- **UI 렌더(올바른 `panel-short` 탭)**: `.focal-field` 254×133, `.focal-slider` 228×20, range `#focal-x-input` **200×20**(0×0 붕괴 없음), readout 82×17. 슬라이더 값 설정 시 라벨 `20% · 왼쪽`/`85% · 아래`, `localStorage.focalX=0.2 focalY=0.85` 반영, 콘솔 0. (초기 측정이 0×0으로 나온 건 기존 `cdt-createshort.mjs`가 create-short를 `qc` 탭으로 오인 — create-short는 실제 `panel-short`(`data-tab="short"`) 소속. 기존 create-short-btn·reframe-select도 같이 0×0이라 **제 CSS 회귀 아님**을 형제 비교로 확정.)
+- **실제 리프레임 위치**: 미디어에서 `ClipProjectItem.cast`+`createSequenceFromMedia`로 **키프레임 없는 깨끗한 9:16 시퀀스** 생성 → 타깃 1920×1080(16:9)·fill·`focalY=0.2`(상단)로 create-short → 클론 V1 클립 Motion position = **`posY=1.1481481790542603`, `posX=0.5`**, 콘솔 0. 순수 함수 예측(세로 오버플로 2.1605, shiftY=(0.5−0.2)×2.1605=0.6481, posY=0.5+0.6481=**1.1481**)과 **소수점까지 정확히 일치**. posX=0.5는 세로→가로라 가로 오버플로 0 → 수평 중앙 유지(focalX=0.5). 이로써 reframe의 position 기록 경로가 비키프레임 클립에서 실제로 클립을 움직이는 것까지 엔드투엔드 확정 — §27-e의 미관찰 공백을 메움.
+- 재사용 스크립트(스크래치패드): `cdt-focal-ui.mjs`(슬라이더 렌더·settings 반영), `cdt-focal-render.mjs`(올바른 탭 활성화 후 크기), `cdt-focal-clean.mjs`(캐스팅→깨끗한 시퀀스→리프레임→position 읽기). 테스트 아티팩트 시퀀스(`FocalClean_*`, `ShortFlow_9x16 2`)는 사용자 프로젝트에 잔존 — 기존 `SF_Motion_Test_*`와 함께 정리 대상(무해).

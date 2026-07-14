@@ -471,6 +471,23 @@
               </span>
             </label>
 
+            <div class="focal-field">
+              <div class="focal-field-head">
+                <strong>크롭 초점</strong>
+                <small>화면 채우기 리프레임에서 잘리지 않고 남길 지점입니다. 피사체가 중앙에서 벗어났을 때 맞춰 주세요.</small>
+              </div>
+              <div class="focal-slider">
+                <label for="focal-x-input">수평</label>
+                <input id="focal-x-input" name="focalX" type="range" min="0" max="100" step="1" value="50" />
+                <span id="focal-x-readout" class="focal-readout">50% · 중앙</span>
+              </div>
+              <div class="focal-slider">
+                <label for="focal-y-input">수직</label>
+                <input id="focal-y-input" name="focalY" type="range" min="0" max="100" step="1" value="50" />
+                <span id="focal-y-readout" class="focal-readout">50% · 중앙</span>
+              </div>
+            </div>
+
             <div class="form-actions">
               <p class="action-note">원본 시퀀스는 변경하지 않고 새 시퀀스를 만듭니다.</p>
               <button id="create-short-btn" class="primary-button primary-button-large" type="button">

@@ -15,6 +15,8 @@ export interface PluginSettings {
   reframeMode: ReframeMode;
   scope: ReframeScope;
   centerClips: boolean;
+  focalX: number;
+  focalY: number;
   hookSeconds: number;
   ctaSeconds: number;
   mogrtTrack: number;
@@ -56,6 +58,8 @@ export const DEFAULT_SETTINGS: Readonly<PluginSettings> = Object.freeze({
   reframeMode: "fill",
   scope: "video",
   centerClips: true,
+  focalX: 0.5,
+  focalY: 0.5,
   hookSeconds: 3,
   ctaSeconds: 5,
   mogrtTrack: 2,
@@ -114,6 +118,8 @@ export function normalizeSettings(value: unknown): PluginSettings {
     reframeMode: oneOf(input.reframeMode, ["fill", "fit", "none"], DEFAULT_SETTINGS.reframeMode),
     scope: oneOf(input.scope, ["video", "selected", "primary"], DEFAULT_SETTINGS.scope),
     centerClips: typeof input.centerClips === "boolean" ? input.centerClips : DEFAULT_SETTINGS.centerClips,
+    focalX: numberInRange(input.focalX, DEFAULT_SETTINGS.focalX, 0, 1),
+    focalY: numberInRange(input.focalY, DEFAULT_SETTINGS.focalY, 0, 1),
     hookSeconds: numberInRange(input.hookSeconds, DEFAULT_SETTINGS.hookSeconds, 0, 30),
     ctaSeconds: numberInRange(input.ctaSeconds, DEFAULT_SETTINGS.ctaSeconds, 0, 30),
     mogrtTrack: Math.round(numberInRange(input.mogrtTrack, DEFAULT_SETTINGS.mogrtTrack, 1, 99)),

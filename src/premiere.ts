@@ -125,6 +125,9 @@ export interface CreateShortOptions {
   reframeMode: ReframeMode;
   scope: ReframeScope;
   centerClips: boolean;
+  // 초점 좌표(0~1, 기본 중앙 0.5). fill 리프레임에서 크롭이 이 지점을 프레임에 유지한다.
+  focalX?: number;
+  focalY?: number;
   explicitRange?: { start: number; end: number };
 }
 
@@ -286,6 +289,55 @@ export function centeredPosition(
   return normalized
     ? { x: 0.5, y: 0.5 }
     : { x: targetWidth / 2, y: targetHeight / 2 };
+}
+
+// 초점(focal point) 기반 리프레임 위치. fill(크롭) 모드에서 소스가 타깃보다 넘치는
+// 축을 초점 좌표(0~1)만큼 밀어, 화면 중앙이 아닌 피사체가 프레임 안에 남게 한다.
+// 초점 (0.5, 0.5)이면 centeredPosition과 동일(프레임 중앙). 오버플로 계산은
+// 종횡비만으로 이뤄지므로 Premiere scale 값과 독립적이다(fill = 넘치게 채움 가정).
+export function focalReframePosition(
+  value: unknown,
+  targetWidth: number,
+  targetHeight: number,
+  sourceWidth: number,
+  sourceHeight: number,
+  focalX: number,
+  focalY: number,
+): { x: number; y: number } | null {
+  const point = readPointF(value);
+  if (
+    !point
+    || !Number.isFinite(targetWidth)
+    || !Number.isFinite(targetHeight)
+    || !Number.isFinite(sourceWidth)
+    || !Number.isFinite(sourceHeight)
+    || targetWidth <= 0
+    || targetHeight <= 0
+    || sourceWidth <= 0
+    || sourceHeight <= 0
+  ) {
+    return null;
+  }
+  const clamp01 = (n: number): number =>
+    Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.5;
+  const fx = clamp01(focalX);
+  const fy = clamp01(focalY);
+  const sourceAspect = sourceWidth / sourceHeight;
+  const targetAspect = targetWidth / targetHeight;
+  // fill 시 넘치는 비율(타깃 대비). 넓은 소스는 가로, 높은 소스는 세로가 넘친다.
+  const horizontalOverflow = Math.max(0, sourceAspect / targetAspect - 1);
+  const verticalOverflow = Math.max(0, targetAspect / sourceAspect - 1);
+  // 초점을 프레임 중앙에 맞추는 정규화 이동량(±0.5×오버플로 범위 안에서만 움직여
+  // 프레임에 빈 여백이 생기지 않는다). fx<0.5(피사체 왼쪽)면 오른쪽으로 밀어 왼쪽을 보인다.
+  const shiftXNorm = (0.5 - fx) * horizontalOverflow;
+  const shiftYNorm = (0.5 - fy) * verticalOverflow;
+  const normalized = Math.abs(point.x) <= 2 && Math.abs(point.y) <= 2;
+  return normalized
+    ? { x: 0.5 + shiftXNorm, y: 0.5 + shiftYNorm }
+    : {
+        x: targetWidth / 2 + shiftXNorm * targetWidth,
+        y: targetHeight / 2 + shiftYNorm * targetHeight,
+      };
 }
 
 export function zeroBasedTrackIndex(value: number, oneBased = false): number {
@@ -1540,6 +1592,8 @@ async function buildReframeActions(
   targetHeight: number,
   mode: ReframeMode,
   center: boolean,
+  focalX = 0.5,
+  focalY = 0.5,
 ): Promise<{ actions: ActionFactory[]; warning?: string }> {
   if (typeof item.isAdjustmentLayer === "function" && await item.isAdjustmentLayer()) {
     return { actions: [], warning: "조정 레이어는 건너뛰었습니다." };
@@ -1582,10 +1636,21 @@ async function buildReframeActions(
       warnings.push("위치 키프레임이 있는 클립은 중앙 정렬하지 않았습니다.");
     } else {
       const current: Keyframe = await params.position.getStartValue();
-      const centered = centeredPosition(keyframeValue(current), targetWidth, targetHeight);
-      if (centered) {
+      // fill(크롭) 모드에서만 초점 오프셋을 적용한다. fit/none은 크롭이 없어 프레임 중앙.
+      const positioned = mode === "fill"
+        ? focalReframePosition(
+            keyframeValue(current),
+            targetWidth,
+            targetHeight,
+            oldWidth,
+            oldHeight,
+            focalX,
+            focalY,
+          )
+        : centeredPosition(keyframeValue(current), targetWidth, targetHeight);
+      if (positioned) {
         actions.push(() => {
-          const point: PointF = ppro.PointF(centered.x, centered.y);
+          const point: PointF = ppro.PointF(positioned.x, positioned.y);
           const keyframe = params.position!.createKeyframe(point);
           return params.position!.createSetValueAction(keyframe, true);
         });
@@ -1764,6 +1829,8 @@ async function reframeSequence(
     if (await overlapsRange(item, range)) items.push(item);
   }
   const limited = items.slice(0, 500);
+  const focalX = typeof options.focalX === "number" ? options.focalX : 0.5;
+  const focalY = typeof options.focalY === "number" ? options.focalY : 0.5;
   const actions: ActionFactory[] = [];
   const warnings: string[] = [];
   let changed = 0;
@@ -1777,6 +1844,8 @@ async function reframeSequence(
         options.height,
         options.reframeMode,
         options.centerClips,
+        focalX,
+        focalY,
       );
       if (result.actions.length > 0) {
         actions.push(...result.actions);
