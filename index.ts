@@ -1813,7 +1813,9 @@ async function snapNewsItemsToAnchors(items: NewsItem[]): Promise<NewsItem[]> {
     setText("busy-message", `경계 스캔 ${index + 1}/${items.length}…`);
     busy.progress(10 + (50 * index) / items.length);
     const samples: Array<{ time: number; grid: Float64Array | null }> = [];
-    const from = Math.max(0, item.start - 6);
+    // 텍스트 분석이 앵커 리드 문장을 앞 아이템 꼬리에 붙이면 실제 앵커 컷이 텍스트 경계보다
+    // 10초 이상 앞설 수 있다(§53-i 실사용 보고: 아이템 하나에 앵커 샷 2개) — 뒤쪽을 넓게 스캔.
+    const from = Math.max(0, item.start - 12);
     for (let time = from; time <= item.start + 4 + 0.001; time += 0.5) {
       samples.push({ time: Math.round(time * 10) / 10, grid: await grabGrid(time) });
     }
@@ -1844,7 +1846,7 @@ async function snapNewsItemsToAnchors(items: NewsItem[]): Promise<NewsItem[]> {
   const references = loadAnchorExemplars()
     .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
     .filter((reference) => looksCompleteImage(reference.bytes, "png"))
-    .slice(0, 3);
+    .slice(0, 4);
   const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
   const anchorFlags: boolean[] = new Array(shotFrames.length).fill(false);
   const anchorConfidences: number[] = new Array(shotFrames.length).fill(0);
