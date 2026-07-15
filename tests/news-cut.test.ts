@@ -1,7 +1,13 @@
-// news-cut — 보도 아이템 응답 정규화·이름 규칙·목록 표기 테스트
+// news-cut — 보도 아이템 응답 정규화·앵커 샷 스냅·이름 규칙·목록 표기 테스트
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { describeNewsItem, newsItemName, normalizeNewsItems } from "../src/news-cut";
+import {
+  describeNewsItem,
+  findShotSegments,
+  newsItemName,
+  normalizeNewsItems,
+  snapItemsToAnchorStarts,
+} from "../src/news-cut";
 import type { SubtitleDocument } from "../src/subtitles";
 
 function doc(): SubtitleDocument {
@@ -64,6 +70,57 @@ describe("normalizeNewsItems", () => {
     assert.deepEqual(normalizeNewsItems(null, doc()), []);
     assert.deepEqual(normalizeNewsItems({ items: "x" }, doc()), []);
     assert.deepEqual(normalizeNewsItems({ items: [null, 7, { title: "만" }] }, doc()), []);
+  });
+});
+
+describe("findShotSegments", () => {
+  const grid = (value: number): Float64Array => new Float64Array(4).fill(value);
+
+  it("splits samples into shots at large luma jumps", () => {
+    const shots = findShotSegments([
+      { time: 0, grid: grid(50) },
+      { time: 0.5, grid: grid(51) },
+      { time: 1, grid: grid(200) }, // 컷
+      { time: 1.5, grid: grid(201) },
+      { time: 2, grid: grid(60) }, // 컷
+    ]);
+    assert.deepEqual(shots.map((shot) => [shot.start, shot.end]), [[0, 1], [1, 2], [2, 2]]);
+    assert.equal(shots[0]!.midTime, 0.5);
+  });
+
+  it("treats missing grids as cut boundaries and tolerates empty input", () => {
+    const shots = findShotSegments([
+      { time: 0, grid: grid(50) },
+      { time: 0.5, grid: null },
+      { time: 1, grid: grid(50) },
+    ]);
+    assert.equal(shots.length, 3);
+    assert.deepEqual(findShotSegments([]), []);
+  });
+});
+
+describe("snapItemsToAnchorStarts", () => {
+  it("snaps starts, chains ends to the next start, and keeps text boundaries when null", () => {
+    const items = [
+      { start: 60, end: 200, title: "하나" },
+      { start: 205, end: 300, title: "둘" },
+      { start: 320, end: 400, title: "셋" },
+    ];
+    const snapped = snapItemsToAnchorStarts(items, [63.5, null, 318]);
+    assert.deepEqual(snapped, [
+      { start: 63.5, end: 205, title: "하나" },
+      { start: 205, end: 318, title: "둘" },
+      { start: 318, end: 400, title: "셋" },
+    ]);
+  });
+
+  it("drops items whose snapped range collapses", () => {
+    const snapped = snapItemsToAnchorStarts(
+      [{ start: 10, end: 40, title: "a" }, { start: 30, end: 90, title: "b" }],
+      [35, 20],
+    );
+    // 첫 아이템 시작 35, 끝 = 다음 시작 20 → 붕괴 → 드롭
+    assert.deepEqual(snapped.map((item) => item.title), ["b"]);
   });
 });
 

@@ -105,7 +105,15 @@ import { buildSrt, createSubtitleDocument, parseSrt, type SubtitleDocument } fro
 import { buildPremiereTranscript } from "./src/transcript-export";
 import { planUploadPackage } from "./src/upload-package";
 import { loadSubtitleSnapshots, removeSubtitleSnapshot, saveSubtitleSnapshot } from "./src/subtitle-snapshots";
-import { describeNewsItem, newsItemName, normalizeNewsItems, type NewsItem } from "./src/news-cut";
+import {
+  describeNewsItem,
+  findShotSegments,
+  newsItemName,
+  normalizeNewsItems,
+  snapItemsToAnchorStarts,
+  type NewsItem,
+} from "./src/news-cut";
+import { base64ToBytes, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
 import { cloneSamplesForReusedTimes, lumaGrid, parseBmp24, planFrameSampling } from "./src/frame-diff";
 import { loadCachedSpans, saveCachedSpans } from "./src/vision-cache";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus, removeStyleExample } from "./src/style-corpus";
@@ -1772,6 +1780,110 @@ async function ensureNewsCutSourceActive(): Promise<void> {
   activity.add("info", "News Cut 원본 시퀀스를 다시 활성화했습니다.");
 }
 
+// 앵커 샷 경계 스냅 — 경계 주변을 프레임 diff로 샷 분해(로컬)하고, 샷 대표 프레임만 비전으로
+// "스튜디오 앵커 샷" 분류해 아이템 시작을 앵커 샷 시작 컷에 맞춘다. 끝은 다음 아이템 시작으로 잇는다.
+async function snapNewsItemsToAnchors(items: NewsItem[]): Promise<NewsItem[]> {
+  const api = frameDataFolderApi();
+  if (!api || items.length === 0) return items;
+  const dataFolder = await api.fileSystem.getDataFolder();
+  const grabGrid = async (time: number): Promise<Float64Array | null> => {
+    try {
+      const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 96, undefined, "bmp");
+      const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+      try {
+        const entry = await dataFolder.getEntry(filename);
+        await entry.delete();
+      } catch {
+        // 임시 파일 삭제 실패는 무시
+      }
+      const bmp = bytes ? parseBmp24(bytes) : null;
+      return bmp ? lumaGrid(bmp) : null;
+    } catch {
+      return null;
+    }
+  };
+  // 1) 경계별 컷 스캔(로컬, 비전 0회) — 샷 구간 분해
+  const boundaryShots: Array<Array<{ start: number; midTime: number }>> = [];
+  for (const [index, item] of items.entries()) {
+    setText("busy-message", `경계 스캔 ${index + 1}/${items.length}…`);
+    const samples: Array<{ time: number; grid: Float64Array | null }> = [];
+    const from = Math.max(0, item.start - 6);
+    for (let time = from; time <= item.start + 4 + 0.001; time += 0.5) {
+      samples.push({ time: Math.round(time * 10) / 10, grid: await grabGrid(time) });
+    }
+    boundaryShots.push(findShotSegments(samples));
+  }
+  // 2) 샷 대표 프레임 수집 → 12장 배치로 앵커 샷 분류(비전)
+  const shotFrames: Array<{ boundary: number; shotStart: number; bytes: Uint8Array }> = [];
+  for (const [boundary, shots] of boundaryShots.entries()) {
+    for (const shot of shots) {
+      try {
+        const { filename } = await exportFrameToFolder(shot.midTime, String(dataFolder.nativePath), 272);
+        const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+        try {
+          const entry = await dataFolder.getEntry(filename);
+          await entry.delete();
+        } catch {
+          // 임시 파일 삭제 실패는 무시
+        }
+        if (bytes) shotFrames.push({ boundary, shotStart: shot.start, bytes });
+      } catch {
+        // 대표 프레임 하나 실패는 무시
+      }
+    }
+  }
+  if (shotFrames.length === 0) return items;
+  // 학습된 앵커 샷 예시(다른 세트 포함)를 참조 이미지로 함께 보내 분류를 안정화한다.
+  const exemplars = loadAnchorExemplars().slice(0, 3);
+  const references = exemplars.map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }));
+  const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
+  const anchorFlags: boolean[] = new Array(shotFrames.length).fill(false);
+  const anchorConfidences: number[] = new Array(shotFrames.length).fill(0);
+  const batchSize = Math.max(4, 12 - references.length);
+  for (let offset = 0; offset < shotFrames.length; offset += batchSize) {
+    setText("busy-message", `앵커 샷 분류 ${Math.min(offset + batchSize, shotFrames.length)}/${shotFrames.length}…`);
+    const chunk = shotFrames.slice(offset, offset + batchSize);
+    const results = await client.classifyAnchorShots(
+      chunk.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" })),
+      references,
+    );
+    for (const result of results) {
+      if (result.isAnchor && result.confidence >= 0.5) {
+        anchorFlags[offset + result.index] = true;
+        anchorConfidences[offset + result.index] = result.confidence;
+      }
+    }
+  }
+  // 자동 학습 — 이번 방송에서 가장 확신 높은 앵커 프레임 1장을 예시 코퍼스에 저장(같은 라벨은 1회만).
+  let bestIndex = -1;
+  for (let index = 0; index < shotFrames.length; index += 1) {
+    if (anchorFlags[index] && (bestIndex < 0 || anchorConfidences[index]! > anchorConfidences[bestIndex]!)) bestIndex = index;
+  }
+  if (bestIndex >= 0 && anchorConfidences[bestIndex]! >= 0.75) {
+    try {
+      const sourceName = (await readSequenceStatus()).sequenceName ?? "unknown";
+      const corpus = saveAnchorExemplar({ label: `anchor:${sourceName}`, bytes: shotFrames[bestIndex]!.bytes });
+      activity.add("info", `앵커 샷 학습 · 예시 ${corpus.length}개 보유`);
+    } catch {
+      // 학습 실패는 분류 결과에 영향 없음
+    }
+  }
+  // 3) 경계별로 텍스트 시작에 가장 가까운 앵커 샷의 시작 컷으로 스냅
+  const anchorStarts: Array<number | null> = items.map((item, boundary) => {
+    let best: number | null = null;
+    for (const [frameIndex, frame] of shotFrames.entries()) {
+      if (frame.boundary !== boundary || !anchorFlags[frameIndex]) continue;
+      if (best === null || Math.abs(frame.shotStart - item.start) < Math.abs(best - item.start)) {
+        best = frame.shotStart;
+      }
+    }
+    return best;
+  });
+  const snappedCount = anchorStarts.filter((value) => value !== null).length;
+  activity.add("info", `앵커 샷 스냅 · ${snappedCount}/${items.length}개 경계 정렬(비전 ${Math.ceil(shotFrames.length / 12)}회)`);
+  return snapItemsToAnchorStarts(items, anchorStarts);
+}
+
 // 1단계 — 자막에서 보도 아이템 경계를 AI로 분석한다(읽기 전용, cueId 참조 검증).
 async function handleNewsCutAnalyze(): Promise<void> {
   const controller = subtitleController;
@@ -1782,7 +1894,15 @@ async function handleNewsCutAnalyze(): Promise<void> {
   newsCutSourceKey = await readActiveContextKey().catch(() => "");
   const payload = await busy.during("보도 아이템 경계를 분석하고 있습니다…", () =>
     runSubtitleAnalysis({ action: "news-items", document: doc }));
-  newsCutItems = normalizeNewsItems(payload, doc);
+  let items = normalizeNewsItems(payload, doc);
+  if (items.length > 0) {
+    try {
+      items = await busy.during("앵커 샷 기준으로 경계를 스냅하고 있습니다…", () => snapNewsItemsToAnchors(items));
+    } catch (error) {
+      activity.add("warning", `앵커 샷 스냅 생략(텍스트 경계 사용): ${errorMessage(error)}`);
+    }
+  }
+  newsCutItems = items;
   newsCutCreatedNames = [];
   renderNewsCutList();
   if (newsCutItems.length === 0) {
