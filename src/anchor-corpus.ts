@@ -2,7 +2,7 @@
 import { looksCompleteImage } from "./frame-diff";
 
 export const ANCHOR_CORPUS_STORAGE_KEY = "shortflow.anchor-corpus.v1";
-export const MAX_ANCHOR_EXEMPLARS = 6;
+export const MAX_ANCHOR_EXEMPLARS = 8;
 /** 272px PNG 기준 안전 상한 — localStorage 예산을 지킨다. */
 export const MAX_ANCHOR_EXEMPLAR_BASE64_CHARS = 300_000;
 

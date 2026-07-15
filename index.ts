@@ -1846,7 +1846,7 @@ async function snapNewsItemsToAnchors(items: NewsItem[]): Promise<NewsItem[]> {
   const references = loadAnchorExemplars()
     .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
     .filter((reference) => looksCompleteImage(reference.bytes, "png"))
-    .slice(0, 4);
+    .slice(0, 5);
   const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
   const anchorFlags: boolean[] = new Array(shotFrames.length).fill(false);
   const anchorConfidences: number[] = new Array(shotFrames.length).fill(0);
