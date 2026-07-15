@@ -7,6 +7,7 @@ import {
   newsItemName,
   nextNewsItemIndex,
   normalizeNewsItems,
+  mergeShortItemsForward,
   snapItemsToAnchorStarts,
   splitItemsAtInteriorAnchors,
 } from "../src/news-cut";
@@ -152,6 +153,39 @@ describe("splitItemsAtInteriorAnchors", () => {
   it("returns items unchanged when no interior cuts exist", () => {
     const items = [{ start: 0, end: 200, title: "그대로" }];
     assert.deepEqual(splitItemsAtInteriorAnchors(items, [[]], titleAt), items);
+  });
+});
+
+describe("mergeShortItemsForward", () => {
+  it("merges a short lead fragment into the next item keeping the lead title", () => {
+    const merged = mergeShortItemsForward([
+      { start: 533.7, end: 541.4, title: "민영배 시장 첫 국무회의 참석" },
+      { start: 541.4, end: 600.2, title: "국무회의 상시 배석" },
+      { start: 600.2, end: 651.8, title: "국비 확보 기대" },
+    ]);
+    assert.deepEqual(merged, [
+      { start: 533.7, end: 600.2, title: "민영배 시장 첫 국무회의 참석" },
+      { start: 600.2, end: 651.8, title: "국비 확보 기대" },
+    ]);
+  });
+
+  it("chains consecutive short fragments and absorbs a short tail backwards", () => {
+    const merged = mergeShortItemsForward([
+      { start: 0, end: 8, title: "리드 A" },
+      { start: 8, end: 14, title: "리드 B" },
+      { start: 14, end: 60, title: "본 리포트" },
+      { start: 60, end: 100, title: "정상" },
+      { start: 100, end: 108, title: "짧은 꼬리" },
+    ]);
+    assert.deepEqual(merged, [
+      { start: 0, end: 60, title: "리드 A" },
+      { start: 60, end: 108, title: "정상" },
+    ]);
+  });
+
+  it("keeps items at or above the minimum untouched", () => {
+    const items = [{ start: 0, end: 15, title: "딱 15초" }, { start: 15, end: 45, title: "30초" }];
+    assert.deepEqual(mergeShortItemsForward(items), items);
   });
 });
 

@@ -111,6 +111,7 @@ import {
   NEWS_CUT_INTERIOR_SPLIT_MIN_SECONDS,
   describeNewsItem,
   findShotSegments,
+  mergeShortItemsForward,
   newsItemName,
   nextNewsItemIndex,
   normalizeNewsItems,
@@ -1975,6 +1976,12 @@ async function handleNewsCutAnalyze(): Promise<void> {
       items = await busy.during("앵커 샷 기준으로 경계를 스냅하고 있습니다…", () => snapNewsItemsToAnchors(items, titleAt));
     } catch (error) {
       activity.add("warning", `앵커 샷 스냅 생략(텍스트 경계 사용): ${errorMessage(error)}`);
+    }
+    // 앵커 리드 한 문장이 별도 아이템으로 쪼개진 짧은 조각은 다음 리포트와 병합한다.
+    const beforeMerge = items.length;
+    items = mergeShortItemsForward(items);
+    if (items.length < beforeMerge) {
+      activity.add("info", `짧은 리드 조각 ${beforeMerge - items.length}건을 다음 아이템과 병합`);
     }
   }
   newsCutItems = items;

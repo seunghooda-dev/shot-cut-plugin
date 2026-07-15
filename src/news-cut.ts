@@ -169,6 +169,32 @@ export function splitItemsAtInteriorAnchors(
   return out;
 }
 
+/**
+ * 스냅·분할 뒤에 남은 짧은 조각(전형: 앵커 리드 한 문장이 별도 아이템으로 쪼개진 경우)을
+ * 다음 아이템으로 병합한다 — 리드가 곧 기사 헤드라인이므로 제목은 앞(짧은) 조각을 유지한다.
+ * 마지막 아이템이 짧으면 앞 아이템으로 흡수한다(제목은 앞 것 유지).
+ */
+export function mergeShortItemsForward(items: readonly NewsItem[], minSeconds = 15): NewsItem[] {
+  const out: NewsItem[] = [];
+  let pending: NewsItem | null = null;
+  for (const item of items) {
+    const current: NewsItem = pending
+      ? { start: pending.start, end: item.end, title: pending.title }
+      : { ...item };
+    pending = null;
+    if (current.end - current.start < minSeconds) {
+      pending = current;
+      continue;
+    }
+    out.push(current);
+  }
+  if (pending) {
+    const last = out.pop();
+    out.push(last ? { ...last, end: pending.end } : pending);
+  }
+  return out;
+}
+
 /** UI 목록 표기 — mm:ss 구간과 제목. */
 export function describeNewsItem(item: NewsItem, index: number): string {
   const clock = (seconds: number) => {
