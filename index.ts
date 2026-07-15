@@ -24,8 +24,10 @@ import {
   activateSequenceByContextKey,
   applyShotFocalAdjustment,
   attachTranscriptToActiveSequence,
+  createNewsItemSequences,
   exportSequenceFrameByName,
   listSequenceNames,
+  queueSequenceExportsByName,
   type ShortSegmentInput,
   errorMessage,
   exportCover,
@@ -103,6 +105,7 @@ import { buildSrt, createSubtitleDocument, parseSrt, type SubtitleDocument } fro
 import { buildPremiereTranscript } from "./src/transcript-export";
 import { planUploadPackage } from "./src/upload-package";
 import { loadSubtitleSnapshots, removeSubtitleSnapshot, saveSubtitleSnapshot } from "./src/subtitle-snapshots";
+import { describeNewsItem, newsItemName, normalizeNewsItems, type NewsItem } from "./src/news-cut";
 import { cloneSamplesForReusedTimes, lumaGrid, parseBmp24, planFrameSampling } from "./src/frame-diff";
 import { loadCachedSpans, saveCachedSpans } from "./src/vision-cache";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus, removeStyleExample } from "./src/style-corpus";
@@ -1711,6 +1714,132 @@ async function handleMultilangExport(): Promise<void> {
   toast(`${summary}. 매니페스트를 확인해 주세요.`, failures.length > 0 ? "warning" : "success", 6000);
 }
 
+// News Cut — 뉴스 전체 방송을 보도 아이템 단위로 분할한다(분석→시퀀스 생성→AME 일괄 내보내기).
+let newsCutItems: NewsItem[] = [];
+let newsCutSourceKey = "";
+let newsCutCreatedNames: string[] = [];
+
+function selectedNewsItems(): Array<{ item: NewsItem; index: number }> {
+  const container = optionalElement<HTMLElement>("news-cut-list");
+  if (!container) return [];
+  const selected: Array<{ item: NewsItem; index: number }> = [];
+  for (const row of container.children) {
+    for (const child of row.children) {
+      const input = child as HTMLInputElement;
+      if (String(input.tagName).toLowerCase() !== "input") continue;
+      const index = Number(input.dataset.newsIndex);
+      const item = newsCutItems[index];
+      if (input.checked && item) selected.push({ item, index });
+    }
+  }
+  return selected;
+}
+
+// 아이템 목록 렌더 — 체크박스 + 구간·제목(문구는 전부 textContent, §25-b clearChildren).
+function renderNewsCutList(): void {
+  const container = optionalElement<HTMLElement>("news-cut-list");
+  if (!container) return;
+  clearChildren(container);
+  container.hidden = newsCutItems.length === 0;
+  const actionable = newsCutItems.length > 0;
+  for (const id of ["news-cut-create-btn", "news-cut-export-btn"]) {
+    const button = optionalElement<HTMLButtonElement>(id);
+    if (button) button.disabled = !actionable;
+  }
+  newsCutItems.forEach((item, index) => {
+    const row = document.createElement("label");
+    row.className = "learn-corpus-row";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = true;
+    checkbox.dataset.newsIndex = String(index);
+    const label = document.createElement("span");
+    label.textContent = describeNewsItem(item, index);
+    row.append(checkbox, label);
+    container.append(row);
+  });
+}
+
+// 아이템 경계는 분석 시점의 원본 시퀀스를 전제한다 — 활성이 바뀌어 있으면 원본을 자동 재활성화한다(§46-b 패턴).
+async function ensureNewsCutSourceActive(): Promise<void> {
+  if (!newsCutSourceKey) return;
+  const current = await readActiveContextKey().catch(() => "");
+  if (current === newsCutSourceKey) return;
+  const restored = await activateSequenceByContextKey(newsCutSourceKey);
+  if (!restored) {
+    throw new Error("아이템을 분석한 원본 시퀀스를 찾지 못했습니다. 원본을 활성화하고 다시 분석해 주세요.");
+  }
+  activity.add("info", "News Cut 원본 시퀀스를 다시 활성화했습니다.");
+}
+
+// 1단계 — 자막에서 보도 아이템 경계를 AI로 분석한다(읽기 전용, cueId 참조 검증).
+async function handleNewsCutAnalyze(): Promise<void> {
+  const controller = subtitleController;
+  if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다.");
+  const doc = controller.document;
+  if (doc.cues.length === 0) throw new Error("먼저 자막을 만들어 주세요(TTS·STT 탭에서 시퀀스 STT 또는 SRT 불러오기).");
+  ensureAiConsent("News Cut 보도 아이템 분석");
+  newsCutSourceKey = await readActiveContextKey().catch(() => "");
+  const payload = await busy.during("보도 아이템 경계를 분석하고 있습니다…", () =>
+    runSubtitleAnalysis({ action: "news-items", document: doc }));
+  newsCutItems = normalizeNewsItems(payload, doc);
+  newsCutCreatedNames = [];
+  renderNewsCutList();
+  if (newsCutItems.length === 0) {
+    activity.add("warning", "News Cut: 아이템 0개 — 자막이 뉴스 형식이 아닐 수 있습니다.");
+    toast("보도 아이템을 찾지 못했습니다.", "warning");
+    return;
+  }
+  activity.add("success", `News Cut 분석 · 아이템 ${newsCutItems.length}개`);
+  toast(`보도 아이템 ${newsCutItems.length}개를 찾았습니다. 목록에서 확인 후 생성하세요.`, "success");
+}
+
+// 2단계 — 선택 아이템을 원본 복제·트림으로 개별 시퀀스화(YYYYMMDD_news_NN).
+async function handleNewsCutCreate(): Promise<void> {
+  const selected = selectedNewsItems();
+  if (selected.length === 0) {
+    toast("생성할 아이템을 하나 이상 선택해 주세요.", "warning");
+    return;
+  }
+  await ensureNewsCutSourceActive();
+  const today = new Date();
+  const inputs = selected.map(({ item }, order) => ({
+    start: item.start,
+    end: item.end,
+    name: newsItemName(today, order),
+  }));
+  const result = await busy.during(`아이템 시퀀스 ${inputs.length}개를 만들고 있습니다…`, () =>
+    createNewsItemSequences(inputs, (completed, total, name) => {
+      setText("busy-message", `${completed}/${total} · ${name}`);
+    }));
+  newsCutCreatedNames = result.created;
+  activity.add(
+    result.failures.length ? "warning" : "success",
+    `News Cut 시퀀스 생성 · 성공 ${result.created.length} · 실패 ${result.failures.length}`,
+  );
+  result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
+  toast(`${result.created.length}개 아이템 시퀀스를 만들었습니다.`, result.failures.length ? "warning" : "success");
+  await refreshStatus(true);
+}
+
+// 3단계 — 생성된 아이템 시퀀스를 내보내기 탭 프리셋·폴더로 AME 대기열에 일괄 추가한다.
+async function handleNewsCutExport(): Promise<void> {
+  if (newsCutCreatedNames.length === 0) throw new Error("먼저 '아이템 시퀀스 생성'을 실행해 주세요.");
+  syncSettingsFromUI();
+  const [presetFile, outputFolder] = await Promise.all([
+    requireStoredEntry(settings.presetToken, "내보내기 프리셋"),
+    requireStoredEntry(settings.outputFolderToken, "출력 폴더"),
+  ]);
+  const result = await busy.during(`AME 대기열에 ${newsCutCreatedNames.length}개 추가 중…`, () =>
+    queueSequenceExportsByName(newsCutCreatedNames, presetFile, outputFolder));
+  activity.add(
+    result.failures.length ? "warning" : "success",
+    `News Cut 대기열 추가 · 성공 ${result.queued.length} · 실패 ${result.failures.length}`,
+  );
+  result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
+  toast(`${result.queued.length}개를 Media Encoder 대기열에 추가했습니다. AME에서 렌더를 시작하세요.`, result.failures.length ? "warning" : "success", 6000);
+}
+
 // 업로드 패키지 내보내기 — 자막 SRT·유튜브 메타·썸네일 SVG·권리 리포트를 폴더 하나로 묶는다(로드맵 18).
 async function handleExportUploadPackage(): Promise<void> {
   const uxpRoot = require("uxp") as any;
@@ -2131,6 +2260,9 @@ function bindCoreEvents(): void {
   bind("upload-package-btn", "click", guarded(handleExportUploadPackage, "업로드 패키지 내보내기 실패"));
   bind("subtitle-snapshot-save-btn", "click", guarded(async () => handleSaveSubtitleSnapshot(), "자막 스냅샷 저장 실패"));
   bind("multilang-export-btn", "click", guarded(handleMultilangExport, "다국어 SRT 내보내기 실패"));
+  bind("news-cut-analyze-btn", "click", guarded(handleNewsCutAnalyze, "News Cut 분석 실패"));
+  bind("news-cut-create-btn", "click", guarded(handleNewsCutCreate, "News Cut 시퀀스 생성 실패"));
+  bind("news-cut-export-btn", "click", guarded(handleNewsCutExport, "News Cut 내보내기 실패"));
   bind("learn-clear-btn", "click", guarded(async () => handleLearnClear(), "학습 초기화 실패"));
   bind("scan-markers-btn", "click", guarded(() => markersQcPanel.scanMarkers(), "마커 검색 실패"));
   bind("batch-create-btn", "click", guarded(() => markersQcPanel.batchCreate(), "일괄 생성 실패"));

@@ -2258,6 +2258,97 @@ export async function writeShortsMarkers(segments: ShortsMarkerInput[]): Promise
   return actions.length;
 }
 
+export interface NewsItemSequenceInput {
+  start: number;
+  end: number;
+  name: string;
+}
+
+/**
+ * News Cut — 보도 아이템 구간마다 원본 시퀀스를 복제·트림해 아이템 시퀀스를 만든다(리프레임 없음).
+ * 생성이 끝나면 원본을 다시 활성화한다(§50-b: 활성이 생성물로 남으면 자막 의존 기능이 빈 문서를 본다).
+ */
+export async function createNewsItemSequences(
+  items: NewsItemSequenceInput[],
+  onProgress?: (completed: number, total: number, name: string) => void,
+): Promise<{ created: string[]; failures: Array<{ name: string; error: string }> }> {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new ShortFlowError("NO_NEWS_ITEMS", "생성할 보도 아이템이 없습니다.");
+  }
+  const { project, sequence: source } = await getActiveContext();
+  const sequenceEnd = await safeTime(source, "getEndTime", 0);
+  const created: string[] = [];
+  const failures: Array<{ name: string; error: string }> = [];
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index]!;
+    onProgress?.(index, items.length, item.name);
+    try {
+      const start = Math.max(0, item.start);
+      const end = sequenceEnd > 0 ? Math.min(item.end, sequenceEnd) : item.end;
+      if (!(end - start > 0.5)) throw new ShortFlowError("INVALID_RANGE", "아이템 구간이 시퀀스 범위를 벗어났습니다.");
+      const clone = await cloneSequence(project, source, sanitizeSequenceName(item.name));
+      setSequenceRange(project, clone, { start, end, duration: end - start, usedFallback: false });
+      created.push(String(clone.name));
+    } catch (error) {
+      failures.push({ name: item.name, error: errorMessage(error) });
+    }
+  }
+  onProgress?.(items.length, items.length, "완료");
+  await project.setActiveSequence(source);
+  return { created, failures };
+}
+
+/** 이름으로 찾은 시퀀스들을 AME 대기열에 추가한다(파일명 = 시퀀스명, 전체 범위). */
+export async function queueSequenceExportsByName(
+  sequenceNames: string[],
+  presetFile: { nativePath?: string },
+  outputFolder: { nativePath?: string },
+): Promise<{ queued: string[]; failures: Array<{ name: string; error: string }> }> {
+  if (!presetFile?.nativePath) {
+    throw new ShortFlowError("NO_EXPORT_PRESET", "Adobe Media Encoder .epr 프리셋을 선택해 주세요.");
+  }
+  if (!outputFolder?.nativePath) {
+    throw new ShortFlowError("NO_OUTPUT_FOLDER", "내보내기 폴더를 선택해 주세요.");
+  }
+  const presetPath = String(presetFile.nativePath).trim();
+  if (!/\.epr$/iu.test(presetPath)) {
+    throw new ShortFlowError("INVALID_EXPORT_PRESET", "선택한 파일이 Adobe Media Encoder .epr 프리셋이 아닙니다.");
+  }
+  const manager = ppro.EncoderManager.getManager();
+  if (!manager) {
+    throw new ShortFlowError("ENCODER_UNAVAILABLE", "Adobe Media Encoder 관리자를 사용할 수 없습니다.");
+  }
+  if (manager.isAMEInstalled === false) {
+    throw new ShortFlowError("AME_NOT_INSTALLED", "대기열 내보내기를 위해 Adobe Media Encoder를 설치해 주세요.");
+  }
+  const { project } = await getActiveContext();
+  const sequences = await project.getSequences();
+  const byName = new Map(sequences.map((sequence) => [String(sequence.name), sequence]));
+  const queued: string[] = [];
+  const failures: Array<{ name: string; error: string }> = [];
+  for (const name of sequenceNames) {
+    try {
+      const sequence = byName.get(name);
+      if (!sequence) throw new ShortFlowError("SEQUENCE_NOT_FOUND", "시퀀스를 찾지 못했습니다.");
+      const extension = String(await ppro.EncoderManager.getExportFileExtension(sequence, presetPath) || "mp4");
+      const outputPath = joinNativePath(String(outputFolder.nativePath), buildExportFilename(name, extension));
+      // 아이템 트림은 시퀀스 인/아웃으로 표현된다 — 전체(true)로 내보내면 원본 길이가 통째로 렌더된다.
+      const success = await manager.exportSequence(
+        sequence,
+        ppro.Constants.ExportType.QUEUE_TO_AME,
+        outputPath,
+        presetPath,
+        false,
+      );
+      if (!success) throw new ShortFlowError("EXPORT_FAILED", "대기열 추가가 거부되었습니다.");
+      queued.push(name);
+    } catch (error) {
+      failures.push({ name, error: errorMessage(error) });
+    }
+  }
+  return { queued, failures };
+}
+
 export interface ReelSegmentInput {
   start: number;
   end: number;

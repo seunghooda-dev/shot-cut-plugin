@@ -1,6 +1,7 @@
 import { OPENAI_API_KEY_STORAGE_KEY } from "./ai";
 import type {
   EditOutlineSegment,
+  NewsItemSpan,
   ShortsPlanItem,
   SubtitleAiRequest,
   SubtitleAnalysisRequest,
@@ -155,7 +156,7 @@ function validateRequest(request: SubtitleAiRequest): void {
   }
 }
 
-const ANALYSIS_ACTIONS = ["interview-highlight", "edit-outline", "youtube-metadata", "shorts-plan"] as const;
+const ANALYSIS_ACTIONS = ["interview-highlight", "edit-outline", "youtube-metadata", "shorts-plan", "news-items"] as const;
 
 function validateAnalysisRequest(request: SubtitleAnalysisRequest): void {
   if (!request || !(ANALYSIS_ACTIONS as readonly string[]).includes(request.action)) {
@@ -323,6 +324,27 @@ const SHORTS_PLAN_SCHEMA = {
   required: ["shorts"],
 } as const;
 
+const NEWS_ITEMS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          startCueId: { type: "string" },
+          endCueId: { type: "string" },
+          title: { type: "string" },
+        },
+        required: ["startCueId", "endCueId", "title"],
+      },
+    },
+  },
+  required: ["items"],
+} as const;
+
 const YOUTUBE_METADATA_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -365,6 +387,9 @@ function analysisInstruction(action: SubtitleAnalysisRequest["action"]): string 
   }
   if (action === "shorts-plan") {
     return `${invariant} Propose the best self-contained short-form clips from this transcript. Each short is a set of consecutive cueIds (chronological order) forming a coherent moment, ideally 15-60 seconds, and MUST start on a strong hook. For each short return: cueIds (present in input only), a one-line hook, a short title, a score from 0 to 1 (expected viewer retention and shareability), and a short reason. Do not overlap shorts. Return the highest-scoring shorts first.`;
+  }
+  if (action === "news-items") {
+    return `${invariant} This transcript is a full news broadcast. Split it into individual news reports (items). An item starts where the anchor introduces a new story (anchor lead-in) and ends just before the next lead-in; include the reporter package and any closing remark of that story in the item. For each item return startCueId (first cue of the item), endCueId (last cue of the item), and a concise headline-style title in the transcript's language. Items must be in chronological order, must not overlap, and together should cover every distinct report. Exclude the opening greeting, headlines preview, weather, and sign-off only if they are not actual reports; otherwise include them as items.`;
   }
   return `${invariant} Read the full subtitle transcript and propose a YouTube title (100 characters or fewer), a description, and up to 15 tags for this video, based only on the transcript content.`;
 }
@@ -589,6 +614,23 @@ export class OpenAITextClient {
       );
       this.options.onProgress?.(1, 1);
       return { action: "shorts-plan", shorts: Array.isArray(plan?.shorts) ? plan.shorts : [] };
+    }
+
+    if (request.action === "news-items") {
+      // 아이템 경계는 문서 전체 맥락이 필요해 분할 없이 한 번에 보낸다(shorts-plan과 동일 방침).
+      const documentJson = JSON.stringify(request.document);
+      if (utf8Bytes(documentJson) > MAX_TEXT_REQUEST_BYTES) {
+        throw new OpenAITextError("AI 보도 아이템 분석 요청 문서가 2MB 안전 제한을 초과했습니다.");
+      }
+      const plan = await this.requestJson<{ items: NewsItemSpan[] }>(
+        instruction,
+        "shortflow_news_items",
+        NEWS_ITEMS_SCHEMA,
+        documentJson,
+        requestOptions.signal,
+      );
+      this.options.onProgress?.(1, 1);
+      return { action: "news-items", items: Array.isArray(plan?.items) ? plan.items : [] };
     }
 
     const chunks = chunkSubtitleCues(request.document.cues);

@@ -109,7 +109,7 @@ export interface SubtitleAiRequest {
   targetLanguage?: string;
 }
 
-export type SubtitleAnalysisAction = "interview-highlight" | "edit-outline" | "youtube-metadata" | "shorts-plan";
+export type SubtitleAnalysisAction = "interview-highlight" | "edit-outline" | "youtube-metadata" | "shorts-plan" | "news-items";
 
 export interface SubtitleAnalysisRequest {
   action: SubtitleAnalysisAction;
@@ -139,11 +139,19 @@ export interface ShortsPlanItem {
   reason: string;
 }
 
+// news-items: 뉴스 전체 방송에서 보도 아이템 경계(시작·끝 cueId + 제목) 제안.
+export interface NewsItemSpan {
+  startCueId: string;
+  endCueId: string;
+  title: string;
+}
+
 export type SubtitleAnalysisResult =
   | { action: "interview-highlight"; highlights: SubtitleHighlight[] }
   | { action: "edit-outline"; segments: EditOutlineSegment[] }
   | { action: "youtube-metadata"; title: string; description: string; tags: string[] }
-  | { action: "shorts-plan"; shorts: ShortsPlanItem[] };
+  | { action: "shorts-plan"; shorts: ShortsPlanItem[] }
+  | { action: "news-items"; items: NewsItemSpan[] };
 
 export interface SubtitleAiValidationOptions {
   maxCueCount?: number;
