@@ -135,6 +135,40 @@ export function snapItemsToAnchorStarts(
     .filter((item) => item.end > item.start);
 }
 
+/** 내부 앵커 스캔을 수행하는 최소 아이템 길이(초) — 전형적 아이템(30초~3분)보다 길면 병합 의심. */
+export const NEWS_CUT_INTERIOR_SPLIT_MIN_SECONDS = 180;
+
+/**
+ * 텍스트 분석이 경계를 만들지 못한 병합 아이템을 내부 앵커 컷에서 쪼갠다 — 아이템당
+ * 내부 앵커 시작 시각 목록(비전 분류 결과)을 받아 각 컷에서 분할하고, 새 조각의 제목은
+ * titleAt(컷 시각)으로 채운다. 경계에 너무 가까운(15초 미만 조각) 컷은 무시한다.
+ */
+export function splitItemsAtInteriorAnchors(
+  items: readonly NewsItem[],
+  interiorStarts: ReadonlyArray<readonly number[]>,
+  titleAt: (time: number) => string,
+  minPieceSeconds = 15,
+): NewsItem[] {
+  const out: NewsItem[] = [];
+  for (const [index, item] of items.entries()) {
+    const cuts = [...(interiorStarts[index] ?? [])]
+      .filter((time) => Number.isFinite(time)
+        && time - item.start >= minPieceSeconds
+        && item.end - time >= minPieceSeconds)
+      .sort((left, right) => left - right);
+    let pieceStart = item.start;
+    let first = true;
+    for (const cut of cuts) {
+      if (cut - pieceStart < minPieceSeconds) continue;
+      out.push({ start: pieceStart, end: cut, title: first ? item.title : titleAt(pieceStart) || item.title });
+      pieceStart = cut;
+      first = false;
+    }
+    out.push({ start: pieceStart, end: item.end, title: first ? item.title : titleAt(pieceStart) || item.title });
+  }
+  return out;
+}
+
 /** UI 목록 표기 — mm:ss 구간과 제목. */
 export function describeNewsItem(item: NewsItem, index: number): string {
   const clock = (seconds: number) => {

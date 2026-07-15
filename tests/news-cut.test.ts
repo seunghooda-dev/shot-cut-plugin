@@ -8,6 +8,7 @@ import {
   nextNewsItemIndex,
   normalizeNewsItems,
   snapItemsToAnchorStarts,
+  splitItemsAtInteriorAnchors,
 } from "../src/news-cut";
 import type { SubtitleDocument } from "../src/subtitles";
 
@@ -122,6 +123,35 @@ describe("snapItemsToAnchorStarts", () => {
     );
     // 첫 아이템 시작 35, 끝 = 다음 시작 20 → 붕괴 → 드롭
     assert.deepEqual(snapped.map((item) => item.title), ["b"]);
+  });
+});
+
+describe("splitItemsAtInteriorAnchors", () => {
+  const titleAt = (time: number) => `시각 ${time} 문장`;
+
+  it("splits merged items at interior anchor cuts and titles the new pieces", () => {
+    const items = [
+      { start: 349.6, end: 646.7, title: "병합 기사" },
+      { start: 646.7, end: 691.4, title: "정상 기사" },
+    ];
+    const split = splitItemsAtInteriorAnchors(items, [[532.1], []], titleAt);
+    assert.deepEqual(split, [
+      { start: 349.6, end: 532.1, title: "병합 기사" },
+      { start: 532.1, end: 646.7, title: "시각 532.1 문장" },
+      { start: 646.7, end: 691.4, title: "정상 기사" },
+    ]);
+  });
+
+  it("ignores cuts too close to the edges and handles multiple cuts", () => {
+    const items = [{ start: 0, end: 300, title: "긴 기사" }];
+    const split = splitItemsAtInteriorAnchors(items, [[5, 100, 108, 200, 295]], titleAt);
+    // 5(시작 15초 이내)·108(직전 조각과 15초 미만)·295(끝 15초 이내)는 무시
+    assert.deepEqual(split.map((item) => [item.start, item.end]), [[0, 100], [100, 200], [200, 300]]);
+  });
+
+  it("returns items unchanged when no interior cuts exist", () => {
+    const items = [{ start: 0, end: 200, title: "그대로" }];
+    assert.deepEqual(splitItemsAtInteriorAnchors(items, [[]], titleAt), items);
   });
 });
 

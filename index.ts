@@ -108,12 +108,14 @@ import { buildPremiereTranscript } from "./src/transcript-export";
 import { planUploadPackage } from "./src/upload-package";
 import { loadSubtitleSnapshots, removeSubtitleSnapshot, saveSubtitleSnapshot } from "./src/subtitle-snapshots";
 import {
+  NEWS_CUT_INTERIOR_SPLIT_MIN_SECONDS,
   describeNewsItem,
   findShotSegments,
   newsItemName,
   nextNewsItemIndex,
   normalizeNewsItems,
   snapItemsToAnchorStarts,
+  splitItemsAtInteriorAnchors,
   type NewsItem,
 } from "./src/news-cut";
 import { base64ToBytes, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
@@ -1787,7 +1789,8 @@ async function ensureNewsCutSourceActive(): Promise<void> {
 
 // 앵커 샷 경계 스냅 — 경계 주변을 프레임 diff로 샷 분해(로컬)하고, 샷 대표 프레임만 비전으로
 // "스튜디오 앵커 샷" 분류해 아이템 시작을 앵커 샷 시작 컷에 맞춘다. 끝은 다음 아이템 시작으로 잇는다.
-async function snapNewsItemsToAnchors(items: NewsItem[]): Promise<NewsItem[]> {
+// 스냅 후 3분 초과 아이템은 내부 앵커 컷을 추가 스캔해 병합 기사를 쪼갠다(§53-i).
+async function snapNewsItemsToAnchors(items: NewsItem[], titleAt: (time: number) => string): Promise<NewsItem[]> {
   const api = frameDataFolderApi();
   if (!api || items.length === 0) return items;
   const dataFolder = await api.fileSystem.getDataFolder();
@@ -1893,8 +1896,60 @@ async function snapNewsItemsToAnchors(items: NewsItem[]): Promise<NewsItem[]> {
   });
   const snappedCount = anchorStarts.filter((value) => value !== null).length;
   activity.add("info", `앵커 샷 스냅 · ${snappedCount}/${items.length}개 경계 정렬(비전 ${Math.ceil(shotFrames.length / 12)}회)`);
+  const snapped = snapItemsToAnchorStarts(items, anchorStarts);
+  // 4) 병합 의심(3분 초과) 아이템 내부를 스캔해 숨은 앵커 컷에서 분할 — 텍스트 분석이
+  //    경계를 아예 만들지 못한 병합 기사(파일 하나에 앵커 샷 2개 유형)를 잡는다.
+  const interiorStarts: number[][] = [];
+  let interiorVisionCalls = 0;
+  for (const [index, item] of snapped.entries()) {
+    if (item.end - item.start <= NEWS_CUT_INTERIOR_SPLIT_MIN_SECONDS) {
+      interiorStarts.push([]);
+      continue;
+    }
+    setText("busy-message", `내부 앵커 스캔 ${index + 1}/${snapped.length}…`);
+    busy.progress(92);
+    const samples: Array<{ time: number; grid: Float64Array | null }> = [];
+    for (let time = item.start + 20; time <= item.end - 15 + 0.001; time += 1) {
+      samples.push({ time: Math.round(time * 10) / 10, grid: await grabGrid(time) });
+    }
+    // 앵커 리드 샷은 보통 10초 이상 이어진다 — 8초 미만 샷은 비전 없이 걸러 비용을 줄인다.
+    const longShots = findShotSegments(samples).filter((shot) => shot.end - shot.start >= 8);
+    const candidates: Array<{ shotStart: number; bytes: Uint8Array }> = [];
+    for (const shot of longShots) {
+      try {
+        const { filename } = await exportFrameToFolder(shot.midTime, String(dataFolder.nativePath), 272);
+        const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+        try {
+          const entry = await dataFolder.getEntry(filename);
+          await entry.delete();
+        } catch {
+          // 임시 파일 삭제 실패는 무시
+        }
+        if (bytes) candidates.push({ shotStart: shot.start, bytes });
+      } catch {
+        // 대표 프레임 하나 실패는 무시
+      }
+    }
+    const starts: number[] = [];
+    for (let offset = 0; offset < candidates.length; offset += batchSize) {
+      const chunk = candidates.slice(offset, offset + batchSize);
+      const results = await client.classifyAnchorShots(
+        chunk.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" })),
+        references,
+      );
+      interiorVisionCalls += 1;
+      for (const result of results) {
+        if (result.isAnchor && result.confidence >= 0.6) starts.push(chunk[result.index]!.shotStart);
+      }
+    }
+    interiorStarts.push(starts);
+  }
+  const split = splitItemsAtInteriorAnchors(snapped, interiorStarts, titleAt);
+  if (split.length > snapped.length) {
+    activity.add("info", `내부 앵커 분할 · 병합 기사 ${split.length - snapped.length}건 추가 분리(비전 ${interiorVisionCalls}회)`);
+  }
   busy.progress(100);
-  return snapItemsToAnchorStarts(items, anchorStarts);
+  return split;
 }
 
 // 1단계 — 자막에서 보도 아이템 경계를 AI로 분석한다(읽기 전용, cueId 참조 검증).
@@ -1911,8 +1966,13 @@ async function handleNewsCutAnalyze(): Promise<void> {
   });
   let items = normalizeNewsItems(payload, doc);
   if (items.length > 0) {
+    // 내부 분할 조각의 제목은 그 시각에 재생 중인 자막 문장으로 채운다.
+    const titleAt = (time: number): string => {
+      const cue = doc.cues.find((candidate) => !candidate.hidden && candidate.end > time + 0.5);
+      return cue ? cue.text.trim().slice(0, 48) : "";
+    };
     try {
-      items = await busy.during("앵커 샷 기준으로 경계를 스냅하고 있습니다…", () => snapNewsItemsToAnchors(items));
+      items = await busy.during("앵커 샷 기준으로 경계를 스냅하고 있습니다…", () => snapNewsItemsToAnchors(items, titleAt));
     } catch (error) {
       activity.add("warning", `앵커 샷 스냅 생략(텍스트 경계 사용): ${errorMessage(error)}`);
     }
