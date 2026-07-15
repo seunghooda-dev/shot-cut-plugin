@@ -12,6 +12,8 @@
 - **자동/mock**: Node 순수 테스트·Mock Host·정적 계약 근거가 있음
 - **호스트 미검증**: Premiere 실제 실행 증거가 없음
 
+**2026-07-16 상태 갱신** — 최신 게이트는 `npm run check` 1792/1792 테스트 통과, 실기 스모크 6/6이다(런북 §54). 뉴스 분할·자막 스냅샷·다국어 SRT·업로드 패키지 등 이후 출시분은 런북 §29~§54에 기록돼 있으며, 아래 문단은 2026-07-12 시점 기록이다.
+
 범위 재정의 전 전체 기준선은 864/864입니다. 2026-07-12 현재 변경을 포함한 `npm run check`는 `typecheck`, `lint`, `build`, dist 검증과 전체 1017/1017 테스트를 통과했습니다. CCX/SHA-256과 verified evidence는 검증된 체크포인트를 먼저 커밋하고 작업 트리가 clean인 상태에서 `npm run beta:evidence:verified`를 실행해 새로 생성해야 하며, 더티 작업 트리 산출물은 최종 증거로 사용하지 않습니다. Premiere/UXP 실제 Host 증거는 UXP 패널 로드, bootstrap, UDT watch/reload 가능 상태, 빈 프로젝트·활성 시퀀스 없음 상태의 안전한 안내, QC 정상 실패 처리, 테스트 MP4 import, 활성 시퀀스 생성, 테스트 클립 삽입, 기본 QC, 최신 dist 탭 전환과 마커 탭 표시까지 제한 통과로 기록했습니다. 이후 실제 QC에서 `1080×1920`, 길이 약 `00:04`, 비디오 트랙 3개, 오디오 트랙 4개를 재확인했고, 상태 UI에서 플레이헤드와 In/Out 범위도 읽었습니다. 최종 QC 실제 Host 실행 결과는 `PASS 16 · WARNING 4 · ERROR 4`이며, frame size·aspect ratio·guide overlay·output path 네 항목이 현재 fixture의 차단 오류로 남아 있습니다. 진단은 Premiere 26.3.0과 UXP `uxp-9.3.0-local`에서 `compatible: true`를 확인했습니다. Premiere `sequence.getSelection().getTrackItems()`가 비어도 개별 TrackItem `getIsSelected()`가 true를 반환하는 Host 차이를 발견해 fallback을 구현했고, 실제 Host 패널 UI에서 `타임라인 4개 선택 · 00:06` 표시를 확인했습니다. 자동 컷은 SRT fallback dry-run, 추천 마커, 원본 보존 복제 시퀀스 적용을 실제 Host에서 확인했습니다. 무음 간격 fixture로 CUT 2개·ZOOM 2개가 분석되고 복제본에 `SF CUT 01/02`·`SF ZOOM` 마커가 배치됨을 확인했으며, 복제 준비 실패 정리와 클립 경계 펀치인 키프레임은 회귀 테스트로 보강했습니다. 캡션 트랙 없음 경고는 SRT 삽입 전 정상 경고로 기록합니다. TTS live/API 삽입은 최종 승인 전 [runbook](HOST_BETA_RUNBOOK.md)에 따라 다시 확인합니다. 썸네일 Canvas는 Premiere Pro 26.3 UXP에서 `drawImage`/텍스트/파일 export API가 부족해 현재 Host에서는 PNG/JPG 내보내기 UI를 비활성화하고 이미지 data URL을 내장하는 SVG fallback 저장 버튼을 제공합니다. Safe Zone 오버레이는 Canvas 없이 BMP로 생성되며 실제 Host에서 ShortFlow 가이드 에셋 import와 프로그램 모니터 표시까지 확인했습니다. SRT 파일 import는 실제 파일 선택창으로 자막 편집기에 2개 cue가 로드됨을 확인했고, 음악/SFX는 실제 폴더 동기화, WAV A1 삽입, Premiere 소스 모니터 미리듣기·자동 재생을 확인했습니다. 공개 UXP API에는 caption track item 생성 API가 없어 SRT는 파일 저장·프로젝트 가져오기까지를 보장합니다.
 
 2026-07-12 후속 dirty 후보에는 Adobe 공식 폴더용 빈 확장자 `""`을 사용한 명시적 폴더 열기와 `media-picker` fallback, 썸네일 출력 폴더 persistent token, 파괴적 복구 확인의 fail-closed 처리가 구현됐습니다. 관련 asset-library·thumbnail-controller·recovery 테스트는 test compile 후 88/88 통과했습니다. 이 문단의 세 항목은 코드·자동/mock 단계이며 위 1017/1017 체크포인트 이후 변경입니다. 최신 전체 `npm run check`, `dist` reload와 실제 Premiere Host 검증 전에는 Host 통과로 보지 않습니다.
@@ -51,13 +53,15 @@
 |---|---|
 | 결제·라이선스·플랜 제한 | 13단계 이후 |
 | 자동 텔레메트리 서버 | 13단계 이후. 내부 베타는 로컬 진단만 사용 |
-| AI 이미지·영상 생성 전체 파이프라인 | 후순위. 내부 베타는 외부 파일 레퍼런스만 사용 |
+| AI 이미지·영상 생성 파이프라인 | 출시 완료(2026-07-13~14, 런북 §29~§33) — 레퍼런스 이미지 생성·영상 생성, 4K 업스케일 제외 |
 | 썸네일 AI 대화 수정 | 후순위 |
-| 고급 BGM 비트 매칭·자동 덕킹 | 후순위 |
-| 다국어 패키지 | 15단계 |
-| 스마트 리프레임·피사체 추적 | 14단계 |
-| 플랫폼별 업로드 패키지 자동 생성 | 18단계 이후 검토 |
-| 썸네일 A/B 자동 판단 | 구현 약속하지 않음 |
+| BGM 비트 스냅·자동 덕킹 | 출시 완료(2026-07-14, 런북 §35·B1) |
+| 다국어 패키지 | v1(번역 SRT+메타) 출시 완료(2026-07-15, §49-d) — TTS 더빙은 후속 |
+| 스마트 리프레임·피사체 추적 | 출시 완료(2026-07-15, §38·§41·§44·§47) |
+| 플랫폼별 업로드 패키지 생성 | 출시 완료(2026-07-15, §49-d) |
+| 뉴스 분할(News Cut) | 출시 완료(2026-07-15~16, §52~§54) — 보도 아이템 자동 분할·앵커 샷 스냅·학습·일괄 내보내기 |
+| 자막 버전 스냅샷 | 출시 완료(2026-07-15, §49) |
+| 썸네일 A/B 자동 판단 | 구현 약속하지 않음(수동 선택용 변형 3종 내보내기는 출시) |
 | 상용 SaaS 계정·서버·결제 | 13단계 이후 |
 
 ## 내부 베타 로컬 후보 차단 항목

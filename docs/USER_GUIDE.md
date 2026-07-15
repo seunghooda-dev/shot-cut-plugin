@@ -8,7 +8,7 @@
 1. Premiere Pro를 종료한 상태에서 CCX 파일을 더블클릭해 Creative Cloud로 설치하거나, UXP Developer Tools로 `dist/` 폴더를 직접 로드합니다(개발 로드).
 2. Premiere를 실행하고 창 메뉴에서 ShortFlow Studio 패널을 엽니다.
 
-## 시작 전 준비 — AI 설정 (11번 탭)
+## 시작 전 준비 — AI 설정 (12번 탭)
 
 - AI 기능(STT·자막 AI·자동 컷·인물 추적·이미지)은 OpenAI API를 사용하며 **사용자 본인의 API 키로 과금**됩니다.
 - 키는 **AI 설정 탭에서 직접 입력**하세요. Premiere의 secureStorage에만 저장되고, 요청은 `api.openai.com`으로만 나갑니다.
