@@ -22,12 +22,14 @@ import {
   activeSequenceFrameSize,
   applyShotFocalPositionCorrection,
   activateSequenceByContextKey,
+  ameInstalled,
   applyShotFocalAdjustment,
   attachTranscriptToActiveSequence,
   createNewsItemSequences,
   exportSequenceFrameByName,
   listSequenceNames,
   queueSequenceExportsByName,
+  renderSequenceExportsByName,
   type ShortSegmentInput,
   errorMessage,
   exportCover,
@@ -1949,7 +1951,8 @@ async function handleNewsCutCreate(): Promise<void> {
   await refreshStatus(true);
 }
 
-// 3단계 — 생성된 아이템 시퀀스를 내보내기 탭 프리셋·폴더로 AME 대기열에 일괄 추가한다.
+// 3단계 — 생성된 아이템 시퀀스를 내보내기 탭 프리셋·폴더로 일괄 내보낸다.
+// AME가 설치돼 있으면 대기열 추가, 없으면 Premiere 직접 렌더로 폴백한다.
 async function handleNewsCutExport(): Promise<void> {
   if (newsCutCreatedNames.length === 0) throw new Error("먼저 '아이템 시퀀스 생성'을 실행해 주세요.");
   syncSettingsFromUI();
@@ -1957,6 +1960,20 @@ async function handleNewsCutExport(): Promise<void> {
     requireStoredEntry(settings.presetToken, "내보내기 프리셋"),
     requireStoredEntry(settings.outputFolderToken, "출력 폴더"),
   ]);
+  if (!ameInstalled()) {
+    activity.add("info", "AME 미설치 — Premiere 직접 렌더로 내보냅니다.");
+    const result = await busy.during(`${newsCutCreatedNames.length}개 렌더 중…`, () =>
+      renderSequenceExportsByName(newsCutCreatedNames, presetFile, outputFolder, (completed, total, name) => {
+        setText("busy-message", `${completed + 1}/${total} · ${name} 렌더 중…`);
+      }));
+    activity.add(
+      result.failures.length ? "warning" : "success",
+      `뉴스 분할 직접 렌더 · 성공 ${result.queued.length} · 실패 ${result.failures.length}`,
+    );
+    result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
+    toast(`${result.queued.length}개를 내보냈습니다. 출력 폴더를 확인하세요.`, result.failures.length ? "warning" : "success", 6000);
+    return;
+  }
   const result = await busy.during(`AME 대기열에 ${newsCutCreatedNames.length}개 추가 중…`, () =>
     queueSequenceExportsByName(newsCutCreatedNames, presetFile, outputFolder));
   activity.add(

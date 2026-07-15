@@ -2349,6 +2349,93 @@ export async function queueSequenceExportsByName(
   return { queued, failures };
 }
 
+/** Adobe Media Encoder 설치 여부 — 미설치면 대기열 대신 직접 렌더로 폴백해야 한다. */
+export function ameInstalled(): boolean {
+  try {
+    return ppro.EncoderManager.getManager()?.isAMEInstalled !== false;
+  } catch {
+    return false;
+  }
+}
+
+// §40 실측: 장시간 즉시 렌더에서 exportSequence promise가 파일이 다 써진 뒤에도 해소되지
+// 않는 경우가 있다 — 출력 파일이 나타나고 크기가 안정되면 완료로 간주하는 폴링.
+async function awaitStableExportOutput(
+  outputFolder: { getEntry?: (name: string) => Promise<any> },
+  filename: string,
+): Promise<true> {
+  let previousSize = -1;
+  for (let attempt = 0; attempt < 600; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    try {
+      const entry = await outputFolder.getEntry?.(filename);
+      if (!entry) continue;
+      const metadata = await entry.getMetadata?.();
+      const size = Number(metadata?.size ?? 0);
+      if (size > 0 && size === previousSize) return true;
+      previousSize = size;
+    } catch {
+      previousSize = -1;
+    }
+  }
+  throw new ShortFlowError("EXPORT_FAILED", "내보내기 완료를 확인하지 못했습니다(시간 초과).");
+}
+
+/**
+ * AME 미설치 환경용 일괄 직접 렌더 — 아이템 시퀀스를 인/아웃 범위로 Premiere가 즉시 렌더한다.
+ * 파일명은 시퀀스 이름 그대로(뉴스 분할 규칙 `YYYYMMDD_news_NN.ext`), 순차 실행으로 부하를 막는다.
+ */
+export async function renderSequenceExportsByName(
+  sequenceNames: string[],
+  presetFile: { nativePath?: string },
+  outputFolder: { nativePath?: string; getEntry?: (name: string) => Promise<any> },
+  onProgress?: (completed: number, total: number, name: string) => void,
+): Promise<{ queued: string[]; failures: Array<{ name: string; error: string }> }> {
+  if (!presetFile?.nativePath) {
+    throw new ShortFlowError("NO_EXPORT_PRESET", "Adobe Media Encoder .epr 프리셋을 선택해 주세요.");
+  }
+  if (!outputFolder?.nativePath) {
+    throw new ShortFlowError("NO_OUTPUT_FOLDER", "내보내기 폴더를 선택해 주세요.");
+  }
+  const presetPath = String(presetFile.nativePath).trim();
+  if (!/\.epr$/iu.test(presetPath)) {
+    throw new ShortFlowError("INVALID_EXPORT_PRESET", "선택한 파일이 Adobe Media Encoder .epr 프리셋이 아닙니다.");
+  }
+  const manager = ppro.EncoderManager.getManager();
+  if (!manager) {
+    throw new ShortFlowError("ENCODER_UNAVAILABLE", "내보내기 관리자를 사용할 수 없습니다.");
+  }
+  const { project } = await getActiveContext();
+  const sequences = await project.getSequences();
+  const byName = new Map(sequences.map((sequence) => [String(sequence.name), sequence]));
+  const queued: string[] = [];
+  const failures: Array<{ name: string; error: string }> = [];
+  for (const name of sequenceNames) {
+    onProgress?.(queued.length + failures.length, sequenceNames.length, name);
+    try {
+      const sequence = byName.get(name);
+      if (!sequence) throw new ShortFlowError("SEQUENCE_NOT_FOUND", "시퀀스를 찾지 못했습니다.");
+      const extension = normalizeExportExtension(await ppro.EncoderManager.getExportFileExtension(sequence, presetPath));
+      const filename = sanitizeFileName(`${name}.${extension}`);
+      const outputPath = joinNativePath(String(outputFolder.nativePath), filename);
+      // 아이템 트림은 시퀀스 인/아웃으로 표현된다 — 전체(true)로 내보내면 원본 길이가 통째로 렌더된다.
+      const exportPromise: Promise<unknown> = Promise.resolve(manager.exportSequence(
+        sequence,
+        ppro.Constants.ExportType.IMMEDIATELY,
+        outputPath,
+        presetPath,
+        false,
+      ));
+      const success = await Promise.race([exportPromise, awaitStableExportOutput(outputFolder, filename)]);
+      if (!success) throw new ShortFlowError("EXPORT_FAILED", "렌더 요청이 거부되었습니다.");
+      queued.push(name);
+    } catch (error) {
+      failures.push({ name, error: errorMessage(error) });
+    }
+  }
+  return { queued, failures };
+}
+
 export interface ReelSegmentInput {
   start: number;
   end: number;
@@ -3239,27 +3326,9 @@ export async function exportVideo(options: ExportVideoOptions): Promise<string> 
   ));
   let success: unknown;
   if (exportType === ppro.Constants.ExportType.IMMEDIATELY) {
-    // Host 실측(runbook 40): 장시간 즉시 렌더에서 exportSequence promise가 파일이 다 써진 뒤에도
-    // 해소되지 않는 경우가 있다(20분 시퀀스에서 무한 대기). 출력 파일이 나타나고 크기가 안정되면
-    // 완료로 간주하는 폴링과 race해 빠져나온다. 짧은 렌더는 promise가 먼저 이겨 기존과 동일.
-    const pollOutputStable = async (): Promise<true> => {
-      let previousSize = -1;
-      for (let attempt = 0; attempt < 600; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        try {
-          const entry = await options.outputFolder.getEntry?.(filename);
-          if (!entry) continue;
-          const metadata = await entry.getMetadata?.();
-          const size = Number(metadata?.size ?? 0);
-          if (size > 0 && size === previousSize) return true;
-          previousSize = size;
-        } catch {
-          previousSize = -1;
-        }
-      }
-      throw new ShortFlowError("EXPORT_FAILED", "내보내기 완료를 확인하지 못했습니다(시간 초과).");
-    };
-    success = await Promise.race([exportPromise, pollOutputStable()]);
+    // Host 실측(runbook 40): 장시간 즉시 렌더에서 promise가 해소되지 않을 수 있어
+    // 출력 파일 크기 안정화 폴링과 race한다. 짧은 렌더는 promise가 먼저 이겨 기존과 동일.
+    success = await Promise.race([exportPromise, awaitStableExportOutput(options.outputFolder, filename)]);
     // promise가 이겼는데 실패(false)면 그대로 실패 처리, 폴링이 이기면 true.
   } else {
     success = await exportPromise;
