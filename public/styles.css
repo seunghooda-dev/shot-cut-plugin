@@ -8,6 +8,8 @@
   --line-subtle: #30313a;
   --line-strong: #3c3e49;
   --text-primary: #f5f5f7;
+  /* 행동 요소(버튼)·폼 라벨용 — 설명문(secondary)과 구분되는 스캔 앵커 밝기. */
+  --text-strong: #e3e5ee;
   --text-secondary: #bcbecb;
   --text-muted: #9095a4;
   --accent: #8b5cf6;
@@ -368,7 +370,7 @@ strong {
   border: 1px solid var(--line-subtle);
   border-radius: 8px;
   background: var(--bg-raised);
-  color: var(--text-secondary);
+  color: var(--text-strong);
   font-size: 12px;
   font-weight: 600;
   line-height: 1.14;
@@ -483,7 +485,7 @@ strong {
 .secondary-button {
   border: 1px solid var(--line-strong);
   background: var(--bg-elevated);
-  color: var(--text-secondary);
+  color: var(--text-strong);
 }
 
 .secondary-button:hover:not(:disabled) {
@@ -833,7 +835,7 @@ strong {
 
 .section-heading p {
   margin-top: 2px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: var(--fs-xs);
 }
 
@@ -867,7 +869,7 @@ strong {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 5px;
-  color: var(--text-secondary);
+  color: var(--text-strong);
   font-size: var(--fs-xs);
   font-weight: 600;
 }
@@ -1345,8 +1347,8 @@ textarea {
 
 .file-label {
   margin-bottom: 2px;
-  color: var(--text-muted);
-  font-size: var(--fs-2xs);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
 }
 
 .file-summary strong {
@@ -3353,7 +3355,7 @@ textarea {
 }
 
 .range-label-row label {
-  color: var(--text-secondary);
+  color: var(--text-strong);
   font-size: var(--fs-xs);
   font-weight: 600;
 }
