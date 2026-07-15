@@ -63,6 +63,19 @@ export function newsItemName(date: Date, index: number): string {
   return `${day}_news_${pad(index)}`;
 }
 
+/** 같은 날짜의 기존 `YYYYMMDD_news_NN` 시퀀스 뒤에 이어 붙일 다음 번호(없으면 0). */
+export function nextNewsItemIndex(existingNames: readonly string[], date: Date): number {
+  const prefix = newsItemName(date, 0).slice(0, -2);
+  let next = 0;
+  for (const name of existingNames) {
+    if (typeof name !== "string" || !name.startsWith(prefix)) continue;
+    const suffix = name.slice(prefix.length);
+    if (!/^\d{2,}$/.test(suffix)) continue;
+    next = Math.max(next, Number(suffix) + 1);
+  }
+  return next;
+}
+
 /** 경계 스냅 스캔에서 컷으로 판정하는 인접 프레임 휘도차(§44 실측: 컷 ≥0.14, 동일 샷 ≤0.05). */
 export const NEWS_CUT_SHOT_DIFF_THRESHOLD = 0.1;
 

@@ -109,12 +109,13 @@ import {
   describeNewsItem,
   findShotSegments,
   newsItemName,
+  nextNewsItemIndex,
   normalizeNewsItems,
   snapItemsToAnchorStarts,
   type NewsItem,
 } from "./src/news-cut";
 import { base64ToBytes, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
-import { cloneSamplesForReusedTimes, lumaGrid, parseBmp24, planFrameSampling } from "./src/frame-diff";
+import { cloneSamplesForReusedTimes, looksCompleteImage, lumaGrid, parseBmp24, planFrameSampling } from "./src/frame-diff";
 import { loadCachedSpans, saveCachedSpans } from "./src/vision-cache";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus, removeStyleExample } from "./src/style-corpus";
 import { computeDuckingEnvelope, duckLevelValueFromDb, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
@@ -1079,10 +1080,12 @@ function frameDataFolderApi(): { fileSystem: any; formats: any } | null {
   return { fileSystem, formats };
 }
 
-// exportSequenceFrame은 성공을 반환해도 파일이 디스크에 늦게 나타난다(Host 실측) — 재시도 읽기.
+// exportSequenceFrame은 성공을 반환해도 파일이 디스크에 늦게·부분적으로 나타난다(Host 실측)
+// — 완결성(PNG IEND/BMP 선언 크기)까지 확인될 때까지 재시도 읽기. 잘린 프레임은 null.
 async function readExportedFrameBytes(dataFolder: any, formats: any, filename: string): Promise<Uint8Array | null> {
+  const kind = filename.toLowerCase().endsWith(".bmp") ? ("bmp" as const) : ("png" as const);
   let bytes: Uint8Array | null = null;
-  for (let attempt = 0; attempt < 12 && (!bytes || bytes.byteLength === 0); attempt += 1) {
+  for (let attempt = 0; attempt < 12 && (!bytes || !looksCompleteImage(bytes, kind)); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 400));
     try {
       const entry = await dataFolder.getEntry(filename);
@@ -1096,7 +1099,7 @@ async function readExportedFrameBytes(dataFolder: any, formats: any, filename: s
       bytes = null;
     }
   }
-  return bytes && bytes.byteLength > 0 ? bytes.slice() : null;
+  return bytes && looksCompleteImage(bytes, kind) ? bytes.slice() : null;
 }
 
 // 세그먼트의 프레임 샘플 3장을 비전으로 감지해 컷 초점을 구한다. 실패 시 null(슬라이더 폴백).
@@ -1777,7 +1780,7 @@ async function ensureNewsCutSourceActive(): Promise<void> {
   if (!restored) {
     throw new Error("아이템을 분석한 원본 시퀀스를 찾지 못했습니다. 원본을 활성화하고 다시 분석해 주세요.");
   }
-  activity.add("info", "News Cut 원본 시퀀스를 다시 활성화했습니다.");
+  activity.add("info", "뉴스 분할 원본 시퀀스를 다시 활성화했습니다.");
 }
 
 // 앵커 샷 경계 스냅 — 경계 주변을 프레임 diff로 샷 분해(로컬)하고, 샷 대표 프레임만 비전으로
@@ -1834,8 +1837,11 @@ async function snapNewsItemsToAnchors(items: NewsItem[]): Promise<NewsItem[]> {
   }
   if (shotFrames.length === 0) return items;
   // 학습된 앵커 샷 예시(다른 세트 포함)를 참조 이미지로 함께 보내 분류를 안정화한다.
-  const exemplars = loadAnchorExemplars().slice(0, 3);
-  const references = exemplars.map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }));
+  // 잘린 예시 하나가 요청 전체를 거부시키므로 완결 PNG만 통과시킨다.
+  const references = loadAnchorExemplars()
+    .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
+    .filter((reference) => looksCompleteImage(reference.bytes, "png"))
+    .slice(0, 3);
   const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
   const anchorFlags: boolean[] = new Array(shotFrames.length).fill(false);
   const anchorConfidences: number[] = new Array(shotFrames.length).fill(0);
@@ -1890,7 +1896,7 @@ async function handleNewsCutAnalyze(): Promise<void> {
   if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다.");
   const doc = controller.document;
   if (doc.cues.length === 0) throw new Error("먼저 자막을 만들어 주세요(TTS·STT 탭에서 시퀀스 STT 또는 SRT 불러오기).");
-  ensureAiConsent("News Cut 보도 아이템 분석");
+  ensureAiConsent("뉴스 분할 보도 아이템 분석");
   newsCutSourceKey = await readActiveContextKey().catch(() => "");
   const payload = await busy.during("보도 아이템 경계를 분석하고 있습니다…", () =>
     runSubtitleAnalysis({ action: "news-items", document: doc }));
@@ -1906,11 +1912,11 @@ async function handleNewsCutAnalyze(): Promise<void> {
   newsCutCreatedNames = [];
   renderNewsCutList();
   if (newsCutItems.length === 0) {
-    activity.add("warning", "News Cut: 아이템 0개 — 자막이 뉴스 형식이 아닐 수 있습니다.");
+    activity.add("warning", "뉴스 분할: 아이템 0개 — 자막이 뉴스 형식이 아닐 수 있습니다.");
     toast("보도 아이템을 찾지 못했습니다.", "warning");
     return;
   }
-  activity.add("success", `News Cut 분석 · 아이템 ${newsCutItems.length}개`);
+  activity.add("success", `뉴스 분할 분석 · 아이템 ${newsCutItems.length}개`);
   toast(`보도 아이템 ${newsCutItems.length}개를 찾았습니다. 목록에서 확인 후 생성하세요.`, "success");
 }
 
@@ -1923,10 +1929,11 @@ async function handleNewsCutCreate(): Promise<void> {
   }
   await ensureNewsCutSourceActive();
   const today = new Date();
+  const startIndex = nextNewsItemIndex(await listSequenceNames().catch(() => []), today);
   const inputs = selected.map(({ item }, order) => ({
     start: item.start,
     end: item.end,
-    name: newsItemName(today, order),
+    name: newsItemName(today, startIndex + order),
   }));
   const result = await busy.during(`아이템 시퀀스 ${inputs.length}개를 만들고 있습니다…`, () =>
     createNewsItemSequences(inputs, (completed, total, name) => {
@@ -1935,7 +1942,7 @@ async function handleNewsCutCreate(): Promise<void> {
   newsCutCreatedNames = result.created;
   activity.add(
     result.failures.length ? "warning" : "success",
-    `News Cut 시퀀스 생성 · 성공 ${result.created.length} · 실패 ${result.failures.length}`,
+    `뉴스 분할 시퀀스 생성 · 성공 ${result.created.length} · 실패 ${result.failures.length}`,
   );
   result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
   toast(`${result.created.length}개 아이템 시퀀스를 만들었습니다.`, result.failures.length ? "warning" : "success");
@@ -1954,7 +1961,7 @@ async function handleNewsCutExport(): Promise<void> {
     queueSequenceExportsByName(newsCutCreatedNames, presetFile, outputFolder));
   activity.add(
     result.failures.length ? "warning" : "success",
-    `News Cut 대기열 추가 · 성공 ${result.queued.length} · 실패 ${result.failures.length}`,
+    `뉴스 분할 대기열 추가 · 성공 ${result.queued.length} · 실패 ${result.failures.length}`,
   );
   result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
   toast(`${result.queued.length}개를 Media Encoder 대기열에 추가했습니다. AME에서 렌더를 시작하세요.`, result.failures.length ? "warning" : "success", 6000);
@@ -2380,9 +2387,9 @@ function bindCoreEvents(): void {
   bind("upload-package-btn", "click", guarded(handleExportUploadPackage, "업로드 패키지 내보내기 실패"));
   bind("subtitle-snapshot-save-btn", "click", guarded(async () => handleSaveSubtitleSnapshot(), "자막 스냅샷 저장 실패"));
   bind("multilang-export-btn", "click", guarded(handleMultilangExport, "다국어 SRT 내보내기 실패"));
-  bind("news-cut-analyze-btn", "click", guarded(handleNewsCutAnalyze, "News Cut 분석 실패"));
-  bind("news-cut-create-btn", "click", guarded(handleNewsCutCreate, "News Cut 시퀀스 생성 실패"));
-  bind("news-cut-export-btn", "click", guarded(handleNewsCutExport, "News Cut 내보내기 실패"));
+  bind("news-cut-analyze-btn", "click", guarded(handleNewsCutAnalyze, "뉴스 분할 분석 실패"));
+  bind("news-cut-create-btn", "click", guarded(handleNewsCutCreate, "뉴스 분할 시퀀스 생성 실패"));
+  bind("news-cut-export-btn", "click", guarded(handleNewsCutExport, "뉴스 분할 내보내기 실패"));
   bind("learn-clear-btn", "click", guarded(async () => handleLearnClear(), "학습 초기화 실패"));
   bind("scan-markers-btn", "click", guarded(() => markersQcPanel.scanMarkers(), "마커 검색 실패"));
   bind("batch-create-btn", "click", guarded(() => markersQcPanel.batchCreate(), "일괄 생성 실패"));

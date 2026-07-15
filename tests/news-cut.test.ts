@@ -5,6 +5,7 @@ import {
   describeNewsItem,
   findShotSegments,
   newsItemName,
+  nextNewsItemIndex,
   normalizeNewsItems,
   snapItemsToAnchorStarts,
 } from "../src/news-cut";
@@ -132,6 +133,15 @@ describe("newsItemName + describeNewsItem", () => {
     assert.equal(
       describeNewsItem({ start: 65, end: 130, title: "제목" }, 3),
       "03 · 01:05~02:10 · 제목",
+    );
+  });
+
+  it("continues numbering after same-day sequences and ignores other names", () => {
+    const date = new Date(2026, 6, 15);
+    assert.equal(nextNewsItemIndex([], date), 0);
+    assert.equal(
+      nextNewsItemIndex(["20260715_news_00", "20260715_news_09", "20260714_news_30", "20260715_news_ab", "기타"], date),
+      10,
     );
   });
 });

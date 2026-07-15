@@ -35,6 +35,25 @@ function readI32(bytes: Uint8Array, offset: number): number {
 }
 
 /**
+ * 내보낸 프레임 파일이 끝까지 기록됐는지 검사한다 — Exporter는 성공 반환 후에도 파일을 늦게
+ * 쓰므로(§44 실측) 비어있지 않아도 잘린 파일일 수 있다. PNG는 IEND 트레일러, BMP는 헤더의
+ * 선언 크기로 판정한다. 잘린 이미지를 비전 API에 보내면 요청 전체가 거부된다.
+ */
+export function looksCompleteImage(bytes: Uint8Array, kind: "png" | "bmp"): boolean {
+  if (kind === "png") {
+    if (bytes.byteLength < 20) return false;
+    const magic = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    if (!magic.every((value, index) => bytes[index] === value)) return false;
+    const trailer = [0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82];
+    const base = bytes.byteLength - trailer.length;
+    return trailer.every((value, index) => bytes[base + index] === value);
+  }
+  if (bytes.byteLength < 54 || bytes[0] !== 0x42 || bytes[1] !== 0x4d) return false;
+  const declaredSize = readU32(bytes, 2);
+  return declaredSize === 0 || bytes.byteLength >= declaredSize;
+}
+
+/**
  * 24-bit 무압축 BMP(BITMAPINFOHEADER)를 해석한다. 그 외 형식은 null — 호출자는
  * 필터 없이 전량 전송으로 폴백해야 한다(프리필터는 정확성보다 안전이 우선).
  */

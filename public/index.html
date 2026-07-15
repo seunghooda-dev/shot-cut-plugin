@@ -77,20 +77,33 @@
           aria-controls="workflow-tab-list"
         >
           <span class="nav-toggle-icon" aria-hidden="true">☰</span>
-          <span class="nav-toggle-label">QC</span>
+          <span class="nav-toggle-label">뉴스 분할</span>
           <span class="nav-toggle-chevron" aria-hidden="true">▾</span>
         </button>
         <div id="workflow-tab-list" class="tab-list" role="tablist" aria-orientation="horizontal">
           <button
-            id="tab-qc"
+            id="tab-newscut"
             class="nav-tab is-active"
             type="button"
             role="tab"
             aria-selected="true"
-            aria-controls="panel-qc"
-            data-tab="qc"
+            aria-controls="panel-newscut"
+            data-tab="newscut"
           >
             <span class="tab-index" aria-hidden="true">01</span>
+            뉴스 분할
+          </button>
+          <button
+            id="tab-qc"
+            class="nav-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="panel-qc"
+            data-tab="qc"
+            tabindex="-1"
+          >
+            <span class="tab-index" aria-hidden="true">02</span>
             QC
           </button>
           <button
@@ -103,7 +116,7 @@
             data-tab="short"
             tabindex="-1"
           >
-            <span class="tab-index" aria-hidden="true">02</span>
+            <span class="tab-index" aria-hidden="true">03</span>
             숏폼 생성
           </button>
           <button
@@ -116,7 +129,7 @@
             data-tab="markers"
             tabindex="-1"
           >
-            <span class="tab-index" aria-hidden="true">03</span>
+            <span class="tab-index" aria-hidden="true">04</span>
             마커 배치
           </button>
           <button
@@ -129,7 +142,7 @@
             data-tab="automation"
             tabindex="-1"
           >
-            <span class="tab-index" aria-hidden="true">04</span>
+            <span class="tab-index" aria-hidden="true">05</span>
             자동 편집
           </button>
           <button
@@ -142,7 +155,7 @@
             data-tab="asset"
             tabindex="-1"
           >
-            <span class="tab-index" aria-hidden="true">05</span>
+            <span class="tab-index" aria-hidden="true">06</span>
             음악·효과음
           </button>
           <button
@@ -155,7 +168,7 @@
             data-tab="voice"
             tabindex="-1"
           >
-            <span class="tab-index" aria-hidden="true">06</span>
+            <span class="tab-index" aria-hidden="true">07</span>
             TTS·STT
           </button>
           <button
@@ -168,7 +181,7 @@
             data-tab="reference"
             tabindex="-1"
           >
-            <span class="tab-index" aria-hidden="true">07</span>
+            <span class="tab-index" aria-hidden="true">08</span>
             AI 레퍼런스
           </button>
           <button
@@ -181,7 +194,7 @@
             data-tab="brand"
             tabindex="-1"
           >
-            <span class="tab-index" aria-hidden="true">08</span>
+            <span class="tab-index" aria-hidden="true">09</span>
             브랜드 MOGRT
           </button>
           <button
@@ -194,7 +207,7 @@
             data-tab="thumbnail"
             tabindex="-1"
           >
-            <span class="tab-index" aria-hidden="true">09</span>
+            <span class="tab-index" aria-hidden="true">10</span>
             썸네일
           </button>
           <button
@@ -207,7 +220,7 @@
             data-tab="export"
             tabindex="-1"
           >
-            <span class="tab-index" aria-hidden="true">10</span>
+            <span class="tab-index" aria-hidden="true">11</span>
             내보내기
           </button>
           <button
@@ -220,7 +233,7 @@
             data-tab="ai-settings"
             tabindex="-1"
           >
-            <span class="tab-index" aria-hidden="true">11</span>
+            <span class="tab-index" aria-hidden="true">12</span>
             AI 설정
           </button>
           <button
@@ -233,7 +246,7 @@
             data-tab="log"
             tabindex="-1"
           >
-            <span class="tab-index" aria-hidden="true">12</span>
+            <span class="tab-index" aria-hidden="true">13</span>
             로그
           </button>
         </div>
@@ -241,11 +254,44 @@
 
       <main class="workspace">
         <section
-          id="panel-qc"
+          id="panel-newscut"
           class="workflow-panel is-active"
+          role="tabpanel"
+          aria-labelledby="tab-newscut"
+          data-panel="newscut"
+        >
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">NEWS CUT</p>
+              <h2>뉴스 분할</h2>
+              <p class="panel-description">뉴스 전체 방송을 보도 아이템 단위로 잘라 개별 시퀀스(오늘일자_news_NN)로 만들고 Media Encoder에 일괄 내보냅니다.</p>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="section-heading">
+              <span class="section-number" aria-hidden="true">01</span>
+              <div>
+                <h3>보도 아이템</h3>
+                <p>먼저 TTS·STT 탭에서 시퀀스 자막을 만든 뒤, 분석 → 생성 → 내보내기 순서로 진행하세요.</p>
+              </div>
+            </div>
+            <div class="form-actions automation-actions">
+              <button id="news-cut-analyze-btn" class="secondary-button" type="button" title="자막에서 앵커 리드 기준으로 보도 아이템 경계를 AI 분석합니다.">보도 아이템 분석</button>
+              <button id="news-cut-create-btn" class="secondary-button" type="button" disabled title="선택한 아이템마다 원본을 복제·트림한 시퀀스를 만듭니다.">아이템 시퀀스 생성</button>
+              <button id="news-cut-export-btn" class="secondary-button" type="button" disabled title="생성된 아이템 시퀀스를 내보내기 탭의 프리셋·폴더 설정으로 AME 대기열에 추가합니다.">AME 일괄 내보내기</button>
+            </div>
+            <div id="news-cut-list" class="learn-corpus-list" hidden></div>
+          </div>
+        </section>
+
+        <section
+          id="panel-qc"
+          class="workflow-panel"
           role="tabpanel"
           aria-labelledby="tab-qc"
           data-panel="qc"
+          hidden
         >
           <div class="panel-heading">
             <div>
@@ -867,22 +913,6 @@
               <button id="safe-overlay-btn" class="secondary-button full-width-button" type="button" title="Safe Zone 가이드 이미지를 최상단 트랙에 오버레이로 삽입합니다. 내보내기 전 삭제하세요.">가이드 오버레이 삽입</button>
               <p class="action-note">플랫폼 UI는 업데이트될 수 있습니다. 내보내기 전 최신 가이드와 결과 화면을 한 번 더 확인해 주세요.</p>
             </section>
-          </div>
-
-          <div class="settings-card">
-            <div class="section-heading">
-              <span class="section-number" aria-hidden="true">NC</span>
-              <div>
-                <h3>News Cut — 보도 아이템 분할</h3>
-                <p>뉴스 전체 방송을 아이템 단위로 잘라 개별 시퀀스(오늘일자_news_NN)로 만들고 Media Encoder에 일괄 내보냅니다. 먼저 TTS·STT 탭에서 자막을 만들어 주세요.</p>
-              </div>
-            </div>
-            <div class="form-actions automation-actions">
-              <button id="news-cut-analyze-btn" class="secondary-button" type="button" title="자막에서 앵커 리드 기준으로 보도 아이템 경계를 AI 분석합니다.">보도 아이템 분석</button>
-              <button id="news-cut-create-btn" class="secondary-button" type="button" disabled title="선택한 아이템마다 원본을 복제·트림한 시퀀스를 만듭니다.">아이템 시퀀스 생성</button>
-              <button id="news-cut-export-btn" class="secondary-button" type="button" disabled title="생성된 아이템 시퀀스를 내보내기 탭의 프리셋·폴더 설정으로 AME 대기열에 추가합니다.">AME 일괄 내보내기</button>
-            </div>
-            <div id="news-cut-list" class="learn-corpus-list" hidden></div>
           </div>
         </section>
 

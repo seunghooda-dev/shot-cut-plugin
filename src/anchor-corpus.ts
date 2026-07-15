@@ -1,4 +1,6 @@
-// 앵커 샷 예시 코퍼스 — News Cut 분류에 참조 이미지(few-shot)로 쓰는 확신 높은 앵커 프레임 저장소
+// 앵커 샷 예시 코퍼스 — 뉴스 분할 분류에 참조 이미지(few-shot)로 쓰는 확신 높은 앵커 프레임 저장소
+import { looksCompleteImage } from "./frame-diff";
+
 export const ANCHOR_CORPUS_STORAGE_KEY = "shortflow.anchor-corpus.v1";
 export const MAX_ANCHOR_EXEMPLARS = 6;
 /** 272px PNG 기준 안전 상한 — localStorage 예산을 지킨다. */
@@ -72,6 +74,8 @@ export function saveAnchorExemplar(
   const existing = loadAnchorExemplars(storage);
   const label = input.label.trim().slice(0, 80);
   if (label && existing.some((exemplar) => exemplar.label === label)) return existing;
+  // 잘린 PNG를 참조로 저장하면 이후 모든 분류 요청이 통째로 거부된다 — 완결 파일만 받는다.
+  if (!looksCompleteImage(input.bytes, "png")) return existing;
   const pngBase64 = bytesToBase64(input.bytes);
   if (pngBase64.length === 0 || pngBase64.length > MAX_ANCHOR_EXEMPLAR_BASE64_CHARS) return existing;
   const next = [

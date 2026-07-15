@@ -6,6 +6,7 @@ import {
   FRAME_DIFF_GRID_ROWS,
   cloneSamplesForReusedTimes,
   frameDifference,
+  looksCompleteImage,
   lumaGrid,
   parseBmp24,
   planFrameSampling,
@@ -51,6 +52,26 @@ function bmp24(width: number, height: number, pixel: (x: number, y: number) => [
   }
   return bytes;
 }
+
+describe("looksCompleteImage", () => {
+  const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  const PNG_IEND = [0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82];
+
+  it("accepts a PNG with magic and IEND trailer, rejects truncated payloads", () => {
+    const complete = new Uint8Array([...PNG_MAGIC, 1, 2, 3, ...PNG_IEND]);
+    assert.equal(looksCompleteImage(complete, "png"), true);
+    assert.equal(looksCompleteImage(complete.subarray(0, complete.byteLength - 3), "png"), false);
+    assert.equal(looksCompleteImage(new Uint8Array([...PNG_MAGIC, 1, 2]), "png"), false);
+    assert.equal(looksCompleteImage(new Uint8Array(0), "png"), false);
+  });
+
+  it("checks BMP payloads against the declared header size", () => {
+    const bmp = bmp24(4, 2, () => [0, 0, 0]);
+    assert.equal(looksCompleteImage(bmp, "bmp"), true);
+    assert.equal(looksCompleteImage(bmp.subarray(0, bmp.byteLength - 1), "bmp"), false);
+    assert.equal(looksCompleteImage(new Uint8Array([0x42, 0x4d, 0, 0]), "bmp"), false);
+  });
+});
 
 describe("parseBmp24", () => {
   it("parses dimensions and luma for a bottom-up 24-bit BMP", () => {
