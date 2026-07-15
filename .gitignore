@@ -21,3 +21,7 @@ docs/.pdca-status.json
 docs/.pdca-snapshots/
 # 테스트 산출물(TTS 등 로컬 검증에서 생성) — 커밋 대상 아님
 tests/*.wav
+
+# STT 출력(사용자 출력 폴더가 저장소를 가리킬 때 생성되는 파일)
+tests/*_ShortFlow.srt
+tests/*_ShortFlow.txt
