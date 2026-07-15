@@ -28,6 +28,7 @@ import {
   SpeechFileManager,
   classifySttInput,
   createDefaultSpeechFileAdapter,
+  folderInsidePluginTree,
   sttMimeType,
   type SpeechInputFile,
   type SpeechOutputFolder,
@@ -68,6 +69,8 @@ export interface SpeechControllerOptions {
   now?: () => number;
   /** 이 길이(초)를 넘는 WAV는 무음 경계에서 분할 전사한다(whisper 25MB=약 13분 상한 대응). 기본 660s. */
   sttChunkSeconds?: number;
+  /** 플러그인 설치 폴더 경로(지연 조회) — 출력 폴더가 소스/설치 트리 안이면 경고한다. */
+  pluginFolderPath?: () => string | null;
 }
 
 interface TtsOperationSnapshot {
@@ -350,6 +353,12 @@ export class SpeechController {
     else this.outputFolders.delete(kind);
     const name = folder?.name || "선택되지 않음";
     setPathValue(`${kind}-output-name`, name, Boolean(folder), folder?.nativePath || name);
+    const pluginPath = this.options.pluginFolderPath?.();
+    if (folder && pluginPath && folderInsidePluginTree(folder.nativePath, pluginPath)) {
+      this.options.onWarning?.(
+        `${kind === "tts" ? "TTS" : "STT"} 출력 폴더(${folder.nativePath})가 플러그인 설치/소스 폴더 안입니다 — 산출물이 코드와 섞이지 않게 다른 폴더 선택을 권장합니다.`,
+      );
+    }
     this.options.updateSettings(kind === "tts"
       ? { ttsOutputName: folder?.name ?? "", ttsOutputToken: folder?.token ?? "" }
       : { sttOutputName: folder?.name ?? "", sttOutputToken: folder?.token ?? "" });

@@ -16,6 +16,7 @@ import {
   type TranscriptFormat,
   type TtsAudioFormat,
   classifySttInput,
+  folderInsidePluginTree,
   safeSpeechFilename,
   speechBytes,
   sttMimeType,
@@ -852,5 +853,22 @@ describe("SpeechFileManager write and restore edge cases", () => {
     await manager.clearOutputFolder("tts");
     assert.equal(values.get(TTS_OUTPUT_FOLDER_TOKEN_KEY), "");
     assert.equal(await manager.restoreOutputFolder("tts"), null);
+  });
+});
+
+describe("folderInsidePluginTree", () => {
+  const plugin = String.raw`C:\Users\seung\Documents\Codex\2026-07-11\user-plugin\plugin\dist`;
+
+  it("flags folders inside the plugin source tree (parent of the install folder)", () => {
+    assert.equal(folderInsidePluginTree(String.raw`C:\Users\seung\Documents\Codex\2026-07-11\user-plugin\plugin\tests`, plugin), true);
+    assert.equal(folderInsidePluginTree("c:/users/seung/documents/codex/2026-07-11/user-plugin/PLUGIN", plugin), true);
+    assert.equal(folderInsidePluginTree(plugin, plugin), true);
+  });
+
+  it("accepts folders outside the tree and tolerates junk input", () => {
+    assert.equal(folderInsidePluginTree(String.raw`C:\Users\seung\Downloads`, plugin), false);
+    assert.equal(folderInsidePluginTree("C:/Users/seung/Documents/Codex/2026-07-11/user-plugin2", plugin), false);
+    assert.equal(folderInsidePluginTree("", plugin), false);
+    assert.equal(folderInsidePluginTree(String.raw`C:\a`, ""), false);
   });
 });

@@ -116,6 +116,23 @@ export class SpeechFileError extends Error {
   }
 }
 
+/**
+ * 출력 폴더가 플러그인 설치/소스 트리 안(설치 폴더의 부모 이하)인지 검사한다 —
+ * STT/TTS 산출물이 저장소나 설치본에 섞여 쌓이는 사고(실사용 보고) 방지용 경고 판정.
+ */
+export function folderInsidePluginTree(folderPath: string, pluginFolderPath: string): boolean {
+  const normalize = (value: string) => value
+    .replace(/[\\/]+/gu, "/")
+    .replace(/\/+$/u, "")
+    .toLocaleLowerCase("en-US");
+  const folder = normalize(String(folderPath ?? ""));
+  const plugin = normalize(String(pluginFolderPath ?? ""));
+  if (!folder || !plugin) return false;
+  const cut = plugin.lastIndexOf("/");
+  const root = cut > 0 ? plugin.slice(0, cut) : plugin;
+  return folder === root || folder.startsWith(`${root}/`);
+}
+
 export const MAX_STT_INPUT_BYTES = 25 * 1024 * 1024;
 export const TTS_OUTPUT_FOLDER_TOKEN_KEY = "shortflow.speech.ttsOutputFolderToken";
 export const STT_OUTPUT_FOLDER_TOKEN_KEY = "shortflow.speech.sttOutputFolderToken";

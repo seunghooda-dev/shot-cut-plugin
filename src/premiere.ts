@@ -2349,6 +2349,26 @@ export async function queueSequenceExportsByName(
   return { queued, failures };
 }
 
+/**
+ * 뉴스 분할 산출물 시퀀스(`YYYYMMDD_news_NN`)를 일괄 삭제한다 — 재분석 전에 이전
+ * 아이템이 쌓이는 것을 정리하는 용도. 소스 시퀀스는 패턴이 달라 건드리지 않는다.
+ */
+export async function deleteNewsItemSequences(): Promise<{ deleted: number; failures: number }> {
+  const { project } = await getActiveContext();
+  let deleted = 0;
+  let failures = 0;
+  for (const sequence of await project.getSequences()) {
+    if (!/^\d{8}_news_\d{2,}$/u.test(String(sequence.name))) continue;
+    try {
+      await project.deleteSequence(sequence);
+      deleted += 1;
+    } catch {
+      failures += 1;
+    }
+  }
+  return { deleted, failures };
+}
+
 /** Adobe Media Encoder 설치 여부 — 미설치면 대기열 대신 직접 렌더로 폴백해야 한다. */
 export function ameInstalled(): boolean {
   try {

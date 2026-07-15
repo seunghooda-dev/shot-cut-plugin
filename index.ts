@@ -26,6 +26,7 @@ import {
   applyShotFocalAdjustment,
   attachTranscriptToActiveSequence,
   createNewsItemSequences,
+  deleteNewsItemSequences,
   exportSequenceFrameByName,
   listSequenceNames,
   queueSequenceExportsByName,
@@ -1734,6 +1735,8 @@ async function handleMultilangExport(): Promise<void> {
 let newsCutItems: NewsItem[] = [];
 let newsCutSourceKey = "";
 let newsCutCreatedNames: string[] = [];
+// 플러그인 설치 폴더 경로(부팅 시 1회 조회) — 출력 폴더 오염 경고(speech-controller)에 쓴다.
+let pluginFolderPathValue: string | null = null;
 
 function selectedNewsItems(): Array<{ item: NewsItem; index: number }> {
   const container = optionalElement<HTMLElement>("news-cut-list");
@@ -2014,6 +2017,7 @@ async function handleNewsCutCreate(): Promise<void> {
   const result = await busy.during(`아이템 시퀀스 ${inputs.length}개를 만들고 있습니다…`, () =>
     createNewsItemSequences(inputs, (completed, total, name) => {
       setText("busy-message", `${completed}/${total} · ${name}`);
+      busy.progress((completed / Math.max(1, total)) * 100);
     }));
   newsCutCreatedNames = result.created;
   activity.add(
@@ -2039,6 +2043,7 @@ async function handleNewsCutExport(): Promise<void> {
     const result = await busy.during(`${newsCutCreatedNames.length}개 렌더 중…`, () =>
       renderSequenceExportsByName(newsCutCreatedNames, presetFile, outputFolder, (completed, total, name) => {
         setText("busy-message", `${completed + 1}/${total} · ${name} 렌더 중…`);
+        busy.progress((completed / Math.max(1, total)) * 100);
       }));
     activity.add(
       result.failures.length ? "warning" : "success",
@@ -2056,6 +2061,76 @@ async function handleNewsCutExport(): Promise<void> {
   );
   result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
   toast(`${result.queued.length}개를 Media Encoder 대기열에 추가했습니다. AME에서 렌더를 시작하세요.`, result.failures.length ? "warning" : "success", 6000);
+}
+
+// 이전 아이템 정리 — 프로젝트의 YYYYMMDD_news_NN 시퀀스를 일괄 삭제한다(2단계 확인).
+let newsCutCleanupArmTimer: ReturnType<typeof setTimeout> | null = null;
+
+function disarmNewsCutCleanup(): void {
+  if (newsCutCleanupArmTimer !== null) clearTimeout(newsCutCleanupArmTimer);
+  newsCutCleanupArmTimer = null;
+  const button = optionalElement<HTMLButtonElement>("news-cut-cleanup-btn");
+  if (button) {
+    button.textContent = "이전 아이템 정리";
+    button.classList.remove("danger-button");
+  }
+}
+
+async function handleNewsCutCleanup(): Promise<void> {
+  const button = optionalElement<HTMLButtonElement>("news-cut-cleanup-btn");
+  const count = (await listSequenceNames().catch(() => []))
+    .filter((name) => /^\d{8}_news_\d{2,}$/u.test(name)).length;
+  if (count === 0) {
+    disarmNewsCutCleanup();
+    toast("정리할 아이템 시퀀스가 없습니다.", "info");
+    return;
+  }
+  if (newsCutCleanupArmTimer === null) {
+    // 1차 클릭 — 삭제 대상 개수를 보여주고 4초간 확인을 기다린다(파괴적 동작 오클릭 방지).
+    if (button) {
+      button.textContent = `정말 삭제? (${count}개)`;
+      button.classList.add("danger-button");
+    }
+    newsCutCleanupArmTimer = setTimeout(disarmNewsCutCleanup, 4000);
+    return;
+  }
+  disarmNewsCutCleanup();
+  const result = await busy.during(`아이템 시퀀스 ${count}개를 정리하고 있습니다…`, () => deleteNewsItemSequences());
+  newsCutCreatedNames = [];
+  renderNewsCutList();
+  activity.add(
+    result.failures ? "warning" : "success",
+    `뉴스 분할 아이템 정리 · 삭제 ${result.deleted} · 실패 ${result.failures}`,
+  );
+  toast(`아이템 시퀀스 ${result.deleted}개를 정리했습니다.`, result.failures ? "warning" : "success");
+  await refreshStatus(true);
+}
+
+// 원클릭 분할 — 활성 시퀀스에서 STT→분석→생성→(내보내기 설정 시) 일괄 내보내기까지 한 번에.
+async function handleNewsCutAuto(): Promise<void> {
+  activity.add("info", "원클릭 분할 · 1/4 시퀀스 STT");
+  await transcribeActiveSequence();
+  const doc = subtitleController?.document;
+  if (!doc || doc.cues.length === 0) {
+    throw new Error("STT가 자막을 만들지 못해 원클릭 분할을 중단합니다(로그의 STT 오류를 확인하세요).");
+  }
+  activity.add("info", "원클릭 분할 · 2/4 보도 아이템 분석");
+  await handleNewsCutAnalyze();
+  if (newsCutItems.length === 0) return; // 분석 단계에서 이미 경고를 남겼다
+  activity.add("info", "원클릭 분할 · 3/4 아이템 시퀀스 생성");
+  await handleNewsCutCreate();
+  if (newsCutCreatedNames.length === 0) {
+    throw new Error("아이템 시퀀스가 만들어지지 않아 내보내기를 건너뜁니다.");
+  }
+  syncSettingsFromUI();
+  if (!settings.presetToken || !settings.outputFolderToken) {
+    activity.add("warning", "내보내기 프리셋·폴더가 없어 시퀀스 생성까지 완료했습니다 — 내보내기 탭에서 설정 후 '일괄 내보내기'를 누르세요.");
+    toast("원클릭 분할 · 시퀀스 생성까지 완료(내보내기 설정 필요)", "warning", 6000);
+    return;
+  }
+  activity.add("info", "원클릭 분할 · 4/4 일괄 내보내기");
+  await handleNewsCutExport();
+  activity.add("success", "원클릭 분할 완료");
 }
 
 // 업로드 패키지 내보내기 — 자막 SRT·유튜브 메타·썸네일 SVG·권리 리포트를 폴더 하나로 묶는다(로드맵 18).
@@ -2478,9 +2553,11 @@ function bindCoreEvents(): void {
   bind("upload-package-btn", "click", guarded(handleExportUploadPackage, "업로드 패키지 내보내기 실패"));
   bind("subtitle-snapshot-save-btn", "click", guarded(async () => handleSaveSubtitleSnapshot(), "자막 스냅샷 저장 실패"));
   bind("multilang-export-btn", "click", guarded(handleMultilangExport, "다국어 SRT 내보내기 실패"));
+  bind("news-cut-auto-btn", "click", guarded(handleNewsCutAuto, "원클릭 분할 실패"));
   bind("news-cut-analyze-btn", "click", guarded(handleNewsCutAnalyze, "뉴스 분할 분석 실패"));
   bind("news-cut-create-btn", "click", guarded(handleNewsCutCreate, "뉴스 분할 시퀀스 생성 실패"));
   bind("news-cut-export-btn", "click", guarded(handleNewsCutExport, "뉴스 분할 내보내기 실패"));
+  bind("news-cut-cleanup-btn", "click", guarded(handleNewsCutCleanup, "뉴스 분할 아이템 정리 실패"));
   bind("learn-clear-btn", "click", guarded(async () => handleLearnClear(), "학습 초기화 실패"));
   bind("scan-markers-btn", "click", guarded(() => markersQcPanel.scanMarkers(), "마커 검색 실패"));
   bind("batch-create-btn", "click", guarded(() => markersQcPanel.batchCreate(), "일괄 생성 실패"));
@@ -2749,12 +2826,23 @@ async function bootstrap(): Promise<void> {
     reportError(error, "자막 편집기 초기화 실패");
   }
   try {
+    // 출력 폴더가 플러그인 소스/설치 트리 안이면 경고하기 위한 설치 경로(비동기 1회 조회).
+    void (async () => {
+      try {
+        const lfs = (require("uxp") as any)?.storage?.localFileSystem;
+        const pluginFolder = await lfs?.getPluginFolder?.();
+        pluginFolderPathValue = pluginFolder?.nativePath ? String(pluginFolder.nativePath) : null;
+      } catch {
+        pluginFolderPathValue = null;
+      }
+    })();
     speechController = new SpeechController({
       getSettings: () => settings,
       updateSettings,
       onActivity: (message) => activity.add("success", message),
       onWarning: (message) => activity.add("warning", message),
       onError: (error, context) => reportError(error, context),
+      pluginFolderPath: () => pluginFolderPathValue,
       onSourceChange: () => {
         automationController?.setTranscript(null);
       },
