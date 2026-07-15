@@ -1811,6 +1811,7 @@ async function snapNewsItemsToAnchors(items: NewsItem[]): Promise<NewsItem[]> {
   const boundaryShots: Array<Array<{ start: number; midTime: number }>> = [];
   for (const [index, item] of items.entries()) {
     setText("busy-message", `경계 스캔 ${index + 1}/${items.length}…`);
+    busy.progress(10 + (50 * index) / items.length);
     const samples: Array<{ time: number; grid: Float64Array | null }> = [];
     const from = Math.max(0, item.start - 6);
     for (let time = from; time <= item.start + 4 + 0.001; time += 0.5) {
@@ -1850,6 +1851,7 @@ async function snapNewsItemsToAnchors(items: NewsItem[]): Promise<NewsItem[]> {
   const batchSize = Math.max(4, 12 - references.length);
   for (let offset = 0; offset < shotFrames.length; offset += batchSize) {
     setText("busy-message", `앵커 샷 분류 ${Math.min(offset + batchSize, shotFrames.length)}/${shotFrames.length}…`);
+    busy.progress(60 + (30 * offset) / shotFrames.length);
     const chunk = shotFrames.slice(offset, offset + batchSize);
     const results = await client.classifyAnchorShots(
       chunk.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" })),
@@ -1889,6 +1891,7 @@ async function snapNewsItemsToAnchors(items: NewsItem[]): Promise<NewsItem[]> {
   });
   const snappedCount = anchorStarts.filter((value) => value !== null).length;
   activity.add("info", `앵커 샷 스냅 · ${snappedCount}/${items.length}개 경계 정렬(비전 ${Math.ceil(shotFrames.length / 12)}회)`);
+  busy.progress(100);
   return snapItemsToAnchorStarts(items, anchorStarts);
 }
 
@@ -1900,8 +1903,10 @@ async function handleNewsCutAnalyze(): Promise<void> {
   if (doc.cues.length === 0) throw new Error("먼저 자막을 만들어 주세요(TTS·STT 탭에서 시퀀스 STT 또는 SRT 불러오기).");
   ensureAiConsent("뉴스 분할 보도 아이템 분석");
   newsCutSourceKey = await readActiveContextKey().catch(() => "");
-  const payload = await busy.during("보도 아이템 경계를 분석하고 있습니다…", () =>
-    runSubtitleAnalysis({ action: "news-items", document: doc }));
+  const payload = await busy.during("보도 아이템 경계를 분석하고 있습니다…", () => {
+    busy.progress(5);
+    return runSubtitleAnalysis({ action: "news-items", document: doc });
+  });
   let items = normalizeNewsItems(payload, doc);
   if (items.length > 0) {
     try {

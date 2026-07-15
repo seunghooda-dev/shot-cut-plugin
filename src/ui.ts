@@ -221,17 +221,38 @@ export class ActivityLog {
 export class BusyState {
   private readonly overlay = optionalElement<HTMLElement>("busy-overlay");
   private readonly message = optionalElement<HTMLElement>("busy-message");
+  private readonly progressWrap = optionalElement<HTMLElement>("busy-progress");
+  private readonly progressFill = optionalElement<HTMLElement>("busy-progress-fill");
+  private readonly progressText = optionalElement<HTMLElement>("busy-progress-text");
   private depth = 0;
+
+  /** 진행률(0~100)을 오버레이 바에 표시한다. null이면 숨김(불확정 단계). */
+  progress(percent: number | null): void {
+    if (!this.progressWrap || !this.progressFill) return;
+    if (percent === null || !Number.isFinite(percent)) {
+      this.progressWrap.hidden = true;
+      return;
+    }
+    const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+    this.progressWrap.hidden = false;
+    this.progressFill.style.width = `${clamped}%`;
+    if (this.progressText) this.progressText.textContent = `${clamped}%`;
+  }
 
   show(message: string): void {
     this.depth += 1;
+    // 새 작업이 오버레이를 처음 띄울 때만 이전 진행률을 지운다(중첩 단계는 바를 유지).
+    if (this.depth === 1) this.progress(null);
     if (this.message) this.message.textContent = message;
     if (this.overlay) this.overlay.hidden = false;
   }
 
   hide(): void {
     this.depth = Math.max(0, this.depth - 1);
-    if (this.overlay && this.depth === 0) this.overlay.hidden = true;
+    if (this.depth === 0) {
+      if (this.overlay) this.overlay.hidden = true;
+      this.progress(null);
+    }
   }
 
   async during<T>(message: string, task: () => Promise<T>): Promise<T> {
