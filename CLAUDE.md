@@ -41,109 +41,11 @@ Both reuse the same OpenAI safety plumbing (HTTPS `api.openai.com` pinned, secur
 
 Checkpoint commits require a passing `npm run check` first — never commit a red tree. As of 2026-07-13 (user directive), commit and push to the `newplugin` remote (https://github.com/seunghooda-dev/newplugin) whenever a meaningful validated unit of work completes; the older "one commit per milestone" rule from "실행 원칙" in [docs/ROADMAP.md](docs/ROADMAP.md) is superseded. The `origin` remote (seunghooda-dev/plugin) is the legacy Codex repo — leave it untouched unless asked.
 
-## 모델 선택 (Model selection)
-
-이 프로젝트의 기본 모델은 Opus다. 프리미어 UXP 플러그인 개발은 고치고 검증(`npm run check`)하고 다시 고치는 인터랙티브 반복 작업이라, 능력·속도·비용의 균형이 좋은 Opus를 기본으로 쓴다. 다음 두 경우에만 Fable로 전환한다.
-
-- Opus로 여러 번 시도해도 풀리지 않는, 정말 어려운 설계·디버깅 난제를 만났을 때
-- 사람이 지켜보지 않는 장시간 자율 작업(예: 대규모 리팩터를 에이전트가 통째로 수행)을 맡길 때
-
-Fable는 가장 똑똑하지만 Opus보다 느리고 비용이 약 2배이므로, 위 두 경우가 아니면 쓰지 않는다. 문제를 해결하면 다시 Opus로 돌아온다.
-
-## 문맥·토큰 효율 (Context & token efficiency)
-
-모델은 매 턴마다 그때까지 쌓인 대화 전체를 입력으로 다시 읽는다. 그래서 토큰 비용은 산출물의 양보다 문맥 크기와 왕복 횟수에 더 좌우된다. 다음을 기본으로 삼는다.
-
-- 작업 단위로 문맥을 정리한다. 무관한 새 작업으로 넘어갈 때는 /clear로 초기화하고, 같은 작업이 길어져 기록이 비대해지면 /compact로 요약 압축한다. 단 한 작업 도중에는 비우지 않는다 — 진행 맥락을 잃으면 다시 파악하느라 오히려 더 든다.
-- /compact와 /clear는 사용자가 직접 입력하는 명령이라 모델이 스스로 실행하지 못한다. 그래서 문맥이 차오르면 모델은 깨끗한 경계(트랙 완료·`npm run check` 초록)에서 사용자에게 "/compact 할 시점"이라고 상기시킨다. 한도 근처의 자동 축소는 Claude Code의 auto-compact가 맡는다.
-- 중요한 결정과 그 근거는 대화에만 두지 말고 CLAUDE.md와 PDCA 문서(docs/01-plan, docs/02-design, docs/03-analysis, docs/.pdca-status.json)에 기록한다. 세션을 초기화해도 이 문서만 다시 읽으면 핵심 맥락이 복원된다.
-- 무거운 탐색(대량 파일 읽기, 넓은 검색)은 메인 세션에서 직접 하지 말고 서브에이전트에 위임한다. 서브에이전트는 가벼운 새 문맥에서 일하고 작은 결과만 돌려주므로 메인 세션의 문맥이 비대해지지 않는다.
-
 ## Things not to carry over from other CEP/UXP reference projects
 
 If porting ideas from older Adobe CEP-based plugins: don't reintroduce QE DOM dependency, filename-only project-item lookup, or single-point track search with `overwriteClip`. This project identifies media by file path, checks the full insertion range for conflicts, checks locked tracks, and rolls back on failure (see `src/recovery.ts`, `src/premiere.ts`).
 
-## 행동 지침 (Behavioral Guidelines)
+## 공통 지침
 
-일반적인 LLM 코딩 실수를 줄이기 위한 지침. 신중함을 속도보다 우선하되, 사소한 작업에는 재량껏 적용한다.
-
-### 코딩 전에 생각하기
-
-**가정하지 말 것. 혼란을 숨기지 말 것. 트레이드오프를 드러낼 것.**
-
-- 가정은 명시적으로 밝히고, 불확실하면 물어본다.
-- 해석이 여러 가지면 모두 제시한다 — 조용히 하나를 고르지 않는다.
-- 더 단순한 접근이 있으면 말한다. 필요하면 반박한다.
-- 불명확하면 멈추고, 무엇이 혼란스러운지 짚어서 물어본다.
-
-### 단순함 우선
-
-**문제를 푸는 최소한의 코드. 추측성 코드 금지.**
-
-- 요청 범위를 넘는 기능을 만들지 않는다.
-- 한 번 쓰는 코드에 추상화를 넣지 않는다.
-- 요청받지 않은 "유연성"·"설정 가능성"을 넣지 않는다.
-- 불가능한 시나리오에 대한 에러 처리를 넣지 않는다.
-- 200줄을 썼는데 50줄로 가능하면 다시 쓴다.
-
-기준: "시니어 엔지니어가 보면 과하다고 할까?" — 그렇다면 단순화한다.
-
-### 수술적 변경
-
-**꼭 필요한 곳만 건드리고, 내가 만든 흔적만 치운다.**
-
-- 인접 코드·주석·포매팅을 "개선"하지 않는다.
-- 고장나지 않은 것을 리팩터링하지 않는다.
-- 내 취향과 달라도 기존 스타일을 따른다.
-- 무관한 죽은 코드를 발견하면 언급만 하고 지우지 않는다.
-- 내 변경으로 안 쓰이게 된 import/변수/함수는 제거하되, 원래 있던 죽은 코드는 요청 없이 제거하지 않는다.
-
-기준: 변경된 모든 줄이 사용자의 요청으로 직접 소급되어야 한다.
-
-### 목표 주도 실행
-
-**성공 기준을 정의하고, 검증될 때까지 반복한다.**
-
-- "검증 추가" → "잘못된 입력에 대한 테스트를 먼저 쓰고 통과시킨다"
-- "버그 수정" → "버그를 재현하는 테스트를 쓰고 통과시킨다"
-- "X 리팩터링" → "전후로 테스트가 통과하는지 확인한다"
-
-여러 단계 작업은 시작 전에 간단한 계획(각 단계 → 검증 방법)을 밝힌다. 강한 성공 기준이 있어야 독립적으로 반복 검증할 수 있다.
-
-### 한국어 문장은 콜론으로 끝내지 않기
-
-- 다음 줄이 목록이나 예시라도 한국어 문장을 `:`로 끝내지 않는다.
-- 한국어 문장 종결은 `.`, `?`, `!` 중 하나여야 한다.
-- 콜론은 코드, key-value 쌍, 라벨 안에서만 사용한다.
-
-### 새 소스 파일 첫 줄에 한국어 역할 주석
-
-새 파일을 만들 때 첫 줄에 역할을 설명하는 한 줄 한국어 주석을 넣는다.
-
-- TypeScript/JavaScript 예: `// 사용자 인증 상태를 관리하는 Context Provider`
-- 필수 지시문(`'use client'`, shebang 등) 바로 아래에 배치한다.
-- 설정 파일(`*.config.ts`, `package.json` 등)은 제외한다.
-- 이유: 에이전트는 코드베이스 전체가 아니라 파일을 선별적으로 읽는다. 한 줄 한국어 헤더가 즉각적인 맥락을 준다. 기존 예시는 `src/reference-controller.ts` 상단 주석 참고.
-
-### 계획 문서 없이 코딩 시작하지 않기
-
-비자명한 작업은 계획 없이 코딩을 시작하지 않는다. 이 프로젝트에서는 별도 `checklist.md`/`context-notes.md` 파일 대신 **bkit PDCA 문서가 이 역할을 한다** — Plan(`docs/01-plan/features/`), Design(`docs/02-design/features/`), 분석(`docs/03-analysis/`), 상태(`docs/.pdca-status.json`). 작업 중 내린 결정과 그 근거는 해당 PDCA 문서에 남긴다. 사용자가 계획만 주고 코딩을 요청하면, Plan/Design 문서를 먼저 만들지 물어본다.
-
-### 완료 선언 전에 테스트 실행
-
-**코드를 건드렸으면 "완료"라고 말하기 전에 테스트를 실행한다.**
-
-- `npm test`(전체 게이트는 `npm run check`)를 실행하고 결과를 보고한다.
-- 실패하면 고치고 재실행한다.
-- 사용자가 "끝", "완료", "다 됐어"라고 하기 전에 선제적으로 실행한다 — 요청받고 나서가 아니라.
-
-### 에러는 읽고, 추측하지 않기
-
-**실제 에러/로그를 읽는다. 기억 속 패턴으로 때려맞추지 않는다.**
-
-- 전체 에러 메시지와 스택 트레이스를 읽는다.
-- 실제 로그 출력을 확인한다 — "이렇게 나올 것"이라는 가정이 아니라.
-- 원인을 확인하기 전에 "흔한 수정"을 적용하지 않는다.
-- 불명확하면 print/log를 추가해 상태를 확인한 뒤 고친다.
-
-이걸 건너뛰면 한 줄짜리 버그가 세 파일짜리 리팩터링이 된다.
+행동 지침·모델 선택·문맥/토큰 효율은 전역 `~/.claude/CLAUDE.md`로 이동했다(모든 세션 공통 적용).
+비자명한 작업의 계획 문서는 이 프로젝트에서는 bkit PDCA 문서가 그 역할을 한다 — Plan(docs/01-plan/features/), Design(docs/02-design/features/), 분석(docs/03-analysis/), 상태(docs/.pdca-status.json). 사용자가 계획만 주고 코딩을 요청하면, Plan/Design 문서를 먼저 만들지 물어본다.
