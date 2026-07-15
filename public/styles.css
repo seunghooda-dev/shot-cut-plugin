@@ -3541,6 +3541,55 @@ input[type="color"],
   font-variant-numeric: tabular-nums;
 }
 
+.license-overlay {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(10, 10, 13, 0.92);
+}
+
+.license-dialog {
+  display: flex;
+  width: min(320px, 100%);
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.48);
+}
+
+.license-dialog h2 {
+  font-size: var(--fs-lg);
+}
+
+.license-dialog p {
+  color: var(--text-secondary);
+  font-size: var(--fs-base);
+}
+
+.license-dialog textarea {
+  resize: none;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  word-break: break-all;
+}
+
+.license-status {
+  min-height: 16px;
+  color: var(--warning);
+  font-size: var(--fs-xs);
+}
+
 .busy-overlay {
   position: fixed;
   z-index: 1000;

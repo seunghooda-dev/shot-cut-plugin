@@ -224,8 +224,40 @@ async function sha256File(filePath) {
   return hash.digest("hex");
 }
 
+// 배포 산출물 보호 — release 번들을 난독화한다(dev 빌드에는 적용되지 않음).
+// UXP 호환을 위해 selfDefending·controlFlowFlattening·deadCodeInjection은 끈다(런타임 위험·성능).
+async function obfuscateDistBundle() {
+  const bundlePath = join(distRoot, "index.js");
+  const source = await readFile(bundlePath, "utf8");
+  if (source.includes("obfuscated-by-shortflow")) {
+    console.log("ℹ 번들이 이미 난독화되어 있어 건너뜁니다.");
+    return;
+  }
+  const { default: obfuscator } = await import("javascript-obfuscator");
+  const result = obfuscator.obfuscate(source, {
+    compact: true,
+    target: "node",
+    selfDefending: false,
+    controlFlowFlattening: false,
+    deadCodeInjection: false,
+    debugProtection: false,
+    disableConsoleOutput: false,
+    renameGlobals: false,
+    identifierNamesGenerator: "hexadecimal",
+    stringArray: true,
+    stringArrayEncoding: [],
+    stringArrayThreshold: 0.8,
+    splitStrings: false,
+    // 결정적 산출물 유지(고정 타임스탬프 ZIP과 함께 SHA 재현성 보장)
+    seed: 20260716,
+  });
+  await writeFile(bundlePath, `// obfuscated-by-shortflow\n${result.getObfuscatedCode()}`, "utf8");
+  console.log("✓ 번들 난독화 완료 (dist/index.js)");
+}
+
 async function main() {
   await ensureDistDirectory();
+  await obfuscateDistBundle();
   verifyDist();
 
   const version = await readPackageVersion();

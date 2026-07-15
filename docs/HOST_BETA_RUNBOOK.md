@@ -1056,3 +1056,13 @@ gap-2 모션은 그동안 "UI·배선만 검증, 키프레임 적용은 사용�
 - **54-e 병렬 프레임 추출 부결(A3)**: 96px BMP 6장 실측 — 순차 3543ms(6/6 성공) vs 6동시 3512ms(5/6, 1 타임아웃). `Exporter.exportSequenceFrame`은 호스트에서 직렬화되어 병렬 이득이 없고 동시 호출은 프레임 유실 위험만 있다 — 구현하지 않음.
 - 문서 정합 일괄 갱신(서브에이전트 점검 반영): USER_GUIDE SHA·AI 설정 탭 번호, INTERNAL_BETA_SCOPE·ROADMAP 후순위↔출시 모순 정리, REQUIREMENTS_MATRIX·QA_CHECKLIST 기준선(1792), README 13탭, news-cut.plan 각주.
 - 게이트 1792/1792 · 실기 스모크 6/6 · 콘솔 0.
+
+## §55 라이선스 킷 — 배포 보호(minify+난독화) + 오프라인 시리얼 키 (2026-07-16)
+
+사용자 지시("CCX 카피 방지 + 시리얼 키 30일/연장, 서버 없이, 개발 워크플로 무영향"). 계획: `docs/01-plan/features/license-kit.plan.md`.
+
+- **55-a 빌드 이원화**: dev 빌드(기본)는 minify 없음 그대로, `vite build --mode release`(패키징 전용)만 esbuild minify + `__SHORTFLOW_RELEASE__=true` define. 게이트/스모크/디버깅 동선 무변경.
+- **55-b 난독화**: `javascript-obfuscator`를 package-ccx 단계에 통합(고정 seed로 결정적 산출물). ⚠️ **stringArrayEncoding "base64"는 UXP에서 조용히 깨진다** — 부팅 게이트 미작동·nacl 검증 무반응(콘솔 에러 0!)의 원인이었고, 인코딩 없는 stringArray로 바꾸면 전체 플로우 정상. ⚠️ 난독화 빌드는 탭 전환이 느려져 스모크 tab-sweep 재확인 대기를 1초로 상향(플레이크 흡수, 1s 대기 시 13/13).
+- **55-c 오프라인 시리얼 키**: Ed25519(tweetnacl) — `SFS1.<b64url(payload{id,exp,plan?})>.<b64url(sig)>`, 공개키는 `src/license-public-key.ts` 내장, 검증 `src/license.ts`(순수, 만료일 포함·시계 역행 6h 가드). 발급 `scripts/license-issue.mjs`(--init 키쌍 1회 생성 — **개인키는 `~/.shortflow-license/private.key`, 절대 커밋 금지**; --id --days로 키 발급, 연장=새 키). release 빌드만 잠금 오버레이 강제, dev는 통과.
+- **55-d 실기 검증(난독화 release)**: 키 없음→잠금 오버레이+안내 · 위조 키→형식 거부 · 실키(owner 10년)→해제·"만료까지 3651일" 로그·lastSeen 스탬프 · 콘솔 0 · 1s 스윕 13/13 · 스모크 나머지 5종 통과.
+- 한계(계획 문서에 명시): 클라이언트 JS 특성상 결심한 공격자의 검증 우회·코드 복원을 완전 차단하지는 못한다 — 목표는 카피 비용 상승과 선량한 사용자 기간 통제.

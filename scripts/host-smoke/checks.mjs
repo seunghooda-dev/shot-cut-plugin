@@ -82,7 +82,8 @@ export const checks = [
           let shown = Boolean(panelEl) && panelEl.hidden === false;
           if (!shown) {
             // 부팅 직후 첫 스윕은 간헐적으로 늦게 반영된다 — 1회 재확인으로 플레이크 흡수.
-            await new Promise((resolve) => setTimeout(resolve, 500));
+            // 난독화 release 빌드는 문자열 배열 간접 참조로 탭 전환이 더 느리다(§55) — 1초로 여유.
+            await new Promise((resolve) => setTimeout(resolve, 1000));
             panelEl = document.getElementById('panel-' + name);
             shown = Boolean(panelEl) && panelEl.hidden === false;
           }

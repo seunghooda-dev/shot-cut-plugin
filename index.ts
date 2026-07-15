@@ -121,6 +121,8 @@ import {
   type NewsItem,
 } from "./src/news-cut";
 import { base64ToBytes, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
+import { LICENSE_CLOCK_KEY, LICENSE_STORAGE_KEY, licenseFailureMessage, verifyLicenseKey } from "./src/license";
+import { LICENSE_PUBLIC_KEY } from "./src/license-public-key";
 import { cloneSamplesForReusedTimes, looksCompleteImage, lumaGrid, parseBmp24, planFrameSampling } from "./src/frame-diff";
 import { loadCachedSpans, saveCachedSpans } from "./src/vision-cache";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus, removeStyleExample } from "./src/style-corpus";
@@ -2558,6 +2560,7 @@ function bindCoreEvents(): void {
   bind("news-cut-create-btn", "click", guarded(handleNewsCutCreate, "뉴스 분할 시퀀스 생성 실패"));
   bind("news-cut-export-btn", "click", guarded(handleNewsCutExport, "뉴스 분할 내보내기 실패"));
   bind("news-cut-cleanup-btn", "click", guarded(handleNewsCutCleanup, "뉴스 분할 아이템 정리 실패"));
+  bind("license-apply-btn", "click", handleLicenseApply);
   bind("learn-clear-btn", "click", guarded(async () => handleLearnClear(), "학습 초기화 실패"));
   bind("scan-markers-btn", "click", guarded(() => markersQcPanel.scanMarkers(), "마커 검색 실패"));
   bind("batch-create-btn", "click", guarded(() => markersQcPanel.batchCreate(), "일괄 생성 실패"));
@@ -2952,7 +2955,74 @@ async function bootstrap(): Promise<void> {
   setTimeout(() => {
     void refreshStatus(true);
   }, 2500);
+  updateLicenseOverlay();
   activity.add("info", "ShortFlow Studio가 준비되었습니다.");
+}
+
+// 라이선스 게이트 — 배포(release) 빌드에서만 잠금 오버레이를 강제한다. dev 빌드는 상태 로그만.
+declare const __SHORTFLOW_RELEASE__: boolean;
+
+function licenseEnforced(): boolean {
+  return typeof __SHORTFLOW_RELEASE__ !== "undefined" && __SHORTFLOW_RELEASE__ === true;
+}
+
+function readLicenseLastSeenMs(): number {
+  const value = Number(localStorage.getItem(LICENSE_CLOCK_KEY));
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function stampLicenseLastSeen(nowMs: number): void {
+  try {
+    localStorage.setItem(LICENSE_CLOCK_KEY, String(Math.max(readLicenseLastSeenMs(), nowMs)));
+  } catch {
+    // 저장 실패는 다음 실행에서 다시 시도
+  }
+}
+
+function updateLicenseOverlay(): void {
+  const overlay = optionalElement<HTMLElement>("license-overlay");
+  if (!overlay) return;
+  const storedKey = localStorage.getItem(LICENSE_STORAGE_KEY) ?? "";
+  const now = Date.now();
+  const check = verifyLicenseKey(storedKey, LICENSE_PUBLIC_KEY, now, readLicenseLastSeenMs());
+  if (check.ok) {
+    stampLicenseLastSeen(now);
+    overlay.hidden = true;
+    if (check.daysLeft <= 7) {
+      activity.add("warning", `시리얼 키 만료까지 ${check.daysLeft}일 남았습니다 — 연장 키를 준비하세요.`);
+    } else {
+      activity.add("info", `시리얼 키 확인 · ${check.info.id} · 만료까지 ${check.daysLeft}일`);
+    }
+    return;
+  }
+  if (!licenseEnforced()) {
+    overlay.hidden = true;
+    return;
+  }
+  setText("license-status", check.reason === "EMPTY"
+    ? "발급받은 시리얼 키를 붙여넣어 주세요."
+    : licenseFailureMessage(check.reason));
+  overlay.hidden = false;
+}
+
+function handleLicenseApply(): void {
+  const input = optionalElement<HTMLTextAreaElement>("license-key-input");
+  const key = input?.value?.trim() ?? "";
+  const check = verifyLicenseKey(key, LICENSE_PUBLIC_KEY, Date.now(), readLicenseLastSeenMs());
+  if (!check.ok) {
+    setText("license-status", licenseFailureMessage(check.reason));
+    return;
+  }
+  try {
+    localStorage.setItem(LICENSE_STORAGE_KEY, key);
+  } catch {
+    setText("license-status", "키를 저장하지 못했습니다. 다시 시도해 주세요.");
+    return;
+  }
+  stampLicenseLastSeen(Date.now());
+  if (input) input.value = "";
+  updateLicenseOverlay();
+  toast(`시리얼 키 적용 완료 · 만료까지 ${check.daysLeft}일`, "success");
 }
 
 function whenDocumentReady(task: () => void): void {
