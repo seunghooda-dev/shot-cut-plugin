@@ -113,8 +113,21 @@ export function findShotSegments(
 }
 
 /**
- * 아이템 시작을 앵커 샷 시작 시각으로 스냅하고, 끝은 다음 아이템의 (스냅된) 시작으로 잇는다 —
- * 아이템 사이 내용이 잘려 나가지 않는 무결 분할. 스냅 시각이 없으면(null) 텍스트 경계를 유지한다.
+ * 앵커 스냅 인점 리드(초) — 검출된 앵커 샷 시작보다 살짝 앞에 인점을 잡아 앵커의 첫
+ * 프레임·첫 음절이 잘리지 않게 한다(§57 사용자 실측 피드백). 경계 자체가 앞으로 이동하므로
+ * 이전 아이템의 끝도 함께 당겨져 아이템 사이 공백·중복은 생기지 않는다.
+ */
+export const NEWS_CUT_ANCHOR_LEAD_SECONDS = 0.3;
+
+/** 앵커 샷 시작 시각에 인점 리드를 적용한다(0.1초 반올림, 0 미만 방지). */
+function leadAdjusted(anchorStart: number): number {
+  return Math.max(0, Math.round((anchorStart - NEWS_CUT_ANCHOR_LEAD_SECONDS) * 10) / 10);
+}
+
+/**
+ * 아이템 시작을 앵커 샷 시작 시각(리드 적용)으로 스냅하고, 끝은 다음 아이템의 (스냅된)
+ * 시작으로 잇는다 — 아이템 사이 내용이 잘려 나가지 않는 무결 분할. 스냅 시각이 없으면(null)
+ * 텍스트 경계를 유지한다.
  */
 export function snapItemsToAnchorStarts(
   items: readonly NewsItem[],
@@ -124,7 +137,7 @@ export function snapItemsToAnchorStarts(
     const anchorStart = anchorStarts[index];
     return {
       ...item,
-      start: typeof anchorStart === "number" && Number.isFinite(anchorStart) ? anchorStart : item.start,
+      start: typeof anchorStart === "number" && Number.isFinite(anchorStart) ? leadAdjusted(anchorStart) : item.start,
     };
   });
   return snapped
@@ -140,8 +153,8 @@ export const NEWS_CUT_INTERIOR_SPLIT_MIN_SECONDS = 180;
 
 /**
  * 텍스트 분석이 경계를 만들지 못한 병합 아이템을 내부 앵커 컷에서 쪼갠다 — 아이템당
- * 내부 앵커 시작 시각 목록(비전 분류 결과)을 받아 각 컷에서 분할하고, 새 조각의 제목은
- * titleAt(컷 시각)으로 채운다. 경계에 너무 가까운(15초 미만 조각) 컷은 무시한다.
+ * 내부 앵커 시작 시각 목록(비전 분류 결과)을 받아 각 컷(리드 적용)에서 분할하고, 새 조각의
+ * 제목은 titleAt(컷 시각)으로 채운다. 경계에 너무 가까운(15초 미만 조각) 컷은 무시한다.
  */
 export function splitItemsAtInteriorAnchors(
   items: readonly NewsItem[],
@@ -152,9 +165,9 @@ export function splitItemsAtInteriorAnchors(
   const out: NewsItem[] = [];
   for (const [index, item] of items.entries()) {
     const cuts = [...(interiorStarts[index] ?? [])]
-      .filter((time) => Number.isFinite(time)
-        && time - item.start >= minPieceSeconds
-        && item.end - time >= minPieceSeconds)
+      .filter((time) => Number.isFinite(time))
+      .map((time) => leadAdjusted(time))
+      .filter((time) => time - item.start >= minPieceSeconds && item.end - time >= minPieceSeconds)
       .sort((left, right) => left - right);
     let pieceStart = item.start;
     let first = true;

@@ -103,7 +103,7 @@ describe("findShotSegments", () => {
 });
 
 describe("snapItemsToAnchorStarts", () => {
-  it("snaps starts, chains ends to the next start, and keeps text boundaries when null", () => {
+  it("snaps starts 0.3s before the anchor, chains ends, and keeps text boundaries when null", () => {
     const items = [
       { start: 60, end: 200, title: "하나" },
       { start: 205, end: 300, title: "둘" },
@@ -111,10 +111,15 @@ describe("snapItemsToAnchorStarts", () => {
     ];
     const snapped = snapItemsToAnchorStarts(items, [63.5, null, 318]);
     assert.deepEqual(snapped, [
-      { start: 63.5, end: 205, title: "하나" },
-      { start: 205, end: 318, title: "둘" },
-      { start: 318, end: 400, title: "셋" },
+      { start: 63.2, end: 205, title: "하나" },
+      { start: 205, end: 317.7, title: "둘" },
+      { start: 317.7, end: 400, title: "셋" },
     ]);
+  });
+
+  it("clamps the lead-adjusted start at zero", () => {
+    const snapped = snapItemsToAnchorStarts([{ start: 1, end: 30, title: "첫" }], [0.1]);
+    assert.deepEqual(snapped, [{ start: 0, end: 30, title: "첫" }]);
   });
 
   it("drops items whose snapped range collapses", () => {
@@ -122,7 +127,7 @@ describe("snapItemsToAnchorStarts", () => {
       [{ start: 10, end: 40, title: "a" }, { start: 30, end: 90, title: "b" }],
       [35, 20],
     );
-    // 첫 아이템 시작 35, 끝 = 다음 시작 20 → 붕괴 → 드롭
+    // 첫 아이템 시작 34.7, 끝 = 다음 시작 19.7 → 붕괴 → 드롭
     assert.deepEqual(snapped.map((item) => item.title), ["b"]);
   });
 });
@@ -130,15 +135,15 @@ describe("snapItemsToAnchorStarts", () => {
 describe("splitItemsAtInteriorAnchors", () => {
   const titleAt = (time: number) => `시각 ${time} 문장`;
 
-  it("splits merged items at interior anchor cuts and titles the new pieces", () => {
+  it("splits merged items at lead-adjusted interior anchor cuts and titles the new pieces", () => {
     const items = [
       { start: 349.6, end: 646.7, title: "병합 기사" },
       { start: 646.7, end: 691.4, title: "정상 기사" },
     ];
     const split = splitItemsAtInteriorAnchors(items, [[532.1], []], titleAt);
     assert.deepEqual(split, [
-      { start: 349.6, end: 532.1, title: "병합 기사" },
-      { start: 532.1, end: 646.7, title: "시각 532.1 문장" },
+      { start: 349.6, end: 531.8, title: "병합 기사" },
+      { start: 531.8, end: 646.7, title: "시각 531.8 문장" },
       { start: 646.7, end: 691.4, title: "정상 기사" },
     ]);
   });
@@ -146,8 +151,8 @@ describe("splitItemsAtInteriorAnchors", () => {
   it("ignores cuts too close to the edges and handles multiple cuts", () => {
     const items = [{ start: 0, end: 300, title: "긴 기사" }];
     const split = splitItemsAtInteriorAnchors(items, [[5, 100, 108, 200, 295]], titleAt);
-    // 5(시작 15초 이내)·108(직전 조각과 15초 미만)·295(끝 15초 이내)는 무시
-    assert.deepEqual(split.map((item) => [item.start, item.end]), [[0, 100], [100, 200], [200, 300]]);
+    // 리드 적용 후 4.7(시작 15초 이내)·107.7(직전 조각과 15초 미만)·294.7(끝 15초 이내)는 무시
+    assert.deepEqual(split.map((item) => [item.start, item.end]), [[0, 99.7], [99.7, 199.7], [199.7, 300]]);
   });
 
   it("returns items unchanged when no interior cuts exist", () => {
