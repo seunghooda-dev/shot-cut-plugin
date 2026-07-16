@@ -113,11 +113,10 @@ export function findShotSegments(
 }
 
 /**
- * 앵커 스냅 인점 리드(초) — 검출된 앵커 샷 시작보다 살짝 앞에 인점을 잡아 앵커의 첫
- * 프레임·첫 음절이 잘리지 않게 한다(§57 사용자 실측 피드백). 경계 자체가 앞으로 이동하므로
- * 이전 아이템의 끝도 함께 당겨져 아이템 사이 공백·중복은 생기지 않는다.
+ * 앵커 스냅 인점 리드(초) — §57에서 0.3s로 도입했으나 앞 기사 꼬리 그림이 보이는 부작용으로
+ * §61 사용자 지시에 따라 0으로 확정(인점 = 앵커 샷 전환 컷 정확히). 상수는 정책 기록용으로 유지.
  */
-export const NEWS_CUT_ANCHOR_LEAD_SECONDS = 0.3;
+export const NEWS_CUT_ANCHOR_LEAD_SECONDS = 0;
 
 /** 앵커 샷 시작 시각에 인점 리드를 적용한다(0.1초 반올림, 0 미만 방지). */
 function leadAdjusted(anchorStart: number): number {
