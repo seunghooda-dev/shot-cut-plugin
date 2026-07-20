@@ -124,12 +124,15 @@ import {
   buildAnchorMatcher,
   buildItemsFromStarts,
   collectAnchorCandidates,
+  detectModelStarts,
   detectStaticTailStart,
-  freeAnchorTimes,
+  hybridAnchorTimes,
   refineBoundaryToTransition,
+  scoreAnchorSamples,
   type GridSample,
 } from "./src/news-visual-cut";
 import { NEWS_ANCHOR_REFERENCE_GRIDS } from "./src/news-anchor-reference-grids";
+import { NEWS_ANCHOR_MODEL_BIAS, NEWS_ANCHOR_MODEL_WEIGHTS } from "./src/news-anchor-model";
 import { base64ToBytes, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
 import { LICENSE_CLOCK_KEY, LICENSE_STORAGE_KEY, licenseFailureMessage, verifyLicenseKey } from "./src/license";
 import { LICENSE_PUBLIC_KEY } from "./src/license-public-key";
@@ -2208,10 +2211,12 @@ async function handleNewsCutAuto(): Promise<void> {
     const candidates = collectAnchorCandidates(samples, matcher);
     if (candidates.length === 0) throw new Error("앵커 샷 후보를 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
     const tailStart = detectStaticTailStart(samples);
-    // 앵커 확정 — 완전 무료(외부 API 0회): 자동 임계 주 앵커 + 강한 저거리 런(숨은 단신 리드)
-    const accepted = freeAnchorTimes(candidates);
+    // 앵커 확정 — 완전 무료(외부 API 0회): 자동 임계 주 앵커 + 강한 런 + 학습 모델 고신뢰 검출
+    const probabilities = scoreAnchorSamples(samples, matcher, NEWS_ANCHOR_MODEL_WEIGHTS, NEWS_ANCHOR_MODEL_BIAS);
+    const modelStarts = detectModelStarts(samples, probabilities);
+    const accepted = hybridAnchorTimes(candidates, modelStarts);
     if (accepted.length === 0) throw new Error("앵커 샷을 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
-    activity.add("info", `원클릭 분할 · 화면 매칭 앵커 ${accepted.length}개(후보 ${candidates.length})`);
+    activity.add("info", `원클릭 분할 · 앵커 ${accepted.length}개(화면 매칭 후보 ${candidates.length} · 학습 모델 ${modelStarts.length})`);
     // 2/4 경계 정밀 재스냅(인점 = 전환 컷 정확히, §61)
     const rawItems = buildItemsFromStarts(accepted, tailStart ?? duration);
     if (rawItems.length === 0) throw new Error("보도 아이템을 구성하지 못했습니다.");

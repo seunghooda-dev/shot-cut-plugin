@@ -151,6 +151,65 @@ export function freeAnchorTimes(candidates: readonly AnchorCandidate[]): number[
   return accepted.sort((left, right) => left - right);
 }
 
+/** 학습 모델 검출을 채택하는 확률 임계 — LOO 교차검증에서 재현 93%·오분할 최소 지점. */
+export const VISUAL_MODEL_TAU = 0.75;
+
+/**
+ * 학습된 로지스틱 분류기로 각 샘플의 "앵커 리드" 확률을 계산한다(추론 무료, 외부 API 0회).
+ * 특징 = 144셀 luma/255 + 직전·직후 프레임차 + 참조 가중거리×4(학습 시와 동일 구성).
+ */
+export function scoreAnchorSamples(
+  samples: readonly GridSample[],
+  matcher: AnchorMatcher,
+  modelWeights: readonly number[],
+  modelBias: number,
+): number[] {
+  const usable = samples.filter((sample) => sample.grid);
+  const cells = usable[0]?.grid?.length ?? 0;
+  if (cells === 0 || modelWeights.length !== cells + 3) return usable.map(() => 0);
+  return usable.map((sample, index) => {
+    const prev = usable[index - 1];
+    const next = usable[index + 1];
+    let z = modelBias;
+    for (let cell = 0; cell < cells; cell += 1) z += modelWeights[cell]! * (sample.grid![cell]! / 255);
+    z += modelWeights[cells]! * (prev ? frameDifference(sample.grid!, prev.grid!) : 1);
+    z += modelWeights[cells + 1]! * (next ? frameDifference(sample.grid!, next.grid!) : 1);
+    z += modelWeights[cells + 2]! * Math.min(1, matcher.distance(sample.grid!) * 4);
+    return 1 / (1 + Math.exp(-z));
+  });
+}
+
+/** 확률 시계열에서 τ 초과 연속 런(≥2샘플)의 시작들을 앵커 후보 시각으로 돌려준다. */
+export function detectModelStarts(
+  samples: readonly GridSample[],
+  probabilities: readonly number[],
+  tau = VISUAL_MODEL_TAU,
+): number[] {
+  const usable = samples.filter((sample) => sample.grid);
+  const detections: number[] = [];
+  let run: { start: number; count: number } | null = null;
+  for (let index = 0; index < usable.length; index += 1) {
+    if ((probabilities[index] ?? 0) > tau) {
+      if (!run) run = { start: usable[index]!.time, count: 1 };
+      else run.count += 1;
+    } else if (run) {
+      if (run.count >= 2) detections.push(run.start);
+      run = null;
+    }
+  }
+  if (run !== null && (run as { count: number }).count >= 2) detections.push((run as { start: number }).start);
+  return detections;
+}
+
+/** 하이브리드 확정 — 현행 무료 결정(freeAnchorTimes)에 학습 모델 고신뢰 검출을 합친다(±8s 중복 제거). */
+export function hybridAnchorTimes(candidates: readonly AnchorCandidate[], modelStarts: readonly number[]): number[] {
+  const accepted = freeAnchorTimes(candidates);
+  for (const start of modelStarts) {
+    if (!accepted.some((time) => Math.abs(time - start) <= 8)) accepted.push(start);
+  }
+  return accepted.sort((left, right) => left - right);
+}
+
 /**
  * 구독 범퍼 자동 트림 — 스캔 샘플 끝에서 인접 휘도차가 정적 임계 미만으로 이어지는 접미 런이
  * 충분히 길면 그 시작을 마지막 아이템의 끝으로 쓴다(16회차 오프라인 검증 16/16 일치).

@@ -5,10 +5,13 @@ import {
   buildAnchorMatcher,
   buildItemsFromStarts,
   collectAnchorCandidates,
+  detectModelStarts,
   detectStaticTailStart,
   fallbackAnchorTimes,
   freeAnchorTimes,
+  hybridAnchorTimes,
   refineBoundaryToTransition,
+  scoreAnchorSamples,
   type AnchorCandidate,
   type GridSample,
 } from "../src/news-visual-cut";
@@ -99,6 +102,39 @@ describe("freeAnchorTimes", () => {
     const weakRun: AnchorCandidate = { time: 550, refDist: 0.12, kind: "run" };
     const nearMainRun: AnchorCandidate = { time: 104, refDist: 0.05, kind: "run" };
     const accepted = freeAnchorTimes([...shots, strongRun, weakRun, nearMainRun]);
+    assert.deepEqual(accepted, [0, 100, 200, 300, 400, 450]);
+  });
+});
+
+describe("scoreAnchorSamples · detectModelStarts · hybridAnchorTimes", () => {
+  it("참조 거리 특징에 반응하는 가중치로 앵커 구간만 높은 확률을 받는다", () => {
+    const matcher = buildAnchorMatcher([grid(100)]);
+    const samples = samplesFrom([
+      { from: 0, to: 8, value: 220 },
+      { from: 10, to: 16, value: 100 },  // 앵커 리드(4샘플)
+      { from: 18, to: 30, value: 220 },
+    ]);
+    const weights = new Array(CELLS + 3).fill(0);
+    weights[CELLS + 2] = -10; // 참조 거리 가까울수록 확률↑
+    const probabilities = scoreAnchorSamples(samples, matcher, weights, 5);
+    const starts = detectModelStarts(samples, probabilities, 0.75);
+    assert.deepEqual(starts, [10]);
+  });
+
+  it("가중치 길이가 특징 수와 다르면 전부 0으로 안전 강하한다", () => {
+    const matcher = buildAnchorMatcher([grid(100)]);
+    const samples = samplesFrom([{ from: 0, to: 10, value: 100 }]);
+    const probabilities = scoreAnchorSamples(samples, matcher, [1, 2, 3], 0);
+    assert.ok(probabilities.every((probability) => probability === 0));
+  });
+
+  it("하이브리드는 현행 결정에 모델 검출을 중복 없이 합친다", () => {
+    const shots: AnchorCandidate[] = [0.05, 0.06, 0.07, 0.08, 0.09, 0.19, 0.21].map((refDist, index) => ({
+      time: index * 100,
+      refDist,
+      kind: "shot" as const,
+    }));
+    const accepted = hybridAnchorTimes(shots, [104, 450]);
     assert.deepEqual(accepted, [0, 100, 200, 300, 400, 450]);
   });
 });
