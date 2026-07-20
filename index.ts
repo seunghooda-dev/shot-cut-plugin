@@ -120,6 +120,16 @@ import {
   splitItemsAtInteriorAnchors,
   type NewsItem,
 } from "./src/news-cut";
+import {
+  buildAnchorMatcher,
+  buildItemsFromStarts,
+  collectAnchorCandidates,
+  detectStaticTailStart,
+  fallbackAnchorTimes,
+  refineBoundaryToTransition,
+  type GridSample,
+} from "./src/news-visual-cut";
+import { NEWS_ANCHOR_REFERENCE_GRIDS } from "./src/news-anchor-reference-grids";
 import { base64ToBytes, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
 import { LICENSE_CLOCK_KEY, LICENSE_STORAGE_KEY, licenseFailureMessage, verifyLicenseKey } from "./src/license";
 import { LICENSE_PUBLIC_KEY } from "./src/license-public-key";
@@ -2031,15 +2041,49 @@ async function handleNewsCutCreate(): Promise<void> {
   await refreshStatus(true);
 }
 
-// 3단계 — 생성된 아이템 시퀀스를 내보내기 탭 프리셋·폴더로 일괄 내보낸다.
+// 내보내기 기본값(내부 베타, 사용자 지시 2026-07-20) — 내보내기 탭 설정이 없어도 원클릭이
+// 렌더까지 끝나도록 시스템 프리셋과 기존 산출물 폴더를 그대로 쓴다.
+const DEFAULT_EXPORT_PRESET_PATH =
+  "C:\\Program Files\\Adobe\\Adobe Premiere Pro 2026\\MediaIO\\systempresets\\4E49434B_48323634\\YouTube 1080p HD.epr";
+const DEFAULT_EXPORT_OUTPUT_DIR = "C:\\Users\\seung\\Videos\\premiere_내보내기";
+
+// 내보내기 대상 해석 — 내보내기 탭 프리셋·폴더 토큰이 있으면 그것을, 없으면 기본값을 쓴다.
+// 기본 폴더는 getEntryWithUrl로 실제 엔트리 취득을 시도해(성공 시 크기 안정화 폴링 가능) 실패하면
+// 경로 셸만 넘긴다 — 이때 완료 판정은 렌더 promise 해소가 맡는다(§40 경합 유지).
+async function resolveNewsCutExportTargets(): Promise<{ presetFile: any; outputFolder: any }> {
+  syncSettingsFromUI();
+  if (settings.presetToken && settings.outputFolderToken) {
+    const [presetFile, outputFolder] = await Promise.all([
+      requireStoredEntry(settings.presetToken, "내보내기 프리셋"),
+      requireStoredEntry(settings.outputFolderToken, "출력 폴더"),
+    ]);
+    return { presetFile, outputFolder };
+  }
+  activity.add("info", `내보내기 설정이 없어 기본값 사용 — ${DEFAULT_EXPORT_OUTPUT_DIR}`);
+  let outputFolder: any = { nativePath: DEFAULT_EXPORT_OUTPUT_DIR };
+  try {
+    const lfs = (require("uxp") as any)?.storage?.localFileSystem;
+    const url = `file:${DEFAULT_EXPORT_OUTPUT_DIR.replace(/\\/gu, "/")}`;
+    const entry = await lfs?.getEntryWithUrl?.(url);
+    if (entry?.isFolder) outputFolder = entry;
+  } catch {
+    // 접근이 막히면 경로 셸로 진행 — 렌더 자체는 Host가 경로 문자열로 수행한다.
+  }
+  return {
+    presetFile: { nativePath: DEFAULT_EXPORT_PRESET_PATH },
+    outputFolder,
+  };
+}
+
+// 3단계 — 생성된 아이템 시퀀스를 내보내기 탭 프리셋·폴더(없으면 기본값)로 일괄 내보낸다.
 // AME가 설치돼 있으면 대기열 추가, 없으면 Premiere 직접 렌더로 폴백한다.
 async function handleNewsCutExport(): Promise<void> {
   if (newsCutCreatedNames.length === 0) throw new Error("먼저 '아이템 시퀀스 생성'을 실행해 주세요.");
-  syncSettingsFromUI();
-  const [presetFile, outputFolder] = await Promise.all([
-    requireStoredEntry(settings.presetToken, "내보내기 프리셋"),
-    requireStoredEntry(settings.outputFolderToken, "출력 폴더"),
-  ]);
+  const targets = await resolveNewsCutExportTargets();
+  await exportNewsSequencesWith(targets.presetFile, targets.outputFolder);
+}
+
+async function exportNewsSequencesWith(presetFile: any, outputFolder: any): Promise<void> {
   if (!ameInstalled()) {
     activity.add("info", "AME 미설치 — Premiere 직접 렌더로 내보냅니다.");
     const result = await busy.during(`${newsCutCreatedNames.length}개 렌더 중…`, () =>
@@ -2108,31 +2152,142 @@ async function handleNewsCutCleanup(): Promise<void> {
   await refreshStatus(true);
 }
 
-// 원클릭 분할 — 활성 시퀀스에서 STT→분석→생성→(내보내기 설정 시) 일괄 내보내기까지 한 번에.
+// 원클릭 분할 — STT·자막 없이 화면(앵커 샷) 분석만으로 분할하고, 내보내기 설정이 없으면
+// 기본 프리셋·폴더로 렌더까지 한 번에 끝낸다(설계: newscut-visual-oneclick.design.md).
 async function handleNewsCutAuto(): Promise<void> {
-  activity.add("info", "원클릭 분할 · 1/4 시퀀스 STT");
-  await transcribeActiveSequence();
-  const doc = subtitleController?.document;
-  if (!doc || doc.cues.length === 0) {
-    throw new Error("STT가 자막을 만들지 못해 원클릭 분할을 중단합니다(로그의 STT 오류를 확인하세요).");
-  }
-  activity.add("info", "원클릭 분할 · 2/4 보도 아이템 분석");
-  await handleNewsCutAnalyze();
-  if (newsCutItems.length === 0) return; // 분석 단계에서 이미 경고를 남겼다
-  activity.add("info", "원클릭 분할 · 3/4 아이템 시퀀스 생성");
+  const api = frameDataFolderApi();
+  if (!api) throw new Error("프레임 내보내기 API를 사용할 수 없습니다.");
+  const status = await readSequenceStatus();
+  const duration = Number(status.sequenceEnd) || 0;
+  if (!(duration > 60)) throw new Error("활성 시퀀스가 없거나 너무 짧습니다 — 1분 이상 뉴스 방송 시퀀스를 활성화해 주세요.");
+  newsCutSourceKey = await readActiveContextKey().catch(() => "");
+  const dataFolder = await api.fileSystem.getDataFolder();
+  // 같은 시각 재요청(경계 재스냅)이 잦아 시각별 그리드를 메모한다.
+  const gridCache = new Map<number, Float64Array | null>();
+  const grabGrid = async (time: number): Promise<Float64Array | null> => {
+    const key = Math.round(time * 100);
+    if (gridCache.has(key)) return gridCache.get(key)!;
+    let grid: Float64Array | null = null;
+    try {
+      const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 96, undefined, "bmp");
+      const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+      try {
+        const entry = await dataFolder.getEntry(filename);
+        await entry.delete();
+      } catch {
+        // 임시 파일 삭제 실패는 무시
+      }
+      const bmp = bytes ? parseBmp24(bytes) : null;
+      grid = bmp ? lumaGrid(bmp) : null;
+    } catch {
+      grid = null;
+    }
+    gridCache.set(key, grid);
+    return grid;
+  };
+
+  const items = await busy.during("원클릭 분할 · 화면 스캔 준비 중…", async () => {
+    // 1/4 코스 스캔(2s 그리드)
+    const samples: GridSample[] = [];
+    const total = Math.floor((duration - 1) / 2) + 1;
+    for (let time = 0; time <= duration - 1; time += 2) {
+      samples.push({ time, grid: await grabGrid(time) });
+      if (samples.length % 20 === 0) {
+        setText("busy-message", `1/4 화면 스캔 ${samples.length}/${total}…`);
+        busy.progress((samples.length / Math.max(1, total)) * 45);
+      }
+    }
+    // 2/4 후보 도출(무료 화면 매칭) + 아웃트로(구독 범퍼) 검출
+    const matcher = buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS);
+    const candidates = collectAnchorCandidates(samples, matcher);
+    if (candidates.length === 0) throw new Error("앵커 샷 후보를 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
+    const tailStart = detectStaticTailStart(samples);
+    // 3/4 앵커 판정 — 비전 분류(학습 코퍼스 참조), 실패 시 화면 매칭 전용으로 강등
+    let accepted: number[];
+    try {
+      ensureAiConsent("원클릭 분할 앵커 샷 판정");
+      const frames: Array<{ time: number; bytes: Uint8Array }> = [];
+      for (const [index, candidate] of candidates.entries()) {
+        setText("busy-message", `3/4 후보 프레임 수집 ${index + 1}/${candidates.length}…`);
+        busy.progress(50 + (10 * index) / candidates.length);
+        try {
+          const { filename } = await exportFrameToFolder(candidate.time + 1, String(dataFolder.nativePath), 272);
+          const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+          try {
+            const entry = await dataFolder.getEntry(filename);
+            await entry.delete();
+          } catch {
+            // 임시 파일 삭제 실패는 무시
+          }
+          if (bytes) frames.push({ time: candidate.time, bytes });
+        } catch {
+          // 후보 하나 실패는 무시
+        }
+      }
+      if (frames.length === 0) throw new Error("후보 프레임을 내보내지 못했습니다.");
+      const references = loadAnchorExemplars()
+        .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
+        .filter((reference) => looksCompleteImage(reference.bytes, "png"))
+        .slice(0, 5);
+      const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
+      const flags = new Array<boolean>(frames.length).fill(false);
+      const batchSize = Math.max(4, 12 - references.length);
+      for (let offset = 0; offset < frames.length; offset += batchSize) {
+        setText("busy-message", `3/4 앵커 샷 판정 ${Math.min(offset + batchSize, frames.length)}/${frames.length}…`);
+        busy.progress(62 + (18 * offset) / frames.length);
+        const chunk = frames.slice(offset, offset + batchSize);
+        const results = await client.classifyAnchorShots(
+          chunk.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" })),
+          references,
+        );
+        for (const result of results) {
+          if (result.isAnchor && result.confidence >= 0.6) flags[offset + result.index] = true;
+        }
+      }
+      accepted = frames.filter((_, index) => flags[index]).map((frame) => frame.time);
+      if (accepted.length === 0) throw new Error("비전이 앵커 샷을 하나도 인정하지 않았습니다.");
+      activity.add("info", `원클릭 분할 · 비전 판정 앵커 ${accepted.length}/${candidates.length}`);
+    } catch (error) {
+      accepted = fallbackAnchorTimes(candidates);
+      activity.add("warning", `비전 판정 생략(${errorMessage(error)}) — 화면 매칭만으로 진행합니다(숨은 단신을 놓칠 수 있음).`);
+      if (accepted.length === 0) {
+        throw new Error("앵커 샷을 찾지 못했습니다 — AI 설정(API 키)을 확인하거나 세부 단계 버튼을 사용해 주세요.");
+      }
+    }
+    // 4/4 경계 정밀 재스냅(인점 = 전환 컷 정확히, §61)
+    const rawItems = buildItemsFromStarts(accepted, tailStart ?? duration);
+    if (rawItems.length === 0) throw new Error("보도 아이템을 구성하지 못했습니다.");
+    const bounds = [...rawItems.map((item) => item.start), rawItems.at(-1)!.end];
+    const refined: number[] = [];
+    for (const [index, bound] of bounds.entries()) {
+      setText("busy-message", `4/4 경계 재스냅 ${index + 1}/${bounds.length}…`);
+      busy.progress(80 + (18 * index) / bounds.length);
+      refined.push(await refineBoundaryToTransition(grabGrid, bound));
+    }
+    if (tailStart !== null) {
+      activity.add("info", `원클릭 분할 · 아웃트로(구독 범퍼) ${Math.round(refined.at(-1)! * 10) / 10}s부터 제외`);
+    }
+    return refined.slice(0, -1)
+      .map((start, index) => ({
+        start,
+        end: refined[index + 1]!,
+        title: `아이템 ${index + 1}`,
+      }))
+      .filter((item) => item.end - item.start > 1);
+  });
+
+  newsCutItems = items;
+  newsCutCreatedNames = [];
+  renderNewsCutList();
+  if (items.length === 0) throw new Error("보도 아이템을 만들지 못했습니다.");
+  activity.add("success", `원클릭 분할 · 화면 분석 아이템 ${items.length}개`);
   await handleNewsCutCreate();
   if (newsCutCreatedNames.length === 0) {
     throw new Error("아이템 시퀀스가 만들어지지 않아 내보내기를 건너뜁니다.");
   }
-  syncSettingsFromUI();
-  if (!settings.presetToken || !settings.outputFolderToken) {
-    activity.add("warning", "내보내기 프리셋·폴더가 없어 시퀀스 생성까지 완료했습니다 — 내보내기 탭에서 설정 후 '일괄 내보내기'를 누르세요.");
-    toast("원클릭 분할 · 시퀀스 생성까지 완료(내보내기 설정 필요)", "warning", 6000);
-    return;
-  }
-  activity.add("info", "원클릭 분할 · 4/4 일괄 내보내기");
-  await handleNewsCutExport();
-  activity.add("success", "원클릭 분할 완료");
+  const targets = await resolveNewsCutExportTargets();
+  await exportNewsSequencesWith(targets.presetFile, targets.outputFolder);
+  activity.add("success", "원클릭 분할 완료 — 출력 폴더를 확인하세요.");
 }
 
 // 업로드 패키지 내보내기 — 자막 SRT·유튜브 메타·썸네일 SVG·권리 리포트를 폴더 하나로 묶는다(로드맵 18).
