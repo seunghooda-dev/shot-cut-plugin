@@ -7,6 +7,7 @@ import {
   collectAnchorCandidates,
   detectStaticTailStart,
   fallbackAnchorTimes,
+  freeAnchorTimes,
   refineBoundaryToTransition,
   type AnchorCandidate,
   type GridSample,
@@ -84,6 +85,21 @@ describe("fallbackAnchorTimes", () => {
     const runs: AnchorCandidate[] = [{ time: 999, refDist: 0.01, kind: "run" }];
     const accepted = fallbackAnchorTimes([...shots, ...runs]);
     assert.deepEqual(accepted, [0, 100, 200, 300, 400]);
+  });
+});
+
+describe("freeAnchorTimes", () => {
+  it("주 앵커에 강한 저거리 런(숨은 단신)을 더하고, 약한 런은 버린다", () => {
+    const shots: AnchorCandidate[] = [0.05, 0.06, 0.07, 0.08, 0.09, 0.19, 0.21].map((refDist, index) => ({
+      time: index * 100,
+      refDist,
+      kind: "shot" as const,
+    }));
+    const strongRun: AnchorCandidate = { time: 450, refDist: 0.07, kind: "run" };
+    const weakRun: AnchorCandidate = { time: 550, refDist: 0.12, kind: "run" };
+    const nearMainRun: AnchorCandidate = { time: 104, refDist: 0.05, kind: "run" };
+    const accepted = freeAnchorTimes([...shots, strongRun, weakRun, nearMainRun]);
+    assert.deepEqual(accepted, [0, 100, 200, 300, 400, 450]);
   });
 });
 

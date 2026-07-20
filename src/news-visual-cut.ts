@@ -130,6 +130,28 @@ export function fallbackAnchorTimes(candidates: readonly AnchorCandidate[]): num
 }
 
 /**
+ * 숨은 단신 분리로 인정하는 런 후보의 참조 거리 상한 — 16회차 실측에서 참 단신 리드는
+ * 0.069~0.124, 확실한 오탐(본회의장 0.073 등)과 완전 분리가 불가능해 보수적으로 잡는다
+ * (잘못된 분할(기사 중간 시작)이 병합 누락보다 사용자 체감 결함이 크다 — §59·§61 피드백).
+ */
+export const VISUAL_RUN_SPLIT_MAX_DIST = 0.085;
+
+/**
+ * 완전 무료 앵커 확정 — 자동 임계 긴 샷(주 앵커) + 강한 저거리 런(숨은 단신 리드)을 합친다.
+ * 외부 API 없이 화면 매칭만 쓴다. 임계를 넘는 약한 런은 채택하지 않는다(오탐 방지 우선).
+ */
+export function freeAnchorTimes(candidates: readonly AnchorCandidate[]): number[] {
+  const mains = fallbackAnchorTimes(candidates);
+  const accepted = [...mains];
+  for (const candidate of candidates) {
+    if (candidate.kind !== "run" || candidate.refDist >= VISUAL_RUN_SPLIT_MAX_DIST) continue;
+    if (accepted.some((time) => Math.abs(time - candidate.time) <= 8)) continue;
+    accepted.push(candidate.time);
+  }
+  return accepted.sort((left, right) => left - right);
+}
+
+/**
  * 구독 범퍼 자동 트림 — 스캔 샘플 끝에서 인접 휘도차가 정적 임계 미만으로 이어지는 접미 런이
  * 충분히 길면 그 시작을 마지막 아이템의 끝으로 쓴다(16회차 오프라인 검증 16/16 일치).
  */

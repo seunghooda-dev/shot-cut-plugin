@@ -273,10 +273,22 @@
               <span class="section-number" aria-hidden="true">01</span>
               <div>
                 <h3>보도 아이템</h3>
-                <p>원클릭은 자막 없이 화면(앵커 샷) 분석으로 동작합니다. 자막 기반 세부 단계를 쓰려면 TTS·STT 탭에서 자막을 만든 뒤 분석 → 생성 → 내보내기 순서로 진행하세요.</p>
+                <p>활성 시퀀스의 화면(앵커 샷)만 분석해 무료로 분할하고, 시퀀스 생성과 내보내기까지 자동으로 진행합니다.</p>
               </div>
             </div>
-            <button id="news-cut-auto-btn" class="primary-button full-width-button" type="button" title="활성 시퀀스 화면을 스캔해 앵커 샷 기준으로 분할하고, 시퀀스 생성과 내보내기까지 한 번에 실행합니다(자막·STT 불필요). 내보내기 탭 설정이 없으면 기본 프리셋(YouTube 1080p HD)과 기본 폴더(Videos\premiere_내보내기)를 씁니다.">원클릭 분할 — 화면 분석부터 내보내기까지</button>
+            <div class="file-picker-stack">
+              <div class="file-picker-row">
+                <div class="file-summary">
+                  <span class="file-icon folder-icon" aria-hidden="true">DIR</span>
+                  <div>
+                    <span class="file-label">내보내기 폴더</span>
+                    <strong id="news-cut-folder-name" title="">기본: premiere_내보내기</strong>
+                  </div>
+                </div>
+                <button id="news-cut-folder-btn" class="secondary-button" type="button" title="분할 결과물이 저장될 폴더를 선택합니다. 선택하지 않으면 기본 폴더(Videos\premiere_내보내기)에 저장됩니다.">폴더 선택</button>
+              </div>
+            </div>
+            <button id="news-cut-auto-btn" class="primary-button full-width-button" type="button" title="활성 시퀀스 화면을 스캔해 앵커 샷 기준으로 분할하고, 시퀀스 생성과 내보내기까지 한 번에 실행합니다. 외부 API 없이 무료로 동작하며, 진행 상황은 단계별 퍼센트로 표시됩니다.">원클릭 분할 — 화면 분석부터 내보내기까지</button>
             <div class="form-actions automation-actions">
               <button id="news-cut-analyze-btn" class="secondary-button" type="button" title="자막에서 앵커 리드 기준으로 보도 아이템 경계를 AI 분석합니다.">보도 아이템 분석</button>
               <button id="news-cut-create-btn" class="secondary-button" type="button" disabled title="선택한 아이템마다 원본을 복제·트림한 시퀀스를 만듭니다.">아이템 시퀀스 생성</button>

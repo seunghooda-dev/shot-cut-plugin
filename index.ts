@@ -125,7 +125,7 @@ import {
   buildItemsFromStarts,
   collectAnchorCandidates,
   detectStaticTailStart,
-  fallbackAnchorTimes,
+  freeAnchorTimes,
   refineBoundaryToTransition,
   type GridSample,
 } from "./src/news-visual-cut";
@@ -711,6 +711,7 @@ function applySettingsToUI(): void {
   setValue("export-range-select", settings.exportRange);
   setText("preset-name", settings.presetName || "선택되지 않음", settings.presetName);
   setText("output-name", settings.outputFolderName || "선택되지 않음", settings.outputFolderName);
+  renderNewsCutFolderLabel();
   setText("mogrt-name", settings.mogrtName || "선택되지 않음", settings.mogrtName);
   setText("asset-root-name", settings.assetRootName || "선택되지 않음", settings.assetRootName);
   setValue("ai-provider-select", settings.aiProvider);
@@ -895,6 +896,7 @@ function applyPersistentResult(
     settings.outputFolderToken = result.token;
     settings.outputFolderName = result.name;
     setText("output-name", result.name, result.nativePath);
+    renderNewsCutFolderLabel();
   } else {
     settings.mogrtToken = result.token;
     settings.mogrtName = result.name;
@@ -2047,19 +2049,19 @@ const DEFAULT_EXPORT_PRESET_PATH =
   "C:\\Program Files\\Adobe\\Adobe Premiere Pro 2026\\MediaIO\\systempresets\\4E49434B_48323634\\YouTube 1080p HD.epr";
 const DEFAULT_EXPORT_OUTPUT_DIR = "C:\\Users\\seung\\Videos\\premiere_내보내기";
 
-// 내보내기 대상 해석 — 내보내기 탭 프리셋·폴더 토큰이 있으면 그것을, 없으면 기본값을 쓴다.
+// 내보내기 대상 해석 — 프리셋·폴더를 각각 독립적으로 결정한다(선택된 토큰 우선, 없으면 기본값).
 // 기본 폴더는 getEntryWithUrl로 실제 엔트리 취득을 시도해(성공 시 크기 안정화 폴링 가능) 실패하면
 // 경로 셸만 넘긴다 — 이때 완료 판정은 렌더 promise 해소가 맡는다(§40 경합 유지).
 async function resolveNewsCutExportTargets(): Promise<{ presetFile: any; outputFolder: any }> {
   syncSettingsFromUI();
-  if (settings.presetToken && settings.outputFolderToken) {
-    const [presetFile, outputFolder] = await Promise.all([
-      requireStoredEntry(settings.presetToken, "내보내기 프리셋"),
-      requireStoredEntry(settings.outputFolderToken, "출력 폴더"),
-    ]);
+  const presetFile = settings.presetToken
+    ? await requireStoredEntry(settings.presetToken, "내보내기 프리셋")
+    : { nativePath: DEFAULT_EXPORT_PRESET_PATH };
+  if (settings.outputFolderToken) {
+    const outputFolder = await requireStoredEntry(settings.outputFolderToken, "출력 폴더");
     return { presetFile, outputFolder };
   }
-  activity.add("info", `내보내기 설정이 없어 기본값 사용 — ${DEFAULT_EXPORT_OUTPUT_DIR}`);
+  activity.add("info", `내보내기 폴더 미지정 — 기본 폴더 사용: ${DEFAULT_EXPORT_OUTPUT_DIR}`);
   let outputFolder: any = { nativePath: DEFAULT_EXPORT_OUTPUT_DIR };
   try {
     const lfs = (require("uxp") as any)?.storage?.localFileSystem;
@@ -2069,10 +2071,13 @@ async function resolveNewsCutExportTargets(): Promise<{ presetFile: any; outputF
   } catch {
     // 접근이 막히면 경로 셸로 진행 — 렌더 자체는 Host가 경로 문자열로 수행한다.
   }
-  return {
-    presetFile: { nativePath: DEFAULT_EXPORT_PRESET_PATH },
-    outputFolder,
-  };
+  return { presetFile, outputFolder };
+}
+
+// 뉴스 분할 탭의 내보내기 폴더 표시 — 선택된 폴더가 없으면 기본 폴더를 안내한다.
+function renderNewsCutFolderLabel(): void {
+  const label = settings.outputFolderName || "기본: premiere_내보내기";
+  setText("news-cut-folder-name", label, settings.outputFolderName ? "" : DEFAULT_EXPORT_OUTPUT_DIR);
 }
 
 // 3단계 — 생성된 아이템 시퀀스를 내보내기 탭 프리셋·폴더(없으면 기본값)로 일괄 내보낸다.
@@ -2192,9 +2197,10 @@ async function handleNewsCutAuto(): Promise<void> {
     const total = Math.floor((duration - 1) / 2) + 1;
     for (let time = 0; time <= duration - 1; time += 2) {
       samples.push({ time, grid: await grabGrid(time) });
-      if (samples.length % 20 === 0) {
-        setText("busy-message", `1/4 화면 스캔 ${samples.length}/${total}…`);
-        busy.progress((samples.length / Math.max(1, total)) * 45);
+      if (samples.length % 10 === 0) {
+        const percent = Math.round((samples.length / Math.max(1, total)) * 100);
+        setText("busy-message", `1/4 화면 스캔 ${samples.length}/${total} · ${percent}%`);
+        busy.progress(percent);
       }
     }
     // 2/4 후보 도출(무료 화면 매칭) + 아웃트로(구독 범퍼) 검출
@@ -2202,66 +2208,19 @@ async function handleNewsCutAuto(): Promise<void> {
     const candidates = collectAnchorCandidates(samples, matcher);
     if (candidates.length === 0) throw new Error("앵커 샷 후보를 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
     const tailStart = detectStaticTailStart(samples);
-    // 3/4 앵커 판정 — 비전 분류(학습 코퍼스 참조), 실패 시 화면 매칭 전용으로 강등
-    let accepted: number[];
-    try {
-      ensureAiConsent("원클릭 분할 앵커 샷 판정");
-      const frames: Array<{ time: number; bytes: Uint8Array }> = [];
-      for (const [index, candidate] of candidates.entries()) {
-        setText("busy-message", `3/4 후보 프레임 수집 ${index + 1}/${candidates.length}…`);
-        busy.progress(50 + (10 * index) / candidates.length);
-        try {
-          const { filename } = await exportFrameToFolder(candidate.time + 1, String(dataFolder.nativePath), 272);
-          const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-          try {
-            const entry = await dataFolder.getEntry(filename);
-            await entry.delete();
-          } catch {
-            // 임시 파일 삭제 실패는 무시
-          }
-          if (bytes) frames.push({ time: candidate.time, bytes });
-        } catch {
-          // 후보 하나 실패는 무시
-        }
-      }
-      if (frames.length === 0) throw new Error("후보 프레임을 내보내지 못했습니다.");
-      const references = loadAnchorExemplars()
-        .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
-        .filter((reference) => looksCompleteImage(reference.bytes, "png"))
-        .slice(0, 5);
-      const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
-      const flags = new Array<boolean>(frames.length).fill(false);
-      const batchSize = Math.max(4, 12 - references.length);
-      for (let offset = 0; offset < frames.length; offset += batchSize) {
-        setText("busy-message", `3/4 앵커 샷 판정 ${Math.min(offset + batchSize, frames.length)}/${frames.length}…`);
-        busy.progress(62 + (18 * offset) / frames.length);
-        const chunk = frames.slice(offset, offset + batchSize);
-        const results = await client.classifyAnchorShots(
-          chunk.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" })),
-          references,
-        );
-        for (const result of results) {
-          if (result.isAnchor && result.confidence >= 0.6) flags[offset + result.index] = true;
-        }
-      }
-      accepted = frames.filter((_, index) => flags[index]).map((frame) => frame.time);
-      if (accepted.length === 0) throw new Error("비전이 앵커 샷을 하나도 인정하지 않았습니다.");
-      activity.add("info", `원클릭 분할 · 비전 판정 앵커 ${accepted.length}/${candidates.length}`);
-    } catch (error) {
-      accepted = fallbackAnchorTimes(candidates);
-      activity.add("warning", `비전 판정 생략(${errorMessage(error)}) — 화면 매칭만으로 진행합니다(숨은 단신을 놓칠 수 있음).`);
-      if (accepted.length === 0) {
-        throw new Error("앵커 샷을 찾지 못했습니다 — AI 설정(API 키)을 확인하거나 세부 단계 버튼을 사용해 주세요.");
-      }
-    }
-    // 4/4 경계 정밀 재스냅(인점 = 전환 컷 정확히, §61)
+    // 앵커 확정 — 완전 무료(외부 API 0회): 자동 임계 주 앵커 + 강한 저거리 런(숨은 단신 리드)
+    const accepted = freeAnchorTimes(candidates);
+    if (accepted.length === 0) throw new Error("앵커 샷을 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
+    activity.add("info", `원클릭 분할 · 화면 매칭 앵커 ${accepted.length}개(후보 ${candidates.length})`);
+    // 2/4 경계 정밀 재스냅(인점 = 전환 컷 정확히, §61)
     const rawItems = buildItemsFromStarts(accepted, tailStart ?? duration);
     if (rawItems.length === 0) throw new Error("보도 아이템을 구성하지 못했습니다.");
     const bounds = [...rawItems.map((item) => item.start), rawItems.at(-1)!.end];
     const refined: number[] = [];
     for (const [index, bound] of bounds.entries()) {
-      setText("busy-message", `4/4 경계 재스냅 ${index + 1}/${bounds.length}…`);
-      busy.progress(80 + (18 * index) / bounds.length);
+      const percent = Math.round((index / Math.max(1, bounds.length)) * 100);
+      setText("busy-message", `2/4 경계 재스냅 ${index + 1}/${bounds.length} · ${percent}%`);
+      busy.progress(percent);
       refined.push(await refineBoundaryToTransition(grabGrid, bound));
     }
     if (tailStart !== null) {
@@ -2715,6 +2674,7 @@ function bindCoreEvents(): void {
   bind("news-cut-create-btn", "click", guarded(handleNewsCutCreate, "뉴스 분할 시퀀스 생성 실패"));
   bind("news-cut-export-btn", "click", guarded(handleNewsCutExport, "뉴스 분할 내보내기 실패"));
   bind("news-cut-cleanup-btn", "click", guarded(handleNewsCutCleanup, "뉴스 분할 아이템 정리 실패"));
+  bind("news-cut-folder-btn", "click", guarded(handleChooseOutput, "내보내기 폴더 선택 실패"));
   bind("license-apply-btn", "click", handleLicenseApply);
   bind("learn-clear-btn", "click", guarded(async () => handleLearnClear(), "학습 초기화 실패"));
   bind("scan-markers-btn", "click", guarded(() => markersQcPanel.scanMarkers(), "마커 검색 실패"));
