@@ -27,10 +27,20 @@ export async function parseArrayConst(filePath, constName) {
   return new Function(`return ${source.slice(open, end)}`)();
 }
 
-/** 배포 참조 그리드로 만든 매처 — 추론과 동일 인스턴스 조건. */
-export async function loadMatcher() {
-  const grids = await parseArrayConst(path.join(ROOT, "src", "news-anchor-reference-grids.ts"), "NEWS_ANCHOR_REFERENCE_GRIDS");
-  return visual.buildAnchorMatcher(grids);
+/** 배포 참조 뱅크(평일·신형) 매처 배열 — 회차별로 selectAnchorMatcher 로 라우팅(index.ts와 동일). */
+export async function loadMatcherBanks() {
+  const file = path.join(ROOT, "src", "news-anchor-reference-grids.ts");
+  const banks = [];
+  for (const constName of ["NEWS_ANCHOR_REFERENCE_GRIDS", "NEWS_ANCHOR_REFERENCE_GRIDS_SUNDAY_NEW"]) {
+    const grids = await parseArrayConst(file, constName);
+    if (Array.isArray(grids) && grids.length > 0) banks.push(visual.buildAnchorMatcher(grids));
+  }
+  return banks;
+}
+
+/** 회차 스캔에 대한 라우팅 매처 — 추론(index.ts)과 동일한 선택 규칙. */
+export function routeMatcher(episode, banks) {
+  return visual.selectAnchorMatcher(episode.samples, banks);
 }
 
 /** src/news-anchor-model.ts 의 현재(커밋) 가중치. */

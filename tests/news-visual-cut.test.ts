@@ -5,6 +5,7 @@ import {
   buildAnchorMatcher,
   buildItemsFromStarts,
   collectAnchorCandidates,
+  selectAnchorMatcher,
   detectModelStarts,
   detectStaticTailStart,
   fallbackAnchorTimes,
@@ -44,6 +45,34 @@ describe("buildAnchorMatcher", () => {
   it("셀 수가 다른 그리드는 무한대 거리로 거른다", () => {
     const matcher = buildAnchorMatcher([grid(100)]);
     assert.equal(matcher.distance(new Float64Array(10)), Number.POSITIVE_INFINITY);
+  });
+});
+
+describe("selectAnchorMatcher", () => {
+  it("단일 매처는 그대로 돌려준다", () => {
+    const single = buildAnchorMatcher([grid(100)]);
+    assert.equal(selectAnchorMatcher([], [single]), single);
+  });
+
+  it("특수 뱅크가 압도적으로 가까울 때만 라우팅한다(포맷별 분리)", () => {
+    const weekday = buildAnchorMatcher([grid(100), grid(102)]);
+    const sunday = buildAnchorMatcher([grid(30), grid(32)]);
+    const weekdayScan = samplesFrom([{ from: 0, to: 20, value: 210 }, { from: 22, to: 30, value: 101 }]);
+    assert.equal(selectAnchorMatcher(weekdayScan, [weekday, sunday]), weekday);
+    const sundayScan = samplesFrom([{ from: 0, to: 20, value: 210 }, { from: 22, to: 30, value: 31 }]);
+    assert.equal(selectAnchorMatcher(sundayScan, [weekday, sunday]), sunday);
+  });
+
+  it("근소하게 가까운 특수 뱅크에는 라우팅하지 않는다(평일 우선)", () => {
+    const weekday = buildAnchorMatcher([grid(100), grid(102)]);
+    const near = buildAnchorMatcher([grid(120), grid(122)]);
+    // 평일 최소거리도 충분히 작아(101≈100) 근소 차 특수 뱅크(118≈120)는 기각돼야 한다.
+    const scan = samplesFrom([{ from: 0, to: 10, value: 101 }, { from: 12, to: 20, value: 118 }]);
+    assert.equal(selectAnchorMatcher(scan, [weekday, near]), weekday);
+  });
+
+  it("빈 매처 배열은 던진다", () => {
+    assert.throws(() => selectAnchorMatcher([], []));
   });
 });
 

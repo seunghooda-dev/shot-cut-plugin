@@ -124,6 +124,7 @@ import {
   buildAnchorMatcher,
   buildItemsFromStarts,
   collectAnchorCandidates,
+  selectAnchorMatcher,
   detectModelStarts,
   detectStaticTailStart,
   hybridAnchorTimes,
@@ -131,7 +132,10 @@ import {
   scoreAnchorSamples,
   type GridSample,
 } from "./src/news-visual-cut";
-import { NEWS_ANCHOR_REFERENCE_GRIDS } from "./src/news-anchor-reference-grids";
+import {
+  NEWS_ANCHOR_REFERENCE_GRIDS,
+  NEWS_ANCHOR_REFERENCE_GRIDS_SUNDAY_NEW,
+} from "./src/news-anchor-reference-grids";
 import { NEWS_ANCHOR_MODEL_BIAS, NEWS_ANCHOR_MODEL_WEIGHTS } from "./src/news-anchor-model";
 import { base64ToBytes, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
 import { LICENSE_CLOCK_KEY, LICENSE_STORAGE_KEY, licenseFailureMessage, verifyLicenseKey } from "./src/license";
@@ -2206,8 +2210,11 @@ async function handleNewsCutAuto(): Promise<void> {
         busy.progress(percent);
       }
     }
-    // 2/4 후보 도출(무료 화면 매칭) + 아웃트로(구독 범퍼) 검출
-    const matcher = buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS);
+    // 2/4 후보 도출(무료 화면 매칭) + 아웃트로(구독 범퍼) 검출 — 포맷 라우팅(평일·레터박스·신형 중 최근접 뱅크)
+    const matcher = selectAnchorMatcher(samples, [
+      buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS),
+      buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS_SUNDAY_NEW),
+    ]);
     const candidates = collectAnchorCandidates(samples, matcher);
     if (candidates.length === 0) throw new Error("앵커 샷 후보를 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
     const tailStart = detectStaticTailStart(samples);

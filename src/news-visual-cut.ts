@@ -57,6 +57,41 @@ export function buildAnchorMatcher(referenceGrids: ReadonlyArray<ArrayLike<numbe
   };
 }
 
+/**
+ * 에피소드 단위 포맷 라우팅 — 스캔 전체에서 최소 거리가 가장 낮은 뱅크 하나를 고른다.
+ * 회차는 한 포맷이므로(평일/레터박스/신형) 다른 포맷 뱅크를 섞지 않아 교차 오탐이 없고,
+ * 평일 회차는 항상 첫 번째(평일) 뱅크로 라우팅돼 기존 동작이 그대로 보존된다(min 합성은
+ * 전 회차 FP 급증으로 기각 — sunday-format-reference-bank.design.md).
+ */
+/** 특수 포맷 뱅크 채택 상한 — 진짜 포맷 일치는 0.001~0.025, 평일 오라우팅은 0.07~0.09 실측(완벽 분리). */
+const ROUTE_MAX_DIST = 0.05;
+const ROUTE_RATIO = 0.5;
+
+export function selectAnchorMatcher(samples: readonly GridSample[], matchers: readonly AnchorMatcher[]): AnchorMatcher {
+  if (matchers.length === 0) throw new Error("선택할 매처가 없습니다.");
+  if (matchers.length === 1) return matchers[0]!;
+  const minDistOf = (matcher: AnchorMatcher): number => {
+    let minDist = Number.POSITIVE_INFINITY;
+    for (const sample of samples) {
+      if (!sample.grid) continue;
+      minDist = Math.min(minDist, matcher.distance(sample.grid));
+    }
+    return minDist;
+  };
+  const primary = minDistOf(matchers[0]!);
+  let best = 0;
+  let bestDist = primary;
+  for (let index = 1; index < matchers.length; index += 1) {
+    const minDist = minDistOf(matchers[index]!);
+    // 기본(평일) 뱅크가 우선 — 특수 뱅크는 압도적으로 가까울 때만 채택(근소 차 오라우팅 방지).
+    if (minDist < ROUTE_MAX_DIST && minDist < primary * ROUTE_RATIO && minDist < bestDist) {
+      bestDist = minDist;
+      best = index;
+    }
+  }
+  return matchers[best]!;
+}
+
 export interface AnchorCandidate {
   time: number;
   refDist: number;

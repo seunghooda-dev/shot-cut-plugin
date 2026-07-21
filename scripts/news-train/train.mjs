@@ -1,7 +1,7 @@
 // 뉴스 앵커 분류기 학습 — 홀드아웃 F1 기준 하이퍼파라미터 스윕, 커밋 모델 대비 개선 시에만 --write 반영.
 import { writeFile } from "node:fs/promises";
 import {
-  MODEL_PATH, listEpisodes, loadEpisode, loadMatcher, loadCurrentModel,
+  MODEL_PATH, listEpisodes, loadEpisode, loadMatcherBanks, routeMatcher, loadCurrentModel,
   buildFeatureRows, predictItemStarts, boundaryF1, trainLogistic, formatMetrics,
 } from "./lib.mjs";
 
@@ -21,7 +21,7 @@ const write = args.includes("--write");
 const holdoutArg = args.find((arg) => arg.startsWith("--holdout="));
 const holdout = holdoutArg ? holdoutArg.slice("--holdout=".length).split(",") : DEFAULT_HOLDOUT;
 
-const matcher = await loadMatcher();
+const banks = await loadMatcherBanks();
 const all = await listEpisodes();
 const trainMeta = all.filter((episode) => !holdout.includes(episode.name));
 const holdMeta = all.filter((episode) => holdout.includes(episode.name));
@@ -33,7 +33,7 @@ const rows = [];
 for (const meta of trainMeta) {
   const episode = await loadEpisode(meta.name, meta.corrected);
   trainEpisodes.push(episode);
-  rows.push(...buildFeatureRows(episode, matcher));
+  rows.push(...buildFeatureRows(episode, routeMatcher(episode, banks)));
 }
 const holdEpisodes = [];
 for (const meta of holdMeta) holdEpisodes.push(await loadEpisode(meta.name, meta.corrected));
@@ -43,7 +43,7 @@ const evaluate = (model) => {
   let totals = { tp: 0, fp: 0, fn: 0 };
   const per = [];
   for (const episode of holdEpisodes) {
-    const { starts } = predictItemStarts(episode, matcher, model);
+    const { starts } = predictItemStarts(episode, routeMatcher(episode, banks), model);
     const metrics = boundaryF1(starts, episode.truth.map((item) => item.start));
     totals.tp += metrics.tp; totals.fp += metrics.fp; totals.fn += metrics.fn;
     per.push(`${episode.name.replace("Train_KBC_", "")} ${formatMetrics(metrics)}`);
@@ -79,7 +79,7 @@ if (!write) {
 }
 // --write: 최고 설정으로 홀드아웃 포함 전 회차 재학습 후 기록
 const allRows = [...rows];
-for (const episode of holdEpisodes) allRows.push(...buildFeatureRows(episode, matcher));
+for (const episode of holdEpisodes) allRows.push(...buildFeatureRows(episode, routeMatcher(episode, banks)));
 const finalConfig = SWEEP.find((config) => `ep${config.epochs} lr${config.lr} pw${config.posWeight} l2=${config.l2}` === best.tag);
 const finalModel = trainLogistic(allRows, finalConfig);
 const round = (value) => Math.round(value * 1e5) / 1e5;

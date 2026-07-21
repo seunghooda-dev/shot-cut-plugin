@@ -1,13 +1,14 @@
 // 현재 src 모델을 라벨 에피소드 전체(또는 지정)에 평가 — 회차별·전체 경계 F1 리포트.
-import { listEpisodes, loadEpisode, loadMatcher, loadCurrentModel, predictItemStarts, boundaryF1, formatMetrics } from "./lib.mjs";
+import { listEpisodes, loadEpisode, loadMatcherBanks, routeMatcher, loadCurrentModel, predictItemStarts, boundaryF1, formatMetrics } from "./lib.mjs";
 
 const only = process.argv.slice(2);
-const matcher = await loadMatcher();
+const banks = await loadMatcherBanks();
 const model = await loadCurrentModel();
 const episodes = (await listEpisodes()).filter((episode) => only.length === 0 || only.includes(episode.name));
 let totals = { tp: 0, fp: 0, fn: 0 };
 for (const meta of episodes) {
   const episode = await loadEpisode(meta.name, meta.corrected);
+  const matcher = routeMatcher(episode, banks);
   const { starts, modelStarts } = predictItemStarts(episode, matcher, model);
   const metrics = boundaryF1(starts, episode.truth.map((item) => item.start));
   totals.tp += metrics.tp; totals.fp += metrics.fp; totals.fn += metrics.fn;
