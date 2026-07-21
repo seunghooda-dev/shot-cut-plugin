@@ -288,6 +288,10 @@
                 <button id="news-cut-folder-btn" class="secondary-button" type="button" title="분할 결과물이 저장될 폴더를 선택합니다. 선택하지 않으면 기본 폴더(Videos\premiere_내보내기)에 저장됩니다.">폴더 선택</button>
               </div>
             </div>
+            <label class="learn-corpus-row" for="news-cut-vision-check" title="확정된 앵커 후보 프레임(회차당 10~25장)을 AI 비전으로 재확인해 발언자·행사장 오검출(과분할)을 제거합니다. OpenAI API 키가 필요하며 소액 비용이 발생합니다. 실패 시 무료 결과 그대로 진행됩니다.">
+              <input type="checkbox" id="news-cut-vision-check" />
+              <span>AI 비전 검증(유료) — 과분할 오검출 제거</span>
+            </label>
             <div class="field">
               <label for="news-cut-preset-select">내보내기 화질(코덱·해상도)</label>
               <div class="select-wrap"><select id="news-cut-preset-select" title="분할 결과를 내보낼 코덱과 해상도를 선택합니다. '내보내기 탭 설정'은 내보내기 탭에서 고른 .epr 프리셋(없으면 H.264 1080p)을 따릅니다.">

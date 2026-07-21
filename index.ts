@@ -2302,8 +2302,74 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     const accepted = hybridAnchorTimes(candidates, modelStarts);
     if (accepted.length === 0) throw new Error("앵커 샷을 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
     activity.add("info", `원클릭 분할 · 앵커 ${accepted.length}개(화면 매칭 후보 ${candidates.length} · 학습 모델 ${modelStarts.length})`);
+    // 비전 검증(옵트인·유료) — 확정 후보를 시각 판정으로 재확인해 과분할 오검출을 제거한다
+    // (vision-anchor-verify.plan.md). 실패 시 무료 결과 그대로 진행(우아한 강하).
+    let verified = accepted;
+    if (optionalElement<HTMLInputElement>("news-cut-vision-check")?.checked === true) {
+      try {
+        const frames: Array<{ time: number; bytes: Uint8Array }> = [];
+        for (const [frameIndex, time] of accepted.entries()) {
+          setText("busy-message", `비전 검증 프레임 ${frameIndex + 1}/${accepted.length}…`);
+          const { filename } = await exportFrameToFolder(time + 1.2, String(dataFolder.nativePath), 320);
+          const frameBytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+          try {
+            const entry = await dataFolder.getEntry(filename);
+            await entry.delete();
+          } catch {
+            // 임시 파일 삭제 실패는 무시
+          }
+          if (frameBytes) frames.push({ time, bytes: frameBytes });
+        }
+        const references = loadAnchorExemplars()
+          .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
+          .filter((reference) => looksCompleteImage(reference.bytes, "png"))
+          .slice(0, 5);
+        const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
+        const rejected = new Set<number>();
+        // 배치는 장수뿐 아니라 바이트 합계로도 나눈다 — 참조 포함 1.2MB 캡(어댑터) 아래 유지(실기 실측 §78).
+        const referenceBytes = references.reduce((sum, reference) => sum + reference.bytes.byteLength, 0);
+        const maxFramesPerBatch = Math.max(3, 12 - references.length);
+        const chunks: Array<typeof frames> = [];
+        let currentChunk: typeof frames = [];
+        let currentBytes = 0;
+        for (const frame of frames) {
+          const overBytes = currentBytes + frame.bytes.byteLength + referenceBytes > 1_100_000;
+          if (currentChunk.length > 0 && (overBytes || currentChunk.length >= maxFramesPerBatch)) {
+            chunks.push(currentChunk);
+            currentChunk = [];
+            currentBytes = 0;
+          }
+          currentChunk.push(frame);
+          currentBytes += frame.bytes.byteLength;
+        }
+        if (currentChunk.length > 0) chunks.push(currentChunk);
+        let done = 0;
+        for (const chunk of chunks) {
+          done += chunk.length;
+          setText("busy-message", `비전 검증 ${done}/${frames.length}…`);
+          const results = await client.classifyAnchorShots(
+            chunk.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" as const })),
+            references,
+          );
+          for (const result of results) {
+            if (!result.isAnchor && result.confidence >= 0.6) rejected.add(chunk[result.index]!.time);
+          }
+        }
+        const kept = accepted.filter((time) => !rejected.has(time));
+        if (rejected.size > 0 && kept.length >= 3) {
+          verified = kept;
+          activity.add("info", `비전 검증 · 과분할 의심 ${rejected.size}건 제외 → 앵커 ${verified.length}개 확정`);
+        } else if (rejected.size > 0) {
+          activity.add("warning", `비전 검증 · 제외 후보 ${rejected.size}건이 있으나 잔여 ${kept.length}개(<3)라 필터를 해제합니다.`);
+        } else {
+          activity.add("info", "비전 검증 · 전 후보 앵커 확인(제외 0)");
+        }
+      } catch (error) {
+        activity.add("warning", `비전 검증 실패 — 무료 결과 그대로 진행: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     // 2/4 경계 정밀 재스냅(인점 = 전환 컷 정확히, §61)
-    const rawItems = buildItemsFromStarts(accepted, tailStart ?? duration);
+    const rawItems = buildItemsFromStarts(verified, tailStart ?? duration);
     if (rawItems.length === 0) throw new Error("보도 아이템을 구성하지 못했습니다.");
     const bounds = [...rawItems.map((item) => item.start), rawItems.at(-1)!.end];
     const refined: number[] = [];
