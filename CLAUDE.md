@@ -10,6 +10,7 @@ Run from this directory (`npm install` first).
 - `npm run typecheck` / `npm run lint` / `npm test` / `npm run build` — individual gates
 - `npm run dev` — `vite build --watch`
 - `npm run host:smoke` / `host:smoke:full` — 실행 중인 Premiere 실기 회귀 스모크(UDT 서비스 14001 필요). 새 실기 프로브는 `scripts/host-smoke/lib.mjs`를 import해 단일 세션 원칙을 지킬 것(런북 §40-d·§43)
+- `npm run check:news` — 뉴스 분할 오프라인 회귀 게이트(고정 회차 경계 F1 스냅샷). **분할 로직(src/news-visual-cut.ts·news-cut.ts·참조 뱅크·모델) 수정 후 반드시 실행**하고, 통과 없이 해당 변경을 커밋하지 말 것(§77). 스캔 캐시(training-data, gitignore)가 필요해 메인 check에는 미포함.
 
 ## Architecture: 3 layers
 
