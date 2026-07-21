@@ -25,3 +25,9 @@ tests/*.wav
 # STT 출력(사용자 출력 폴더가 저장소를 가리킬 때 생성되는 파일)
 tests/*_ShortFlow.srt
 tests/*_ShortFlow.txt
+
+# 뉴스 앵커 학습 데이터 — 스캔 캐시(재생성 가능·대용량)는 제외, 사람 검증 라벨(items)만 커밋
+training-data/news-anchor/*
+!training-data/news-anchor/*.items.json
+!training-data/news-anchor/*.items.corrected.json
+!training-data/news-anchor/NewsCut_KBC_20260715.json
