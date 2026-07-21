@@ -288,7 +288,22 @@
                 <button id="news-cut-folder-btn" class="secondary-button" type="button" title="분할 결과물이 저장될 폴더를 선택합니다. 선택하지 않으면 기본 폴더(Videos\premiere_내보내기)에 저장됩니다.">폴더 선택</button>
               </div>
             </div>
+            <div class="field">
+              <label for="news-cut-preset-select">내보내기 화질(코덱·해상도)</label>
+              <div class="select-wrap"><select id="news-cut-preset-select" title="분할 결과를 내보낼 코덱과 해상도를 선택합니다. '내보내기 탭 설정'은 내보내기 탭에서 고른 .epr 프리셋(없으면 H.264 1080p)을 따릅니다.">
+                <option value="auto">내보내기 탭 설정 (기본: H.264 · 1080p)</option>
+                <option value="h264-2160">H.264 · 4K (2160p)</option>
+                <option value="h264-1080">H.264 · 1080p</option>
+                <option value="h264-720">H.264 · 720p</option>
+                <option value="h264-480">H.264 · 480p</option>
+                <option value="h264-src">H.264 · 원본 해상도 일치(고화질)</option>
+                <option value="hevc-2160">H.265(HEVC) · 4K</option>
+                <option value="hevc-1080">H.265(HEVC) · 1080p</option>
+                <option value="hevc-720">H.265(HEVC) · 720p</option>
+              </select></div>
+            </div>
             <button id="news-cut-auto-btn" class="primary-button full-width-button" type="button" title="활성 시퀀스 화면을 스캔해 앵커 샷 기준으로 분할하고, 시퀀스 생성과 내보내기까지 한 번에 실행합니다. 외부 API 없이 무료로 동작하며, 진행 상황은 단계별 퍼센트로 표시됩니다.">원클릭 분할 — 화면 분석부터 내보내기까지</button>
+            <button id="news-cut-split-btn" class="secondary-button full-width-button" type="button" title="화면 분석과 아이템 시퀀스 생성까지만 실행하고 내보내기는 하지 않습니다. 결과를 검토·조정한 뒤 '일괄 내보내기'로 내보낼 수 있습니다.">분할만 — 시퀀스 생성까지(내보내기 없음)</button>
             <div class="form-actions automation-actions">
               <button id="news-cut-analyze-btn" class="secondary-button" type="button" title="자막에서 앵커 리드 기준으로 보도 아이템 경계를 AI 분석합니다.">보도 아이템 분석</button>
               <button id="news-cut-create-btn" class="secondary-button" type="button" disabled title="선택한 아이템마다 원본을 복제·트림한 시퀀스를 만듭니다.">아이템 시퀀스 생성</button>

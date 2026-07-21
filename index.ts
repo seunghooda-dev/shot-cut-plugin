@@ -2056,14 +2056,42 @@ const DEFAULT_EXPORT_PRESET_PATH =
   "C:\\Program Files\\Adobe\\Adobe Premiere Pro 2026\\MediaIO\\systempresets\\4E49434B_48323634\\YouTube 1080p HD.epr";
 const DEFAULT_EXPORT_OUTPUT_DIR = "C:\\Users\\seung\\Videos\\premiere_내보내기";
 
+// 뉴스 분할 탭 화질 선택 — 시스템 프리셋(.epr) 매핑(내부 베타: Premiere 2026 설치 경로 고정,
+// 파일 존재는 내보내기 시점에 Host가 검증). H.264=YouTube 계열, H.265=HEVC 계열 프리셋을 쓴다.
+const NEWS_CUT_H264_PRESET_DIR =
+  "C:\\Program Files\\Adobe\\Adobe Premiere Pro 2026\\MediaIO\\systempresets\\4E49434B_48323634";
+const NEWS_CUT_HEVC_PRESET_DIR =
+  "C:\\Program Files\\Adobe\\Adobe Premiere Pro 2026\\MediaIO\\systempresets\\4A454646_48455643";
+const NEWS_CUT_PRESET_CHOICES: Record<string, string> = {
+  "h264-2160": `${NEWS_CUT_H264_PRESET_DIR}\\YouTube 2160p 4K.epr`,
+  "h264-1080": `${NEWS_CUT_H264_PRESET_DIR}\\YouTube 1080p HD.epr`,
+  "h264-720": `${NEWS_CUT_H264_PRESET_DIR}\\YouTube 720p HD.epr`,
+  "h264-480": `${NEWS_CUT_H264_PRESET_DIR}\\YouTube 480p SD Wide.epr`,
+  "h264-src": `${NEWS_CUT_H264_PRESET_DIR}\\00 - Match Source - High bitrate.epr`,
+  "hevc-2160": `${NEWS_CUT_HEVC_PRESET_DIR}\\4K UHD.epr`,
+  "hevc-1080": `${NEWS_CUT_HEVC_PRESET_DIR}\\HD 1080p.epr`,
+  "hevc-720": `${NEWS_CUT_HEVC_PRESET_DIR}\\HD 720p.epr`,
+};
+
+// 뉴스 분할 탭에서 고른 화질(코덱·해상도) 프리셋 경로 — "auto"면 null(내보내기 탭 설정을 따름).
+function selectedNewsCutPresetPath(): string | null {
+  const select = optionalElement<HTMLSelectElement>("news-cut-preset-select");
+  const choice = select?.value ?? "auto";
+  return NEWS_CUT_PRESET_CHOICES[choice] ?? null;
+}
+
 // 내보내기 대상 해석 — 프리셋·폴더를 각각 독립적으로 결정한다(선택된 토큰 우선, 없으면 기본값).
 // 기본 폴더는 getEntryWithUrl로 실제 엔트리 취득을 시도해(성공 시 크기 안정화 폴링 가능) 실패하면
 // 경로 셸만 넘긴다 — 이때 완료 판정은 렌더 promise 해소가 맡는다(§40 경합 유지).
 async function resolveNewsCutExportTargets(): Promise<{ presetFile: any; outputFolder: any }> {
   syncSettingsFromUI();
-  const presetFile = settings.presetToken
-    ? await requireStoredEntry(settings.presetToken, "내보내기 프리셋")
-    : { nativePath: DEFAULT_EXPORT_PRESET_PATH };
+  // 뉴스 분할 탭 화질 선택이 있으면 최우선 — 없으면(auto) 내보내기 탭 프리셋 → 기본값 순.
+  const chosenPresetPath = selectedNewsCutPresetPath();
+  const presetFile = chosenPresetPath
+    ? { nativePath: chosenPresetPath }
+    : settings.presetToken
+      ? await requireStoredEntry(settings.presetToken, "내보내기 프리셋")
+      : { nativePath: DEFAULT_EXPORT_PRESET_PATH };
   if (settings.outputFolderToken) {
     const outputFolder = await requireStoredEntry(settings.outputFolderToken, "출력 폴더");
     return { presetFile, outputFolder };
@@ -2166,7 +2194,8 @@ async function handleNewsCutCleanup(): Promise<void> {
 
 // 원클릭 분할 — STT·자막 없이 화면(앵커 샷) 분석만으로 분할하고, 내보내기 설정이 없으면
 // 기본 프리셋·폴더로 렌더까지 한 번에 끝낸다(설계: newscut-visual-oneclick.design.md).
-async function handleNewsCutAuto(): Promise<void> {
+// exportAfter=false 면 시퀀스 생성까지만 하고 내보내기는 생략한다(검토 후 '일괄 내보내기' 사용).
+async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
   const api = frameDataFolderApi();
   if (!api) throw new Error("프레임 내보내기 API를 사용할 수 없습니다.");
   const status = await readSequenceStatus();
@@ -2254,11 +2283,24 @@ async function handleNewsCutAuto(): Promise<void> {
   activity.add("success", `원클릭 분할 · 화면 분석 아이템 ${items.length}개`);
   await handleNewsCutCreate();
   if (newsCutCreatedNames.length === 0) {
-    throw new Error("아이템 시퀀스가 만들어지지 않아 내보내기를 건너뜁니다.");
+    throw new Error("아이템 시퀀스가 만들어지지 않았습니다.");
+  }
+  if (!exportAfter) {
+    activity.add("success", `분할 완료 — 시퀀스 ${newsCutCreatedNames.length}개 생성(내보내기 생략). 검토 후 '일괄 내보내기'를 누르세요.`);
+    toast("분할이 끝났습니다. '일괄 내보내기'로 내보낼 수 있습니다.", "success", 6000);
+    return;
   }
   const targets = await resolveNewsCutExportTargets();
   await exportNewsSequencesWith(targets.presetFile, targets.outputFolder);
   activity.add("success", "원클릭 분할 완료 — 출력 폴더를 확인하세요.");
+}
+
+async function handleNewsCutAuto(): Promise<void> {
+  await runNewsCutAutoFlow(true);
+}
+
+async function handleNewsCutSplitOnly(): Promise<void> {
+  await runNewsCutAutoFlow(false);
 }
 
 // 업로드 패키지 내보내기 — 자막 SRT·유튜브 메타·썸네일 SVG·권리 리포트를 폴더 하나로 묶는다(로드맵 18).
@@ -2682,6 +2724,7 @@ function bindCoreEvents(): void {
   bind("subtitle-snapshot-save-btn", "click", guarded(async () => handleSaveSubtitleSnapshot(), "자막 스냅샷 저장 실패"));
   bind("multilang-export-btn", "click", guarded(handleMultilangExport, "다국어 SRT 내보내기 실패"));
   bind("news-cut-auto-btn", "click", guarded(handleNewsCutAuto, "원클릭 분할 실패"));
+  bind("news-cut-split-btn", "click", guarded(handleNewsCutSplitOnly, "분할 실패"));
   bind("news-cut-analyze-btn", "click", guarded(handleNewsCutAnalyze, "뉴스 분할 분석 실패"));
   bind("news-cut-create-btn", "click", guarded(handleNewsCutCreate, "뉴스 분할 시퀀스 생성 실패"));
   bind("news-cut-export-btn", "click", guarded(handleNewsCutExport, "뉴스 분할 내보내기 실패"));
