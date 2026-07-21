@@ -2282,15 +2282,29 @@ export async function createNewsItemSequences(
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index]!;
     onProgress?.(index, items.length, item.name);
-    try {
+    const buildOne = async (): Promise<void> => {
       const start = Math.max(0, item.start);
       const end = sequenceEnd > 0 ? Math.min(item.end, sequenceEnd) : item.end;
       if (!(end - start > 0.5)) throw new ShortFlowError("INVALID_RANGE", "아이템 구간이 시퀀스 범위를 벗어났습니다.");
       const clone = await cloneSequence(project, source, sanitizeSequenceName(item.name));
       setSequenceRange(project, clone, { start, end, duration: end - start, usedFallback: false });
       created.push(String(clone.name));
-    } catch (error) {
-      failures.push({ name: item.name, error: errorMessage(error) });
+    };
+    try {
+      await buildOne();
+    } catch (firstError) {
+      // §40 계열 간헐 실패(클론/인아웃 액션 미적용 — 6/14 실측 1건) — 짧게 한 번만 재시도한다.
+      // 범위 오류(INVALID_RANGE)는 재시도해도 같으므로 즉시 실패 처리.
+      if (firstError instanceof ShortFlowError && firstError.code === "INVALID_RANGE") {
+        failures.push({ name: item.name, error: errorMessage(firstError) });
+        continue;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      try {
+        await buildOne();
+      } catch (error) {
+        failures.push({ name: item.name, error: errorMessage(error) });
+      }
     }
   }
   onProgress?.(items.length, items.length, "완료");

@@ -92,6 +92,34 @@ export function selectAnchorMatcher(samples: readonly GridSample[], matchers: re
   return matchers[best]!;
 }
 
+/**
+ * 프레임 불일치(예: 720p 클립이 1080 시퀀스에 원본 크기로 배치) 감지 — 회차 전 구간에서
+ * 고르게 뽑은 프로브 그리드의 상·하단 행(또는 좌·우 열)이 전부 검으면 렌더 테두리 아티팩트로
+ * 본다(§73-d 사고의 제품화 가드). 실제 방송 내용은 전 구간이 동시에 검을 수 없다.
+ */
+export function detectMismatchBorder(
+  grids: ReadonlyArray<ArrayLike<number> | null>,
+  cols = 16,
+  rows = 9,
+  darkMax = 6,
+): boolean {
+  const usable = grids.filter((grid): grid is ArrayLike<number> => !!grid && grid.length === cols * rows);
+  if (usable.length < 4) return false;
+  const rowDark = (grid: ArrayLike<number>, row: number): boolean => {
+    let sum = 0;
+    for (let col = 0; col < cols; col += 1) sum += Number(grid[row * cols + col]);
+    return sum / cols <= darkMax;
+  };
+  const colDark = (grid: ArrayLike<number>, col: number): boolean => {
+    let sum = 0;
+    for (let row = 0; row < rows; row += 1) sum += Number(grid[row * cols + col]);
+    return sum / rows <= darkMax;
+  };
+  const allTopBottom = usable.every((grid) => rowDark(grid, 0) && rowDark(grid, rows - 1));
+  const allLeftRight = usable.every((grid) => colDark(grid, 0) && colDark(grid, cols - 1));
+  return allTopBottom || allLeftRight;
+}
+
 export interface AnchorCandidate {
   time: number;
   refDist: number;

@@ -124,6 +124,7 @@ import {
   buildAnchorMatcher,
   buildItemsFromStarts,
   collectAnchorCandidates,
+  detectMismatchBorder,
   selectAnchorMatcher,
   detectModelStarts,
   detectStaticTailStart,
@@ -2074,10 +2075,29 @@ const NEWS_CUT_PRESET_CHOICES: Record<string, string> = {
 };
 
 // 뉴스 분할 탭에서 고른 화질(코덱·해상도) 프리셋 경로 — "auto"면 null(내보내기 탭 설정을 따름).
+// HEVC는 Premiere 직접 렌더가 지원하지 않아(실기 실측: "Unsupported video codec: HEVC")
+// AME 미설치 환경에서는 선택 시점에 명확히 막는다.
 function selectedNewsCutPresetPath(): string | null {
   const select = optionalElement<HTMLSelectElement>("news-cut-preset-select");
   const choice = select?.value ?? "auto";
-  return NEWS_CUT_PRESET_CHOICES[choice] ?? null;
+  const path = NEWS_CUT_PRESET_CHOICES[choice] ?? null;
+  if (path && choice.startsWith("hevc-") && !ameInstalled()) {
+    throw new Error("H.265(HEVC)는 Adobe Media Encoder 설치 시에만 내보낼 수 있습니다 — H.264 화질을 선택하거나 AME를 설치해 주세요.");
+  }
+  return path;
+}
+
+// 선택 프리셋 .epr 파일 존재 사전 확인 — 다른 Premiere 버전/설치 경로에서 렌더 단계의
+// 불친절한 실패 대신 원인을 바로 알려준다.
+async function assertPresetFileExists(presetPath: string): Promise<void> {
+  try {
+    const lfs = (require("uxp") as any)?.storage?.localFileSystem;
+    const entry = await lfs?.getEntryWithUrl?.(`file:${presetPath.replace(/\\/gu, "/")}`);
+    if (entry) return;
+  } catch {
+    // 조회 실패는 아래 공통 에러로 안내
+  }
+  throw new Error(`선택한 화질 프리셋 파일을 찾을 수 없습니다: ${presetPath} — Premiere 설치 경로가 다르면 '내보내기 탭 설정'을 사용해 주세요.`);
 }
 
 // 내보내기 대상 해석 — 프리셋·폴더를 각각 독립적으로 결정한다(선택된 토큰 우선, 없으면 기본값).
@@ -2087,6 +2107,7 @@ async function resolveNewsCutExportTargets(): Promise<{ presetFile: any; outputF
   syncSettingsFromUI();
   // 뉴스 분할 탭 화질 선택이 있으면 최우선 — 없으면(auto) 내보내기 탭 프리셋 → 기본값 순.
   const chosenPresetPath = selectedNewsCutPresetPath();
+  if (chosenPresetPath) await assertPresetFileExists(chosenPresetPath);
   const presetFile = chosenPresetPath
     ? { nativePath: chosenPresetPath }
     : settings.presetToken
@@ -2124,6 +2145,17 @@ async function handleNewsCutExport(): Promise<void> {
 }
 
 async function exportNewsSequencesWith(presetFile: any, outputFolder: any): Promise<void> {
+  // 출력 폴더 기록 가능 사전 점검 — 분리된 드라이브·권한 문제를 렌더 N개 실패 전에 잡는다
+  // (UXP엔 여유 공간 조회 API가 없어 용량까지는 확인 불가 — 쓰기 가능 여부만 검사).
+  if (typeof outputFolder?.createFile === "function") {
+    try {
+      const probe = await outputFolder.createFile(`.sf_write_probe_${Date.now()}.tmp`, { overwrite: true });
+      await probe.write("ok");
+      await probe.delete();
+    } catch {
+      throw new Error("출력 폴더에 쓸 수 없습니다 — 폴더가 존재하고 쓰기 가능한지(드라이브 연결·권한) 확인해 주세요.");
+    }
+  }
   if (!ameInstalled()) {
     activity.add("info", "AME 미설치 — Premiere 직접 렌더로 내보냅니다.");
     const result = await busy.during(`${newsCutCreatedNames.length}개 렌더 중…`, () =>
@@ -2198,6 +2230,8 @@ async function handleNewsCutCleanup(): Promise<void> {
 async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
   const api = frameDataFolderApi();
   if (!api) throw new Error("프레임 내보내기 API를 사용할 수 없습니다.");
+  // 화질 선택 유효성 선검증(HEVC×AME 미설치 등) — 스캔 15분 뒤가 아니라 클릭 시점에 바로 알린다.
+  if (exportAfter) selectedNewsCutPresetPath();
   const status = await readSequenceStatus();
   const duration = Number(status.sequenceEnd) || 0;
   if (!(duration > 60)) throw new Error("활성 시퀀스가 없거나 너무 짧습니다 — 1분 이상 뉴스 방송 시퀀스를 활성화해 주세요.");
@@ -2226,6 +2260,21 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     gridCache.set(key, grid);
     return grid;
   };
+
+  // 0/4 프레임 불일치 사전 점검(§73-d 사고의 제품화) — 소스 해상도≠시퀀스 프레임이면 렌더가
+  // 사방 검은 테두리로 나와 화면 분석이 왜곡된다. 전 구간 6점 프로브로 본 스캔 전에 차단한다.
+  await busy.during("원클릭 분할 · 프레임 점검 중…", async () => {
+    const probes: Array<Float64Array | null> = [];
+    for (const ratio of [0.1, 0.25, 0.4, 0.55, 0.7, 0.85]) {
+      probes.push(await grabGrid(Math.round(duration * ratio)));
+    }
+    if (detectMismatchBorder(probes)) {
+      throw new Error(
+        "화면 가장자리가 전 구간 검게 감지됐습니다 — 소스 영상 해상도와 시퀀스 프레임 크기가 다르면 분할이 왜곡됩니다. "
+        + "시퀀스 설정에서 프레임 크기를 소스 영상과 같게 맞추거나, 소스 클립으로 새 시퀀스를 만들어 다시 실행해 주세요.",
+      );
+    }
+  });
 
   const items = await busy.during("원클릭 분할 · 화면 스캔 준비 중…", async () => {
     // 1/4 코스 스캔(2s 그리드)

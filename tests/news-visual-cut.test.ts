@@ -6,6 +6,7 @@ import {
   buildItemsFromStarts,
   collectAnchorCandidates,
   selectAnchorMatcher,
+  detectMismatchBorder,
   detectModelStarts,
   detectStaticTailStart,
   fallbackAnchorTimes,
@@ -73,6 +74,33 @@ describe("selectAnchorMatcher", () => {
 
   it("빈 매처 배열은 던진다", () => {
     assert.throws(() => selectAnchorMatcher([], []));
+  });
+});
+
+describe("detectMismatchBorder", () => {
+  // 상·하단 행이 검은(0) 테두리 그리드 vs 정상 밝은 그리드
+  function borderedGrid(inner: number): Float64Array {
+    const cells = new Float64Array(CELLS);
+    for (let row = 0; row < 9; row += 1) {
+      for (let col = 0; col < 16; col += 1) {
+        cells[row * 16 + col] = row === 0 || row === 8 ? 0 : inner;
+      }
+    }
+    return cells;
+  }
+
+  it("전 프로브에서 상·하단이 검으면 불일치로 본다(§73-d 아티팩트)", () => {
+    const probes = [borderedGrid(120), borderedGrid(90), borderedGrid(150), borderedGrid(60)];
+    assert.equal(detectMismatchBorder(probes), true);
+  });
+
+  it("한 프로브라도 가장자리가 밝으면 정상으로 본다", () => {
+    const probes = [borderedGrid(120), borderedGrid(90), grid(100), borderedGrid(60)];
+    assert.equal(detectMismatchBorder(probes), false);
+  });
+
+  it("프로브가 4개 미만이면 판정하지 않는다", () => {
+    assert.equal(detectMismatchBorder([borderedGrid(120), borderedGrid(90), null]), false);
   });
 });
 
