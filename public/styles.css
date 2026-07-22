@@ -301,15 +301,16 @@ strong {
    펼쳐진다. 탭을 고르면 다시 접혀 세로 공간을 돌려준다. */
 /* 주의: .workflow-nav를 flex로 감싸면 UXP가 컨테이너를 내용 폭으로 수축시킨다(§25-b 계열, 실측 153px).
    block 부모 + width:100% 버튼 조합(.full-width-button과 동일 레시피)이 검증된 전폭 방법이다. */
+/* 컴팩트 칩(사용자 확정 2026-07-22): 내용 폭·26px·왼쪽 정렬 — 전폭 바 아님. */
 .nav-toggle {
-  display: flex;
-  width: 100%;
+  display: inline-flex;
+  width: auto;
   box-sizing: border-box;
   align-items: center;
   gap: 7px;
-  min-height: 30px;
-  margin: 0;
-  padding: 0 9px;
+  min-height: 26px;
+  margin: 5px 6px;
+  padding: 0 8px;
   appearance: none;
   -webkit-appearance: none;
   border: 1px solid var(--accent-line);
