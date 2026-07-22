@@ -285,7 +285,7 @@
                     <strong id="news-cut-folder-name" title="">기본: premiere_내보내기</strong>
                   </div>
                 </div>
-                <button id="news-cut-folder-btn" class="secondary-button" type="button" title="분할 결과물이 저장될 폴더를 선택합니다. 선택하지 않으면 기본 폴더(Videos\premiere_내보내기)에 저장됩니다.">폴더 선택</button>
+                <button id="news-cut-folder-btn" class="secondary-button" type="button" title="분할 결과물이 저장될 폴더를 선택합니다. 선택하지 않으면 기본 폴더(Videos\premiere_내보내기)에 저장됩니다. 내보내기 탭의 저장 폴더와 같은 설정을 공유합니다.">폴더 선택</button>
               </div>
             </div>
             <label class="learn-corpus-row" for="news-cut-vision-check" title="확정된 앵커 후보 프레임(회차당 10~25장)을 AI 비전으로 재확인해 발언자·행사장 오검출(과분할)을 제거합니다. OpenAI API 키가 필요하며 소액 비용이 발생합니다. 실패 시 무료 결과 그대로 진행됩니다.">
@@ -436,6 +436,7 @@
               <button id="final-qc-json-btn" class="secondary-button" type="button" disabled>JSON 보고서</button>
               <button id="final-qc-md-btn" class="secondary-button" type="button" disabled>Markdown 보고서</button>
             </div>
+            <p class="action-note">보고서 버튼은 최종 QC 실행 후 활성화됩니다.</p>
             <p class="action-note">해상도·길이·오프라인 미디어·가이드 잔존 등 HARD BLOCK은 사유를 입력해도 통과시킬 수 없습니다.</p>
           </div>
         </section>

@@ -140,7 +140,7 @@ import {
   NEWS_ANCHOR_REFERENCE_GRIDS_SUNDAY_NEW,
 } from "./src/news-anchor-reference-grids";
 import { NEWS_ANCHOR_MODEL_BIAS, NEWS_ANCHOR_MODEL_WEIGHTS } from "./src/news-anchor-model";
-import { base64ToBytes, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
+import { base64ToBytes, bytesToBase64, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
 import { LICENSE_CLOCK_KEY, LICENSE_STORAGE_KEY, licenseFailureMessage, verifyLicenseKey } from "./src/license";
 import { LICENSE_PUBLIC_KEY } from "./src/license-public-key";
 import { cloneSamplesForReusedTimes, looksCompleteImage, lumaGrid, parseBmp24, planFrameSampling } from "./src/frame-diff";
@@ -1758,6 +1758,9 @@ async function handleMultilangExport(): Promise<void> {
 // News Cut — 뉴스 전체 방송을 보도 아이템 단위로 분할한다(분석→시퀀스 생성→AME 일괄 내보내기).
 let newsCutItems: NewsItem[] = [];
 let newsCutSourceKey = "";
+let newsCutSourceName = "";
+// 미리보기 경합 가드 — 목록이 다시 그려지면 이전 로드는 버린다(adjust-panel 패턴).
+let newsCutThumbToken = 0;
 let newsCutCreatedNames: string[] = [];
 // 플러그인 설치 폴더 경로(부팅 시 1회 조회) — 출력 폴더 오염 경고(speech-controller)에 쓴다.
 let pluginFolderPathValue: string | null = null;
@@ -1791,16 +1794,57 @@ function renderNewsCutList(): void {
   }
   newsCutItems.forEach((item, index) => {
     const row = document.createElement("label");
-    row.className = "learn-corpus-row";
+    row.className = "learn-corpus-row news-item-row";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = true;
     checkbox.dataset.newsIndex = String(index);
+    const thumb = document.createElement("img");
+    thumb.className = "news-item-thumb";
+    thumb.alt = `아이템 ${index + 1} 시작 프레임`;
+    thumb.dataset.newsThumb = String(index);
+    thumb.hidden = true;
     const label = document.createElement("span");
     label.textContent = describeNewsItem(item, index);
-    row.append(checkbox, label);
+    row.append(checkbox, thumb, label);
     container.append(row);
   });
+  void loadNewsCutThumbnails();
+}
+
+// 아이템 시작 프레임 미리보기 — 내보내기 전에 잘못 쪼개진 아이템을 목록에서 바로 검수한다.
+// 원본 시퀀스 이름으로 내보내므로 생성/내보내기 중 활성 시퀀스가 바뀌어도 프레임이 어긋나지 않는다.
+async function loadNewsCutThumbnails(): Promise<void> {
+  const api = frameDataFolderApi();
+  if (!api || !newsCutSourceName || newsCutItems.length === 0) return;
+  newsCutThumbToken += 1;
+  const token = newsCutThumbToken;
+  const dataFolder = await api.fileSystem.getDataFolder();
+  for (const [index, item] of newsCutItems.entries()) {
+    if (token !== newsCutThumbToken) return;
+    const image = document.querySelector<HTMLImageElement>(`img[data-news-thumb="${index}"]`);
+    if (!image) continue;
+    try {
+      const { filename } = await exportSequenceFrameByName(
+        newsCutSourceName,
+        item.start + 0.5,
+        String(dataFolder.nativePath),
+        192,
+      );
+      const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+      try {
+        const entry = await dataFolder.getEntry(filename);
+        await entry.delete();
+      } catch {
+        // 임시 파일 삭제 실패는 무시
+      }
+      if (token !== newsCutThumbToken || !bytes || bytes.byteLength === 0) continue;
+      image.src = `data:image/png;base64,${bytesToBase64(bytes)}`;
+      image.hidden = false;
+    } catch {
+      // 미리보기는 보조 기능 — 실패한 아이템은 자리만 유지하고 넘어간다
+    }
+  }
 }
 
 // 아이템 경계는 분석 시점의 원본 시퀀스를 전제한다 — 활성이 바뀌어 있으면 원본을 자동 재활성화한다(§46-b 패턴).
@@ -1988,6 +2032,7 @@ async function handleNewsCutAnalyze(): Promise<void> {
   if (doc.cues.length === 0) throw new Error("먼저 자막을 만들어 주세요(TTS·STT 탭에서 시퀀스 STT 또는 SRT 불러오기).");
   ensureAiConsent("뉴스 분할 보도 아이템 분석");
   newsCutSourceKey = await readActiveContextKey().catch(() => "");
+  newsCutSourceName = await readSequenceStatus().then((status) => String(status.sequenceName ?? "")).catch(() => "");
   const payload = await busy.during("보도 아이템 경계를 분석하고 있습니다…", () => {
     busy.progress(5);
     return runSubtitleAnalysis({ action: "news-items", document: doc });
@@ -2238,6 +2283,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
   const duration = Number(status.sequenceEnd) || 0;
   if (!(duration > 60)) throw new Error("활성 시퀀스가 없거나 너무 짧습니다 — 1분 이상 뉴스 방송 시퀀스를 활성화해 주세요.");
   newsCutSourceKey = await readActiveContextKey().catch(() => "");
+  newsCutSourceName = String(status.sequenceName ?? "");
   const dataFolder = await api.fileSystem.getDataFolder();
   // 같은 시각 재요청(경계 재스냅)이 잦아 시각별 그리드를 메모한다.
   const gridCache = new Map<number, Float64Array | null>();

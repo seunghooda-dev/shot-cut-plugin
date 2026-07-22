@@ -11,7 +11,7 @@
   /* 행동 요소(버튼)·폼 라벨용 — 설명문(secondary)과 구분되는 스캔 앵커 밝기. */
   --text-strong: #e3e5ee;
   --text-secondary: #bcbecb;
-  --text-muted: #9095a4;
+  --text-muted: #9aa0af;
   --accent: #8b5cf6;
   --accent-bright: #a78bfa;
   --accent-soft: rgba(139, 92, 246, 0.15);
@@ -1222,6 +1222,26 @@ textarea {
   justify-content: space-between;
   gap: 8px;
   font-size: var(--fs-2xs);
+}
+
+/* 뉴스 분할 아이템 행 — 시작 프레임 미리보기 썸네일 포함(다른 learn-corpus 목록엔 영향 없음) */
+.news-item-row {
+  justify-content: flex-start;
+}
+
+.news-item-row > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.news-item-thumb {
+  flex: 0 0 auto;
+  width: 96px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-subtle);
+  background: var(--bg-input);
 }
 
 .form-actions {
