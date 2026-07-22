@@ -294,7 +294,8 @@ strong {
   width: 100%;
   box-sizing: border-box;
   border-bottom: 1px solid var(--line-subtle);
-  background: rgba(23, 24, 30, 0.96);
+  /* sticky 아래로 지나가는 본문이 비치지 않게 불투명 색만 쓴다(반투명 rgba 금지). */
+  background: #17181e;
 }
 
 /* 접이식 내비게이션: 평소엔 현재 섹션 한 줄(nav-toggle)만 보이고, 누르면 전체 탭 그리드가
@@ -316,7 +317,7 @@ strong {
   border: 1px solid var(--accent-line);
   border-radius: 0;
   border-left: 3px solid var(--accent);
-  background: rgba(139, 92, 246, 0.08);
+  background: #201d2f;
   color: var(--text-primary);
   font-size: var(--fs-base);
   font-weight: 600;
@@ -342,7 +343,7 @@ strong {
 .nav-toggle-index {
   padding: 1px 5px;
   border-radius: 3px;
-  background: var(--accent-soft);
+  background: #30274d;
   color: var(--accent-bright);
   font-size: var(--fs-2xs);
   font-weight: 700;
