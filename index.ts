@@ -2589,8 +2589,8 @@ async function handleExportCover(): Promise<void> {
   syncSettingsFromUI();
   const outputFolder = await requireStoredEntry(settings.outputFolderToken, "출력 폴더");
   const outputPath = await busy.during("현재 프레임을 PNG로 저장하고 있습니다…", () => exportCover(outputFolder));
-  activity.add("success", `커버 이미지 저장: ${outputPath}`);
-  toast("현재 프레임 커버를 저장했습니다.", "success");
+  activity.add("success", `썸네일 이미지 저장: ${outputPath}`);
+  toast("현재 프레임 썸네일을 저장했습니다.", "success");
 }
 
 async function handleSaveAssetRights(): Promise<void> {
@@ -2890,16 +2890,16 @@ function bindCoreEvents(): void {
   bind("add-story-markers-btn", "click", guarded(() => markersQcPanel.addStoryMarkers(), "스토리 마커 추가 실패"));
   bind("duck-plan-btn", "click", guarded(handleDuckPlan, "BGM 덕킹 계획 실패"));
   bind("choose-preset-btn", "click", guarded(handleChoosePreset, "프리셋 선택 실패"));
-  bind("choose-output-btn", "click", guarded(handleChooseOutput, "출력 폴더 선택 실패"));
+  bind("choose-output-btn", "click", guarded(handleChooseOutput, "내보내기 폴더 선택 실패"));
   bind("choose-mogrt-btn", "click", guarded(handleChooseMogrt, "MOGRT 선택 실패"));
   bind("insert-mogrt-btn", "click", guarded(handleInsertMogrt, "MOGRT 삽입 실패"));
   bind("export-video-btn", "click", guarded(handleExportVideo, "영상 내보내기 실패"));
-  bind("export-cover-btn", "click", guarded(handleExportCover, "커버 저장 실패"));
+  bind("export-cover-btn", "click", guarded(handleExportCover, "썸네일 저장 실패"));
   bind("stt-from-sequence-btn", "click", guarded(transcribeActiveSequence, "시퀀스 자막 생성 실패"));
   bind("motion-apply-btn", "click", guarded(handleApplyClipMotion, "클립 모션 적용 실패"));
-  bind("choose-asset-root-btn", "click", guarded(() => assetBrowserPanel.chooseRoot(), "자산 폴더 선택 실패"));
-  bind("open-asset-root-btn", "click", guarded(() => assetBrowserPanel.openRoot(), "자산 폴더 열기 실패"));
-  bind("sync-assets-btn", "click", guarded(() => assetBrowserPanel.sync(), "자산 동기화 실패"));
+  bind("choose-asset-root-btn", "click", guarded(() => assetBrowserPanel.chooseRoot(), "에셋 폴더 선택 실패"));
+  bind("open-asset-root-btn", "click", guarded(() => assetBrowserPanel.openRoot(), "에셋 폴더 열기 실패"));
+  bind("sync-assets-btn", "click", guarded(() => assetBrowserPanel.sync(), "에셋 동기화 실패"));
   bind("asset-search-input", "input", () => assetBrowserPanel.render());
   bind("asset-type-select", "change", () => assetBrowserPanel.render());
   bind("asset-category-select", "change", () => assetBrowserPanel.render());

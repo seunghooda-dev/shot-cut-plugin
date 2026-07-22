@@ -3603,7 +3603,7 @@ export async function applyShotFocalAdjustment(
 
 export async function exportCover(outputFolder: any): Promise<string> {
   if (!outputFolder?.nativePath) {
-    throw new ShortFlowError("NO_OUTPUT_FOLDER", "커버 이미지를 저장할 폴더를 선택해 주세요.");
+    throw new ShortFlowError("NO_OUTPUT_FOLDER", "썸네일 이미지를 저장할 폴더를 선택해 주세요.");
   }
   const { sequence } = await getActiveContext();
   const position = await sequence.getPlayerPosition();
@@ -3624,7 +3624,7 @@ export async function exportCover(outputFolder: any): Promise<string> {
     height,
   );
   if (!success) {
-    throw new ShortFlowError("COVER_EXPORT_FAILED", "현재 프레임 커버 이미지를 저장하지 못했습니다.");
+    throw new ShortFlowError("COVER_EXPORT_FAILED", "현재 프레임 썸네일 이미지를 저장하지 못했습니다.");
   }
   return joinNativePath(folderPath, filename);
 }

@@ -25,7 +25,7 @@
   --radius-lg: 14px;
   --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.16);
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
-  --fs-2xs: 9.5px;
+  --fs-2xs: 10px;
   --fs-xs: 11px;
   --fs-sm: 11.5px;
   --fs-base: 12px;
@@ -1226,6 +1226,7 @@ textarea {
 
 .form-actions {
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 16px;
   margin-top: 18px;
   padding-top: 16px;
@@ -1408,6 +1409,11 @@ textarea {
   min-width: 120px;
 }
 
+/* 버튼이 홀수 개면 마지막 버튼이 반폭 홀로 남지 않게 전폭으로 채운다. */
+.export-action-grid > *:last-child:nth-child(odd) {
+  flex-basis: 100%;
+}
+
 .log-card {
   overflow: hidden;
 }
@@ -1562,7 +1568,7 @@ textarea {
 }
 
 .diagnostics-summary.is-yellow {
-  border-left-color: #f6c458;
+  border-left-color: var(--warning);
 }
 
 .diagnostics-summary.is-red {
@@ -1613,7 +1619,7 @@ textarea {
 .diagnostic-row.is-yellow .diagnostic-state {
   border-color: rgba(246, 196, 88, 0.45);
   background: rgba(246, 196, 88, 0.1);
-  color: #f6c458;
+  color: var(--warning);
 }
 
 .diagnostic-row.is-red .diagnostic-state {
@@ -1677,12 +1683,14 @@ textarea {
   text-transform: uppercase;
 }
 
-.brand-form-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+/* .form-grid는 UXP grid 붕괴 회피로 flex라서(§25-b) 열 밀도는 flex-basis로 조절한다. */
+.brand-form-grid > .field {
+  flex: 1 1 calc(25% - 8px);
+  min-width: 120px;
 }
 
 .brand-form-grid .field-span-2 {
-  grid-column: span 2;
+  flex-basis: calc(50% - 5px);
 }
 
 .brand-form-grid input[type="color"] {
@@ -1769,8 +1777,9 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
-.ai-queue-controls {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.ai-queue-controls > .field {
+  flex: 1 1 calc(25% - 8px);
+  min-width: 140px;
 }
 
 .ai-job-list {
@@ -1816,8 +1825,12 @@ textarea {
 }
 
 .final-qc-controls {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-top: 14px;
+}
+
+.final-qc-controls > .field {
+  flex: 1 1 calc(25% - 8px);
+  min-width: 140px;
 }
 
 .final-qc-actions {
@@ -3267,12 +3280,8 @@ textarea {
   color: var(--text-primary);
 }
 
-.thumb-ai-grid {
-  grid-template-columns: 190px minmax(0, 1fr);
-}
-
 .thumb-prompt-field {
-  grid-column: auto;
+  flex-basis: 100%;
 }
 
 .thumb-ai-actions {
@@ -3754,13 +3763,6 @@ input[type="color"],
 }
 
 @media (max-width: 900px) {
-  .asset-workspace,
-  .thumbnail-workspace,
-  .speech-workspace,
-  .automation-workspace {
-    grid-template-columns: 1fr;
-  }
-
   .asset-sidebar {
     min-height: auto;
   }
@@ -3802,15 +3804,6 @@ input[type="color"],
   .status-item:nth-child(3) {
     padding-left: 0;
     border-left: 0;
-  }
-
-  .two-column-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .browser-toolbar,
-  .thumb-ai-grid {
-    grid-template-columns: 1fr;
   }
 
   .thumb-prompt-field {
@@ -3902,9 +3895,7 @@ input[type="color"],
   }
 
   .metric-strip,
-  .qc-status-strip,
-  .form-grid,
-  .export-action-grid {
+  .qc-status-strip {
     grid-template-columns: 1fr;
   }
 
@@ -3991,8 +3982,7 @@ input[type="color"],
 
   .safe-zone-box-controls,
   .automation-summary,
-  .ai-queue-metrics,
-  .ai-queue-controls {
+  .ai-queue-metrics {
     grid-template-columns: 1fr;
   }
 

@@ -314,6 +314,7 @@
               <button id="news-cut-export-btn" class="secondary-button" type="button" disabled title="생성된 아이템 시퀀스를 내보내기 탭의 프리셋·폴더 설정(없으면 기본 프리셋·폴더)으로 내보냅니다. AME가 있으면 대기열 추가, 없으면 Premiere가 직접 렌더합니다.">일괄 내보내기</button>
               <button id="news-cut-cleanup-btn" class="secondary-button" type="button" title="프로젝트의 날짜_news_NN 아이템 시퀀스를 모두 삭제합니다. 한 번 누르면 개수 확인, 4초 안에 다시 누르면 삭제됩니다.">이전 아이템 정리</button>
             </div>
+            <p class="action-note">'아이템 시퀀스 생성'과 '일괄 내보내기'는 보도 아이템 분석 또는 분할 실행 뒤에 활성화됩니다.</p>
             <div id="news-cut-list" class="learn-corpus-list" hidden></div>
           </div>
         </section>
@@ -397,10 +398,10 @@
           <div class="settings-card final-qc-card">
             <div class="section-heading section-heading-action">
               <div class="section-heading-copy">
-                <span class="section-number" aria-hidden="true">02</span>
+                <span class="section-number" aria-hidden="true">01</span>
                 <div>
                   <h3>최종 내보내기 게이트</h3>
-                  <p>자막·Safe Zone·오디오·오프라인 미디어·가이드 잔존·출력 경로까지 검사합니다.</p>
+                  <p>자막·안전 영역·오디오·오프라인 미디어·가이드 잔존·내보내기 경로까지 검사합니다.</p>
                 </div>
               </div>
               <span id="final-qc-gate" class="neutral-badge">대기</span>
@@ -781,6 +782,7 @@
               <button id="batch-create-btn" class="primary-button full-width-button" type="button" disabled>
                 마커 구간 일괄 생성
               </button>
+              <p class="action-note">마커 검색으로 구간 마커를 찾으면 버튼이 활성화됩니다.</p>
             </div>
           </div>
         </section>
@@ -885,7 +887,7 @@
               <div class="section-heading">
                 <span class="section-number" aria-hidden="true">02</span>
                 <div>
-                  <h3 id="safezone-heading">소셜 미디어 Safe Zone</h3>
+                  <h3 id="safezone-heading">소셜 미디어 안전 영역(Safe Zone)</h3>
                   <p>플랫폼 UI에 가려질 수 있는 영역과 선택 요소의 충돌을 검사합니다.</p>
                 </div>
               </div>
@@ -943,7 +945,7 @@
                 <button id="safe-check-btn" class="secondary-button" type="button">침범 검사</button>
                 <button id="safe-align-btn" class="primary-button" type="button">안전 영역으로 자동 정렬</button>
               </div>
-              <button id="safe-overlay-btn" class="secondary-button full-width-button" type="button" title="Safe Zone 가이드 이미지를 최상단 트랙에 오버레이로 삽입합니다. 내보내기 전 삭제하세요.">가이드 오버레이 삽입</button>
+              <button id="safe-overlay-btn" class="secondary-button full-width-button" type="button" title="안전 영역 가이드 이미지를 최상단 트랙에 오버레이로 삽입합니다. 내보내기 전 삭제하세요.">가이드 오버레이 삽입</button>
               <p class="action-note">플랫폼 UI는 업데이트될 수 있습니다. 내보내기 전 최신 가이드와 결과 화면을 한 번 더 확인해 주세요.</p>
             </section>
           </div>
@@ -1031,7 +1033,7 @@
 
               <div class="asset-rights-card" aria-label="선택 에셋 권리 정보">
                 <div class="section-heading compact-section-heading">
-                  <span class="section-number" aria-hidden="true">04</span>
+                  <span class="section-number" aria-hidden="true">03</span>
                   <div>
                     <h3>권리 정보</h3>
                     <p id="asset-rights-status">선택한 음악·효과음·이미지·영상·AI 에셋의 권리 정보를 기록하면 최종 QC에 반영됩니다.</p>
@@ -1077,7 +1079,7 @@
             <div class="settings-card asset-browser">
               <div class="section-heading section-heading-action">
                 <div class="section-heading-copy">
-                  <span class="section-number" aria-hidden="true">03</span>
+                  <span class="section-number" aria-hidden="true">04</span>
                   <div>
                     <h3>라이브러리</h3>
                     <p>카드를 타임라인으로 드래그해 배치할 수 있습니다.</p>
@@ -1498,6 +1500,7 @@
               <button id="add-reference-btn" class="primary-button full-width-button" type="button" disabled>
                 레퍼런스 보드에 추가
               </button>
+              <p class="action-note">레퍼런스 파일을 선택하면 버튼이 활성화됩니다.</p>
               <div class="field ai-gen-field">
                 <label for="reference-gen-prompt-input">AI 이미지 생성 (프롬프트)</label>
                 <textarea
@@ -1617,7 +1620,7 @@
                 <div class="field"><label for="brand-secondary-color">보조 색상</label><input id="brand-secondary-color" type="color" value="#111111" /></div>
                 <div class="field"><label for="brand-accent-color">강조 색상</label><input id="brand-accent-color" type="color" value="#8b5cf6" /></div>
                 <div class="field">
-                  <label>로고 파일</label>
+                  <label for="brand-logo-btn">로고 파일</label>
                   <div class="inline-file-control"><strong id="brand-logo-name" title="">선택되지 않음</strong><button id="brand-logo-btn" class="secondary-button" type="button">선택</button></div>
                 </div>
               </div>
@@ -1683,7 +1686,7 @@
             <div class="section-divider"></div>
 
             <div class="section-heading">
-              <span class="section-number" aria-hidden="true">02</span>
+              <span class="section-number" aria-hidden="true">03</span>
               <div>
                 <h3>삽입 위치</h3>
                 <p>재생 헤드 위치의 지정된 비디오 트랙에 추가합니다.</p>
@@ -1737,7 +1740,7 @@
                 썸네일 내보내기
               </button>
               <button id="thumb-export-svg-btn" class="secondary-button" type="button" title="Premiere UXP Canvas가 PNG/JPG를 지원하지 않을 때 SVG로 저장합니다.">
-                SVG fallback
+                SVG로 저장
               </button>
               <button id="thumb-export-variants-btn" class="secondary-button" type="button" title="저장된 변형(최대 3종)을 SVG 파일로 한 번에 내보냅니다.">
                 변형 전체 내보내기
@@ -2038,8 +2041,8 @@
             <div class="section-heading">
               <span class="section-number" aria-hidden="true">02</span>
               <div>
-                <h3>출력 방식</h3>
-                <p>인코더 작업과 출력할 시퀀스 범위를 설정합니다.</p>
+                <h3>내보내기 방식</h3>
+                <p>인코더 처리 방식과 내보낼 시퀀스 범위를 설정합니다.</p>
               </div>
             </div>
 
@@ -2049,12 +2052,12 @@
                 <div class="select-wrap">
                   <select id="export-mode-select" name="exportMode">
                     <option value="queue">Media Encoder 대기열</option>
-                    <option value="immediate">즉시 인코딩</option>
+                    <option value="immediate">즉시 내보내기</option>
                   </select>
                 </div>
               </div>
               <div class="field">
-                <label for="export-range-select">출력 범위</label>
+                <label for="export-range-select">내보내기 범위</label>
                 <div class="select-wrap">
                   <select id="export-range-select" name="exportRange">
                     <option value="entire">전체 시퀀스</option>
@@ -2072,7 +2075,7 @@
               </button>
               <button id="export-cover-btn" class="secondary-button secondary-button-large" type="button">
                 <span aria-hidden="true">▣</span>
-                현재 프레임 커버 저장
+                현재 프레임 썸네일 저장
               </button>
               <button id="upload-package-btn" class="secondary-button secondary-button-large" type="button" title="자막 SRT, 유튜브 메타데이터, 썸네일 변형 SVG, 에셋 권리 리포트를 업로드용 폴더 하나로 묶어 저장합니다. 영상 파일은 렌더 후 폴더에 복사하세요.">
                 <span aria-hidden="true">⇪</span>
