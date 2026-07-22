@@ -909,10 +909,15 @@ strong {
   flex-basis: 100%;
 }
 
+.field label .unit {
+  padding-right: 5px;
+}
+
 .field label {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
   margin-bottom: 5px;
   color: var(--text-strong);
   font-size: var(--fs-xs);
@@ -1473,11 +1478,13 @@ textarea {
 }
 
 .file-icon {
-  display: grid;
+  /* display:grid는 UXP에서 0×0 붕괴(§25-b) — 아이콘이 화면에서 사라진다. */
+  display: flex;
   flex: 0 0 auto;
   width: 31px;
   height: 31px;
-  place-items: center;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--accent-line);
   border-radius: 7px;
   background: var(--accent-soft);
@@ -2914,6 +2921,9 @@ textarea {
 
 .safety-badge {
   display: inline-flex;
+  width: fit-content;
+  align-self: flex-start;
+  max-width: 100%;
   align-items: center;
   gap: 6px;
   padding: 6px 9px;
@@ -3626,6 +3636,9 @@ input[type="color"],
 
 .connection-status {
   display: inline-flex;
+  width: fit-content;
+  align-self: flex-start;
+  max-width: 100%;
   flex: 0 0 auto;
   align-items: center;
   gap: 7px;
