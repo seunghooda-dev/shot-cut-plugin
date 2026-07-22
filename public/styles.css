@@ -926,8 +926,12 @@ strong {
 input,
 textarea,
 select {
+  /* UXP가 인라인 폼 컨트롤에 라인박스 유령 여백(위 ~40px+마진 16px 실측)을 넣어 라벨과
+     컨트롤이 벌어지고 2열 필드가 지그재그로 어긋난다 — block+margin 0으로 원천 차단. */
+  display: block;
   width: 100%;
   height: 29px;
+  margin: 0;
   padding: 0 9px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
@@ -1105,9 +1109,11 @@ textarea {
   font-size: var(--fs-xs);
 }
 
-.focal-slider input[type="range"] {
+/* 속성 선택자([type=range])는 UXP가 무시(§25-b) — bare input 선택자로 지정해야 적용된다. */
+.focal-slider input {
   flex: 1 1 auto;
   width: auto;
+  min-width: 0;
   height: 20px;
   padding: 0;
   border: none;
@@ -1794,8 +1800,11 @@ textarea {
 .button-cluster {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
   gap: 7px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .brand-kit-card {
