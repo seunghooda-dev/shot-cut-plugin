@@ -1,5 +1,5 @@
 // 자막 없이 화면(앵커 샷)만으로 뉴스 방송을 분할하는 순수 계층 — 후보 도출·정적 꼬리·경계 재스냅
-import { frameDifference } from "./frame-diff";
+import { frameDifference, type BmpFrame } from "./frame-diff";
 import { MAX_NEWS_ITEMS, findShotSegments, mergeShortItemsForward, type NewsItem } from "./news-cut";
 
 export interface GridSample {
@@ -361,4 +361,91 @@ export async function refineBoundaryToTransition(
     }
   }
   return boundary; // 36s 역방향에도 동일 — 수동 확인 영역, 원 경계 유지
+}
+
+// ── 하단 자막 띠(인용·이름표) 감지 — 발언/회견 샷 오검출 배제(anchor-lowerthird-band.plan.md) ──
+// 관찰(2026-07-22 실측, 소스 33회차 377경계): 앵커샷의 헤드라인 띠는 흰 바탕에 큰 글자
+// (270px 프레임 기준 글리프 세로 22~30행)가 한 덩어리로 들어가고, 발언·회견 순간에는 같은
+// 자리가 작은 글자(6~12행)의 인용·이름표 띠로 교체된다. "흰 띠는 있는데 큰 글자가 없다"가
+// 확정 후보 시각 +2s·+4s 양쪽에서 반복되면 발언 샷 오검출로 본다. 헤드라인 띠는 리포트
+// 중에도 계속 떠 있으므로 이 신호는 인용띠 유형만 잡는다(부분 억제 — 전체 FP 제거 아님).
+
+/** 하단 영역 행 통계 — dark: 어두운 픽셀(<110) 백분율, mean: 평균 휘도(0..255). */
+export interface LowerThirdRowStat {
+  dark: number;
+  mean: number;
+}
+
+export interface QuoteBandResult {
+  band: boolean;
+  height: number;
+  maxGlyph: number;
+}
+
+/** 하단 분석 영역 시작(프레임 높이 비율) — 270px 기준 y=195부터. */
+export const QUOTE_BAND_REGION_TOP = 195 / 270;
+/** 좌우 여백 비율 — 왼쪽 로고 블록·오른쪽 가장자리 제외(480px 기준 x=70~470). */
+export const QUOTE_BAND_REGION_LEFT = 70 / 480;
+export const QUOTE_BAND_REGION_RIGHT = 470 / 480;
+/** 흰 띠로 보는 행 평균 휘도 하한 — 큰 글자 행(평균 122~166)도 띠에 포함되도록 낮게 잡는다. */
+export const QUOTE_BAND_MEAN_MIN = 115;
+/** 텍스트 행으로 보는 어두운 픽셀 백분율 하한. */
+export const QUOTE_BAND_TEXT_DARK_MIN = 15;
+/** 270px 프레임 기준 띠 최소 두께(행) — 얇은 스트립(오프닝·무헤드라인 앵커, 6~10행)을 띠로 안 본다. */
+export const QUOTE_BAND_MIN_ROWS_AT_270 = 14;
+/** 270px 프레임 기준 "큰 헤드라인 글자" 최소 세로(행) — 이 미만이면 인용·이름표 띠로 판정. */
+export const QUOTE_BAND_MIN_GLYPH_AT_270 = 12;
+
+/** 프레임 하단 영역의 행별 (dark%, mean) 통계를 계산한다 — 오프라인 캐시와 같은 형식. */
+export function lowerThirdRowStats(frame: BmpFrame): LowerThirdRowStat[] {
+  const yStart = Math.round(frame.height * QUOTE_BAND_REGION_TOP);
+  const xStart = Math.round(frame.width * QUOTE_BAND_REGION_LEFT);
+  const xEnd = Math.round(frame.width * QUOTE_BAND_REGION_RIGHT);
+  const rows: LowerThirdRowStat[] = [];
+  for (let y = yStart; y < frame.height; y += 1) {
+    let dark = 0;
+    let sum = 0;
+    for (let x = xStart; x < xEnd; x += 1) {
+      const value = frame.lumaAt(x, y);
+      if (value < 110) dark += 1;
+      sum += value;
+    }
+    const count = Math.max(1, xEnd - xStart);
+    rows.push({ dark: (100 * dark) / count, mean: sum / count });
+  }
+  return rows;
+}
+
+/**
+ * 행 통계에서 흰 띠(최장 밝은 행 런)와 띠 내부 최대 글리프 세로(끊김 없는 어두운 행 런)를
+ * 잰다. 임계는 270px 프레임 기준 행 수를 프레임 높이에 비례해 스케일한다.
+ */
+export function quoteBandFromStats(rows: readonly LowerThirdRowStat[], frameHeight: number): QuoteBandResult {
+  const minBandRows = Math.max(4, Math.round((QUOTE_BAND_MIN_ROWS_AT_270 * frameHeight) / 270));
+  let best: { start: number; len: number } | null = null;
+  let runStart = -1;
+  for (let index = 0; index <= rows.length; index += 1) {
+    const isBand = index < rows.length && rows[index]!.mean > QUOTE_BAND_MEAN_MIN;
+    if (isBand && runStart < 0) runStart = index;
+    if (!isBand && runStart >= 0) {
+      const len = index - runStart;
+      if (!best || len > best.len) best = { start: runStart, len };
+      runStart = -1;
+    }
+  }
+  if (!best || best.len < minBandRows) return { band: false, height: 0, maxGlyph: 0 };
+  let maxGlyph = 0;
+  let current = 0;
+  for (let index = best.start; index < best.start + best.len; index += 1) {
+    current = rows[index]!.dark > QUOTE_BAND_TEXT_DARK_MIN ? current + 1 : 0;
+    if (current > maxGlyph) maxGlyph = current;
+  }
+  return { band: true, height: best.len, maxGlyph };
+}
+
+/** 인용·이름표 띠 판정 — 흰 띠는 있는데 큰 헤드라인 글자가 없다. */
+export function isQuoteBandStats(rows: readonly LowerThirdRowStat[], frameHeight: number): boolean {
+  const result = quoteBandFromStats(rows, frameHeight);
+  const minGlyph = Math.max(3, Math.round((QUOTE_BAND_MIN_GLYPH_AT_270 * frameHeight) / 270));
+  return result.band && result.maxGlyph < minGlyph;
 }

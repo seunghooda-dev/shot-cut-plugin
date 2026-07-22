@@ -129,6 +129,8 @@ import {
   detectModelStarts,
   detectStaticTailStart,
   hybridAnchorTimes,
+  isQuoteBandStats,
+  lowerThirdRowStats,
   refineBoundaryToTransition,
   scoreAnchorSamples,
   type GridSample,
@@ -2366,6 +2368,42 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         }
       } catch (error) {
         activity.add("warning", `비전 검증 실패 — 무료 결과 그대로 진행: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    // 하단 띠 검사(무료) — 인용·이름표 띠(흰 띠는 있는데 큰 헤드라인 글자 없음)가 +2s·+4s
+    // 양쪽에서 감지되면 발언·회견 샷 오검출로 배제한다(anchor-lowerthird-band.plan.md).
+    // 오프닝 직후는 띠가 늦게 떠서 첫 후보는 면제. 프레임 확보 실패 후보는 그대로 통과.
+    if (verified.length > 1) {
+      const probeQuoteBand = async (time: number): Promise<boolean | null> => {
+        try {
+          const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 480, undefined, "bmp");
+          const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+          try {
+            const entry = await dataFolder.getEntry(filename);
+            await entry.delete();
+          } catch {
+            // 임시 파일 삭제 실패는 무시
+          }
+          const bmp = bytes ? parseBmp24(bytes) : null;
+          return bmp ? isQuoteBandStats(lowerThirdRowStats(bmp), bmp.height) : null;
+        } catch {
+          return null;
+        }
+      };
+      const kept: number[] = [verified[0]!];
+      const rejected: number[] = [];
+      for (const [checkIndex, time] of verified.slice(1).entries()) {
+        setText("busy-message", `하단 띠 검사 ${checkIndex + 1}/${verified.length - 1}…`);
+        const near = await probeQuoteBand(time + 2);
+        const far = await probeQuoteBand(time + 4);
+        if (near === true && far === true) rejected.push(time);
+        else kept.push(time);
+      }
+      if (rejected.length > 0 && kept.length >= 3) {
+        verified = kept;
+        activity.add("info", `하단 띠 검사 · 인용·이름표 띠 ${rejected.length}건 배제 → 앵커 ${verified.length}개`);
+      } else if (rejected.length > 0) {
+        activity.add("warning", `하단 띠 검사 · 배제 후보 ${rejected.length}건이 있으나 잔여 ${kept.length}개(<3)라 필터를 해제합니다.`);
       }
     }
     // 2/4 경계 정밀 재스냅(인점 = 전환 컷 정확히, §61)

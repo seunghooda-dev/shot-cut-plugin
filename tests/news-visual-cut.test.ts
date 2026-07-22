@@ -256,3 +256,67 @@ describe("refineBoundaryToTransition", () => {
     assert.equal(snapped, 58);
   });
 });
+
+describe("하단 자막 띠(인용·이름표) 감지", () => {
+  // 270행 프레임 기준 하단 75행(y195~269) 통계를 직접 구성한다.
+  const makeRows = (paint: (y: number) => { dark: number; mean: number } | null) =>
+    Array.from({ length: 75 }, (_, index) => paint(195 + index) ?? { dark: 90, mean: 45 });
+
+  it("큰 헤드라인 글자(글리프 22행)가 있는 흰 띠는 인용띠가 아니다", async () => {
+    const { quoteBandFromStats, isQuoteBandStats } = await import("../src/news-visual-cut");
+    const rows = makeRows((y) => {
+      if (y < 211 || y > 247) return null;
+      return y >= 218 && y <= 242 ? { dark: 40, mean: 140 } : { dark: 6, mean: 238 };
+    });
+    const result = quoteBandFromStats(rows, 270);
+    assert.equal(result.band, true);
+    assert.equal(result.maxGlyph >= 22, true);
+    assert.equal(isQuoteBandStats(rows, 270), false);
+  });
+
+  it("작은 글자(글리프 11행)뿐인 흰 띠는 인용띠로 판정한다", async () => {
+    const { isQuoteBandStats } = await import("../src/news-visual-cut");
+    const rows = makeRows((y) => {
+      if (y < 212 || y > 248) return null;
+      const inLine = (y >= 218 && y <= 228) || (y >= 234 && y <= 244);
+      return inLine ? { dark: 30, mean: 150 } : { dark: 6, mean: 235 };
+    });
+    assert.equal(isQuoteBandStats(rows, 270), true);
+  });
+
+  it("얇은 스트립(9행)은 띠로 보지 않는다 — 무헤드라인 앵커 보호", async () => {
+    const { quoteBandFromStats, isQuoteBandStats } = await import("../src/news-visual-cut");
+    const rows = makeRows((y) => (y >= 211 && y <= 219 ? { dark: 2, mean: 230 } : null));
+    assert.equal(quoteBandFromStats(rows, 270).band, false);
+    assert.equal(isQuoteBandStats(rows, 270), false);
+  });
+
+  it("띠가 없으면 인용띠가 아니다 — CG 특집·오프닝 보호", async () => {
+    const { isQuoteBandStats } = await import("../src/news-visual-cut");
+    assert.equal(isQuoteBandStats(makeRows(() => null), 270), false);
+  });
+
+  it("글리프 경계값(정확히 12행)은 인용띠로 판정하지 않는다", async () => {
+    const { isQuoteBandStats } = await import("../src/news-visual-cut");
+    const rows = makeRows((y) => {
+      if (y < 212 || y > 233 + 6) return null;
+      return y >= 218 && y <= 229 ? { dark: 30, mean: 150 } : { dark: 6, mean: 235 };
+    });
+    assert.equal(isQuoteBandStats(rows, 270), false);
+  });
+
+  it("lowerThirdRowStats는 BmpFrame 하단 영역을 행 통계로 요약한다", async () => {
+    const { lowerThirdRowStats } = await import("../src/news-visual-cut");
+    const frame = {
+      width: 480,
+      height: 270,
+      lumaAt: (_x: number, y: number) => (y >= 220 && y <= 240 ? 240 : 40),
+    };
+    const rows = lowerThirdRowStats(frame);
+    assert.equal(rows.length, 75);
+    assert.equal(Math.round(rows[220 - 195]!.mean), 240);
+    assert.equal(rows[220 - 195]!.dark, 0);
+    assert.equal(Math.round(rows[0]!.mean), 40);
+    assert.equal(rows[0]!.dark, 100);
+  });
+});

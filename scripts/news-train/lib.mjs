@@ -166,3 +166,27 @@ export function formatMetrics(metrics) {
   const pct = (value) => (value * 100).toFixed(0).padStart(3);
   return `P${pct(metrics.precision)} R${pct(metrics.recall)} F1 ${(metrics.f1 * 100).toFixed(1)}`;
 }
+
+/** 하단 띠 프로브 캐시(<name>.bandprobes.json) — 없으면 null(필터 미적용). */
+export async function loadBandProbes(name) {
+  try {
+    return JSON.parse(await readFile(path.join(DATA_DIR, `${name}.bandprobes.json`), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 인용띠 필터(원클릭과 동일 규칙) — 첫 후보 면제, +2s·+4s 프로브가 모두 인용띠일 때만 배제.
+ * 프로브가 없는 시각은 그대로 통과(우아한 강하).
+ */
+export function applyQuoteBandFilter(starts, bandProbes) {
+  if (!bandProbes) return starts;
+  const toStats = (rows) => rows.map(([, dark, mean]) => ({ dark, mean }));
+  return starts.filter((start, index) => {
+    if (index === 0) return true;
+    const probe = bandProbes.find((entry) => Math.abs(entry.t - start) <= 2);
+    if (!probe?.rows2 || !probe?.rows4) return true;
+    return !(visual.isQuoteBandStats(toStats(probe.rows2), 270) && visual.isQuoteBandStats(toStats(probe.rows4), 270));
+  });
+}

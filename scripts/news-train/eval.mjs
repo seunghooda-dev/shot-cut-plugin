@@ -1,5 +1,5 @@
 // 현재 src 모델을 라벨 에피소드 전체(또는 지정)에 평가 — 회차별·전체 경계 F1 리포트.
-import { listEpisodes, loadEpisode, loadMatcherBanks, routeMatcher, loadCurrentModel, predictItemStarts, boundaryF1, formatMetrics } from "./lib.mjs";
+import { listEpisodes, loadEpisode, loadMatcherBanks, routeMatcher, loadCurrentModel, predictItemStarts, boundaryF1, formatMetrics, loadBandProbes, applyQuoteBandFilter } from "./lib.mjs";
 
 const only = process.argv.slice(2);
 const banks = await loadMatcherBanks();
@@ -9,11 +9,13 @@ let totals = { tp: 0, fp: 0, fn: 0 };
 for (const meta of episodes) {
   const episode = await loadEpisode(meta.name, meta.corrected);
   const matcher = routeMatcher(episode, banks);
-  const { starts, modelStarts } = predictItemStarts(episode, matcher, model);
+  const { starts: rawStarts, modelStarts } = predictItemStarts(episode, matcher, model);
+  const starts = applyQuoteBandFilter(rawStarts, await loadBandProbes(meta.name));
   const metrics = boundaryF1(starts, episode.truth.map((item) => item.start));
   totals.tp += metrics.tp; totals.fp += metrics.fp; totals.fn += metrics.fn;
   const tag = meta.corrected ? " (정정본)" : "";
-  console.log(`${meta.name}${tag}: 예측 ${starts.length} (모델 ${modelStarts.length}) / 정답 ${episode.truth.length} → ${formatMetrics(metrics)}`);
+  const bandTag = starts.length !== rawStarts.length ? ` (인용띠 ${rawStarts.length - starts.length} 배제)` : "";
+  console.log(`${meta.name}${tag}: 예측 ${starts.length}${bandTag} (모델 ${modelStarts.length}) / 정답 ${episode.truth.length} → ${formatMetrics(metrics)}`);
 }
 const precision = totals.tp / (totals.tp + totals.fp || 1);
 const recall = totals.tp / (totals.tp + totals.fn || 1);
