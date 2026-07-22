@@ -102,6 +102,8 @@ function updateNavToggle(activeTab: HTMLElement, collapse: boolean): void {
   if (!nav) return;
   const label = nav.querySelector<HTMLElement>(".nav-toggle-label");
   if (label) label.textContent = tabLabel(activeTab);
+  const indexChip = nav.querySelector<HTMLElement>(".nav-toggle-index");
+  if (indexChip) indexChip.textContent = activeTab.querySelector(".tab-index")?.textContent?.trim() ?? "";
   if (collapse) {
     nav.classList.remove("is-expanded");
     nav.querySelector(".nav-toggle")?.setAttribute("aria-expanded", "false");
@@ -147,10 +149,18 @@ export function setupTabs(): void {
   }, true);
 
   const navToggle = document.getElementById("nav-toggle");
-  navToggle?.addEventListener("click", () => {
+  const toggleNav = (): void => {
+    if (!navToggle) return;
     const nav = navToggle.closest<HTMLElement>(".workflow-nav");
     const expanded = nav?.classList.toggle("is-expanded") ?? false;
     navToggle.setAttribute("aria-expanded", String(expanded));
+  };
+  navToggle?.addEventListener("click", toggleNav);
+  // div role=button이라 키보드 활성화를 직접 처리한다(Enter/Space).
+  navToggle?.addEventListener("keydown", (event: KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    toggleNav();
   });
 
   document.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -224,7 +234,25 @@ export class BusyState {
   private readonly progressWrap = optionalElement<HTMLElement>("busy-progress");
   private readonly progressFill = optionalElement<HTMLElement>("busy-progress-fill");
   private readonly progressText = optionalElement<HTMLElement>("busy-progress-text");
+  private readonly stepsWrap = optionalElement<HTMLElement>("busy-steps");
   private depth = 0;
+
+  /** 다단계 작업의 단계 칩을 표시한다 — activeIndex 이전은 완료(✓), 이후는 대기. 빈 배열이면 숨김. */
+  steps(labels: readonly string[], activeIndex: number): void {
+    if (!this.stepsWrap) return;
+    clearChildren(this.stepsWrap);
+    if (labels.length === 0) {
+      this.stepsWrap.hidden = true;
+      return;
+    }
+    labels.forEach((label, index) => {
+      const chip = document.createElement("span");
+      chip.className = index < activeIndex ? "busy-step is-done" : index === activeIndex ? "busy-step is-active" : "busy-step";
+      chip.textContent = index < activeIndex ? `✓ ${label}` : label;
+      this.stepsWrap!.append(chip);
+    });
+    this.stepsWrap.hidden = false;
+  }
 
   /** 진행률(0~100)을 오버레이 바에 표시한다. null이면 숨김(불확정 단계). */
   progress(percent: number | null): void {
@@ -252,6 +280,7 @@ export class BusyState {
     if (this.depth === 0) {
       if (this.overlay) this.overlay.hidden = true;
       this.progress(null);
+      this.steps([], 0);
     }
   }
 

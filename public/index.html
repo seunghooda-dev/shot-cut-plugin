@@ -69,17 +69,20 @@
       </section>
 
       <nav class="workflow-nav" aria-label="ShortFlow 작업 메뉴">
-        <button
+        <!-- UXP가 button 요소에 기본 크롬(둥근 알약)을 강제해 CSS를 무시하므로 div role=button으로 그린다. -->
+        <div
           id="nav-toggle"
           class="nav-toggle"
-          type="button"
+          role="button"
+          tabindex="0"
           aria-expanded="false"
           aria-controls="workflow-tab-list"
         >
           <span class="nav-toggle-icon" aria-hidden="true">☰</span>
+          <span class="nav-toggle-index" aria-hidden="true">01</span>
           <span class="nav-toggle-label">뉴스 분할</span>
           <span class="nav-toggle-chevron" aria-hidden="true">▾</span>
-        </button>
+        </div>
         <div id="workflow-tab-list" class="tab-list" role="tablist" aria-orientation="horizontal">
           <button
             id="tab-newscut"
@@ -2298,10 +2301,18 @@
       </div>
     </div>
 
+    <div id="news-thumb-lightbox" class="thumb-lightbox" role="dialog" aria-modal="true" aria-label="아이템 시작 프레임 크게 보기" hidden>
+      <figure class="thumb-lightbox-body">
+        <img id="news-thumb-lightbox-img" alt="아이템 시작 프레임" />
+        <figcaption id="news-thumb-lightbox-caption"></figcaption>
+      </figure>
+    </div>
+
     <div id="busy-overlay" class="busy-overlay" role="status" aria-live="assertive" aria-atomic="true" hidden>
       <div class="busy-dialog">
         <span class="spinner" aria-hidden="true"></span>
         <strong id="busy-message">작업을 처리하고 있습니다…</strong>
+        <div id="busy-steps" class="busy-steps" hidden></div>
         <div id="busy-progress" class="busy-progress" hidden>
           <div class="busy-progress-track"><div id="busy-progress-fill" class="busy-progress-fill"></div></div>
           <span id="busy-progress-text" class="busy-progress-text">0%</span>

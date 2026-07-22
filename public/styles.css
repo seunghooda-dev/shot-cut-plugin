@@ -290,23 +290,34 @@ strong {
   position: sticky;
   z-index: 10;
   top: 0;
+  /* UXP는 flex 부모(.app-shell)의 기본 stretch를 적용하지 않아 내용 폭으로 수축한다(실측 153px) — 명시 폭 필수. */
+  width: 100%;
+  box-sizing: border-box;
   border-bottom: 1px solid var(--line-subtle);
   background: rgba(23, 24, 30, 0.96);
 }
 
 /* 접이식 내비게이션: 평소엔 현재 섹션 한 줄(nav-toggle)만 보이고, 누르면 전체 탭 그리드가
    펼쳐진다. 탭을 고르면 다시 접혀 세로 공간을 돌려준다. */
+/* 주의: .workflow-nav를 flex로 감싸면 UXP가 컨테이너를 내용 폭으로 수축시킨다(§25-b 계열, 실측 153px).
+   block 부모 + width:100% 버튼 조합(.full-width-button과 동일 레시피)이 검증된 전폭 방법이다. */
 .nav-toggle {
   display: flex;
   width: 100%;
+  box-sizing: border-box;
   align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 0 12px;
-  border: 0;
-  background: var(--bg-raised);
+  gap: 7px;
+  min-height: 30px;
+  margin: 0;
+  padding: 0 9px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--accent-line);
+  border-radius: 0;
+  border-left: 3px solid var(--accent);
+  background: rgba(139, 92, 246, 0.08);
   color: var(--text-primary);
-  font-size: var(--fs-md);
+  font-size: var(--fs-base);
   font-weight: 600;
   text-align: left;
   cursor: pointer;
@@ -314,7 +325,7 @@ strong {
 }
 
 .nav-toggle:hover {
-  background: var(--bg-elevated);
+  background: var(--accent-soft);
 }
 
 .nav-toggle:focus-visible {
@@ -324,15 +335,34 @@ strong {
 
 .nav-toggle-icon {
   color: var(--accent-bright);
-  font-size: 13px;
+  font-size: 14px;
+}
+
+.nav-toggle-index {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--accent-soft);
+  color: var(--accent-bright);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
 }
 
 .nav-toggle-label {
   flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-toggle-hint {
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+  font-weight: 500;
 }
 
 .nav-toggle-chevron {
   color: var(--text-muted);
+  font-size: 13px;
   transition: transform 160ms ease;
 }
 
@@ -399,7 +429,15 @@ strong {
 }
 
 .tab-index {
-  display: none;
+  margin-right: 4px;
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+}
+
+.nav-tab.is-active .tab-index,
+.nav-tab[aria-selected="true"] .tab-index {
+  color: var(--accent-bright);
 }
 
 .workspace {
@@ -1242,6 +1280,72 @@ textarea {
   border-radius: var(--radius-sm);
   border: 1px solid var(--line-subtle);
   background: var(--bg-input);
+  cursor: zoom-in;
+  transition: border-color 120ms ease;
+}
+
+.news-item-thumb:hover {
+  border-color: var(--accent-bright);
+}
+
+/* 시작 프레임 큰 미리보기 — 아무 곳이나 클릭하면 닫힌다(busy 오버레이보다 아래). */
+.thumb-lightbox {
+  position: fixed;
+  z-index: 900;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 10, 13, 0.82);
+  cursor: zoom-out;
+}
+
+.thumb-lightbox-body {
+  max-width: 94%;
+  margin: 0;
+  text-align: center;
+}
+
+.thumb-lightbox-body img {
+  max-width: 100%;
+  max-height: 78vh;
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-md);
+}
+
+.thumb-lightbox-body figcaption {
+  margin-top: 9px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+/* 분할 단계 칩 — busy 오버레이의 다단계 진행 표시 */
+.busy-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+
+.busy-step {
+  padding: 3px 8px;
+  border: 1px solid var(--line-subtle);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+}
+
+.busy-step.is-active {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-bright);
+}
+
+.busy-step.is-done {
+  border-color: rgba(71, 215, 172, 0.4);
+  color: var(--success);
 }
 
 .form-actions {

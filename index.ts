@@ -1802,14 +1802,56 @@ function renderNewsCutList(): void {
     const thumb = document.createElement("img");
     thumb.className = "news-item-thumb";
     thumb.alt = `아이템 ${index + 1} 시작 프레임`;
+    thumb.title = "클릭하면 크게 보기";
     thumb.dataset.newsThumb = String(index);
     thumb.hidden = true;
+    thumb.addEventListener("click", (event) => {
+      // label 안의 이미지라 기본 동작이 체크박스 토글 — 큰 미리보기로 대체한다.
+      event.preventDefault();
+      event.stopPropagation();
+      void openNewsThumbLightbox(index);
+    });
     const label = document.createElement("span");
     label.textContent = describeNewsItem(item, index);
     row.append(checkbox, thumb, label);
     container.append(row);
   });
   void loadNewsCutThumbnails();
+}
+
+// 썸네일 클릭 시 큰 미리보기 — 소형(192px) 이미지를 즉시 띄우고 640px 프레임으로 교체한다.
+async function openNewsThumbLightbox(index: number): Promise<void> {
+  const item = newsCutItems[index];
+  const overlay = optionalElement<HTMLElement>("news-thumb-lightbox");
+  const image = optionalElement<HTMLImageElement>("news-thumb-lightbox-img");
+  if (!item || !overlay || !image) return;
+  const small = document.querySelector<HTMLImageElement>(`img[data-news-thumb="${index}"]`);
+  image.src = small?.src ?? "";
+  setText("news-thumb-lightbox-caption", `${describeNewsItem(item, index)} — 클릭하면 닫힙니다`);
+  overlay.hidden = false;
+  const api = frameDataFolderApi();
+  if (!api || !newsCutSourceName) return;
+  try {
+    const dataFolder = await api.fileSystem.getDataFolder();
+    const { filename } = await exportSequenceFrameByName(
+      newsCutSourceName,
+      item.start + 0.5,
+      String(dataFolder.nativePath),
+      640,
+    );
+    const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+    try {
+      const entry = await dataFolder.getEntry(filename);
+      await entry.delete();
+    } catch {
+      // 임시 파일 삭제 실패는 무시
+    }
+    if (!overlay.hidden && bytes && bytes.byteLength > 0) {
+      image.src = `data:image/png;base64,${bytesToBase64(bytes)}`;
+    }
+  } catch {
+    // 고해상 교체 실패 시 소형 썸네일을 그대로 보여준다
+  }
 }
 
 // 아이템 시작 프레임 미리보기 — 내보내기 전에 잘못 쪼개진 아이템을 목록에서 바로 검수한다.
@@ -2284,6 +2326,11 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
   if (!(duration > 60)) throw new Error("활성 시퀀스가 없거나 너무 짧습니다 — 1분 이상 뉴스 방송 시퀀스를 활성화해 주세요.");
   newsCutSourceKey = await readActiveContextKey().catch(() => "");
   newsCutSourceName = String(status.sequenceName ?? "");
+  // 다단계 스텝바 — busy 오버레이에 현재 단계를 칩으로 표시한다(hide 시 자동 소거라 각 단계 진입마다 다시 세팅).
+  const newsCutSteps = exportAfter
+    ? ["프레임 점검", "화면 스캔", "앵커 검증", "경계 재스냅", "시퀀스 생성", "내보내기"]
+    : ["프레임 점검", "화면 스캔", "앵커 검증", "경계 재스냅", "시퀀스 생성"];
+  const setNewsCutStep = (index: number): void => busy.steps(newsCutSteps, index);
   const dataFolder = await api.fileSystem.getDataFolder();
   // 같은 시각 재요청(경계 재스냅)이 잦아 시각별 그리드를 메모한다.
   const gridCache = new Map<number, Float64Array | null>();
@@ -2312,6 +2359,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
   // 0/4 프레임 불일치 사전 점검(§73-d 사고의 제품화) — 소스 해상도≠시퀀스 프레임이면 렌더가
   // 사방 검은 테두리로 나와 화면 분석이 왜곡된다. 전 구간 6점 프로브로 본 스캔 전에 차단한다.
   await busy.during("원클릭 분할 · 프레임 점검 중…", async () => {
+    setNewsCutStep(0);
     const probes: Array<Float64Array | null> = [];
     for (const ratio of [0.1, 0.25, 0.4, 0.55, 0.7, 0.85]) {
       probes.push(await grabGrid(Math.round(duration * ratio)));
@@ -2325,6 +2373,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
   });
 
   const items = await busy.during("원클릭 분할 · 화면 스캔 준비 중…", async () => {
+    setNewsCutStep(1);
     // 1/4 코스 스캔(2s 그리드)
     const samples: GridSample[] = [];
     const total = Math.floor((duration - 1) / 2) + 1;
@@ -2352,6 +2401,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     activity.add("info", `원클릭 분할 · 앵커 ${accepted.length}개(화면 매칭 후보 ${candidates.length} · 학습 모델 ${modelStarts.length})`);
     // 비전 검증(옵트인·유료) — 확정 후보를 시각 판정으로 재확인해 과분할 오검출을 제거한다
     // (vision-anchor-verify.plan.md). 실패 시 무료 결과 그대로 진행(우아한 강하).
+    setNewsCutStep(2);
     let verified = accepted;
     if (optionalElement<HTMLInputElement>("news-cut-vision-check")?.checked === true) {
       try {
@@ -2453,6 +2503,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
       }
     }
     // 2/4 경계 정밀 재스냅(인점 = 전환 컷 정확히, §61)
+    setNewsCutStep(3);
     const rawItems = buildItemsFromStarts(verified, tailStart ?? duration);
     if (rawItems.length === 0) throw new Error("보도 아이템을 구성하지 못했습니다.");
     const bounds = [...rawItems.map((item) => item.start), rawItems.at(-1)!.end];
@@ -2480,6 +2531,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
   renderNewsCutList();
   if (items.length === 0) throw new Error("보도 아이템을 만들지 못했습니다.");
   activity.add("success", `원클릭 분할 · 화면 분석 아이템 ${items.length}개`);
+  setNewsCutStep(4);
   await handleNewsCutCreate();
   if (newsCutCreatedNames.length === 0) {
     throw new Error("아이템 시퀀스가 만들어지지 않았습니다.");
@@ -2490,6 +2542,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     return;
   }
   const targets = await resolveNewsCutExportTargets();
+  setNewsCutStep(5);
   await exportNewsSequencesWith(targets.presetFile, targets.outputFolder);
   activity.add("success", "원클릭 분할 완료 — 출력 폴더를 확인하세요.");
 }
@@ -2907,6 +2960,15 @@ function guarded(handler: () => Promise<void>, context: string): () => Promise<v
 }
 
 function bindCoreEvents(): void {
+  bind("news-thumb-lightbox", "click", () => {
+    const overlay = optionalElement<HTMLElement>("news-thumb-lightbox");
+    if (overlay) overlay.hidden = true;
+  });
+  document.addEventListener("keydown", (event: KeyboardEvent) => {
+    if (event.key !== "Escape") return;
+    const overlay = optionalElement<HTMLElement>("news-thumb-lightbox");
+    if (overlay && !overlay.hidden) overlay.hidden = true;
+  });
   bind("refresh-btn", "click", guarded(() => refreshStatus().then(() => undefined), "상태 새로고침 실패"));
   bind("qc-btn", "click", guarded(() => markersQcPanel.runQC(), "QC 실패"));
   bind("create-short-btn", "click", guarded(() => markersQcPanel.createShort(), "숏폼 생성 실패"));
