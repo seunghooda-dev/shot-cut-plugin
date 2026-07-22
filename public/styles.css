@@ -964,6 +964,16 @@ textarea {
 
 .select-wrap {
   position: relative;
+  /* UXP가 select 위아래에 유령 여백(실측 40px+마진 16px)을 넣어 wrap이 93px까지 부푼다 —
+     높이를 고정하고 select를 절대배치로 눌러 앱 전역에서 29px 한 줄로 통일한다. */
+  height: 29px;
+}
+
+.select-wrap select {
+  position: absolute;
+  inset: 0;
+  height: 29px;
+  margin: 0;
 }
 
 .select-wrap::after {
@@ -1004,12 +1014,14 @@ textarea {
 
 .custom-checkbox {
   position: relative;
-  display: grid;
+  /* display:grid는 UXP에서 0×0 붕괴(§25-b) — 체크박스가 화면에서 사라진다. flex로 그린다. */
+  display: flex;
   flex: 0 0 auto;
   width: 16px;
   height: 16px;
   margin-top: 1px;
-  place-items: center;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--line-strong);
   border-radius: 4px;
   background: var(--bg-input);
@@ -1035,6 +1047,14 @@ textarea {
 .checkbox-row strong,
 .checkbox-row small {
   display: block;
+}
+
+/* .field 안의 체크박스 라벨은 라벨용 space-between·소형 서체를 물려받지 않게 원복한다. */
+.field label.checkbox-row {
+  justify-content: flex-start;
+  margin-bottom: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-base);
 }
 
 .checkbox-row strong {
