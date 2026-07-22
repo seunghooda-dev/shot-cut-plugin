@@ -801,6 +801,11 @@ strong {
 }
 
 .neutral-badge {
+  /* UXP가 인라인 span을 부모 폭으로 늘려 타원으로 찌그러진다 — 내용 폭 고정. */
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-self: center;
+  align-items: center;
   padding: 3px 8px;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
