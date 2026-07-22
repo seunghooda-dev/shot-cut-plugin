@@ -4298,3 +4298,25 @@ input[type="color"],
     animation-iteration-count: 1 !important;
   }
 }
+
+/* ── UXP flex gap 미지원(§86-f 실측) — 아이콘·점·체크박스 클러스터는 margin으로 간격을 강제 ── */
+.file-summary > .file-icon {
+  margin-right: 10px;
+}
+
+.connection-status-dot {
+  margin-right: 7px;
+}
+
+.safety-badge > span:first-child {
+  margin-right: 6px;
+}
+
+.custom-checkbox {
+  margin-right: 8px;
+}
+
+.nav-toggle-icon,
+.nav-toggle-index {
+  margin-right: 7px;
+}
