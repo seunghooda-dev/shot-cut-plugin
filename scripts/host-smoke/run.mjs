@@ -1,7 +1,7 @@
 // Host 스모크 러너 — 한 번 접속(1회 재부팅) 후 모든 체크를 같은 세션에서 실행한다(§40-d 단일 세션 원칙)
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { connectPanel, sleep } from "./lib.mjs";
+import { connectPanel, sleep, warnIfAudioPreviewCacheLarge } from "./lib.mjs";
 import { checks } from "./checks.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -58,4 +58,5 @@ const lastErrors = panel.consoleErrors.slice(-3);
 panel.close();
 console.log(`[host-smoke] 결과: ${results.length - failed.length}/${results.length} 통과${failed.length ? " — 실패: " + failed.map((f) => f.name).join(", ") : ""}`);
 if (lastErrors.length > 0) console.log(`[host-smoke] 세션 콘솔 에러(최근 3): ${JSON.stringify(lastErrors)}`);
+await warnIfAudioPreviewCacheLarge().catch(() => {});
 process.exit(failed.length === 0 ? 0 : 1);

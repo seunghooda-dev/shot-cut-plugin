@@ -13,6 +13,36 @@ const WS = globalThis.WebSocket;
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Premiere 오디오 미리듣기 캐시 크기를 확인하고 임계치를 넘으면 경고를 찍는다.
+ * full 티어의 시퀀스 생성/삭제가 반복되면 프로젝트 단위 오디오 컨폼 캐시가 계속 누적되는데
+ * (시퀀스를 지워도 캐시는 안 지워짐), 이 폴더는 Premiere 26.0 전체가 공유하므로
+ * 자동 삭제하지 않고 경고만 남긴다 — 비우기는 Premiere 종료 후 수동으로.
+ */
+export async function warnIfAudioPreviewCacheLarge(thresholdGb = 10) {
+  const { join } = await import("node:path");
+  const { readdir, stat } = await import("node:fs/promises");
+  const { homedir } = await import("node:os");
+  const cacheDir = join(homedir(), "Documents", "Adobe", "Premiere Pro", "26.0", "Adobe Premiere Pro Audio Previews");
+  let totalBytes = 0;
+  async function walk(dir) {
+    let entries;
+    try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else { try { totalBytes += (await stat(full)).size; } catch { /* 잠긴 파일은 건너뜀 */ } }
+    }
+  }
+  await walk(cacheDir);
+  const gb = totalBytes / 1024 ** 3;
+  if (gb >= thresholdGb) {
+    console.warn(`[host-smoke] ⚠️ Premiere 오디오 캐시가 ${gb.toFixed(1)}GB입니다(임계 ${thresholdGb}GB).`);
+    console.warn(`[host-smoke]    Premiere를 끄고 이 폴더를 비우면 안전하게 재확보됩니다: ${cacheDir}`);
+  }
+  return gb;
+}
+
 export async function connectPanel({ session, distPath, reload = false } = {}) {
   const service = new WS("ws://127.0.0.1:14001");
   let requestSeq = 2000;
