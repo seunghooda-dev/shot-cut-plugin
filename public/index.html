@@ -416,7 +416,7 @@
             <div class="form-grid final-qc-controls">
               <div class="field">
                 <label for="final-qc-platform-select">배포 플랫폼</label>
-                <div class="select-wrap"><select id="final-qc-platform-select"><option value="youtube-shorts">YouTube Shorts</option><option value="instagram-reels">Instagram Reels</option><option value="tiktok">TikTok</option></select></div>
+                <div class="select-wrap"><select id="final-qc-platform-select"><option selected value="youtube-shorts">YouTube Shorts</option><option value="instagram-reels">Instagram Reels</option><option value="tiktok">TikTok</option></select></div>
               </div>
               <div class="field"><label for="final-qc-output-name">출력 파일명</label><input id="final-qc-output-name" type="text" maxlength="180" value="ShortFlow_Export.mp4" /></div>
               <div class="field"><label for="final-qc-true-peak">True Peak <span class="unit">dBTP · 선택</span></label><input id="final-qc-true-peak" type="number" min="-100" max="20" step="0.1" placeholder="측정값 없음" /></div>
@@ -478,7 +478,7 @@
                 <label for="preset-select">플랫폼 프리셋</label>
                 <div class="select-wrap">
                   <select id="preset-select" name="preset">
-                    <option value="youtube-shorts">YouTube Shorts · 1080 × 1920</option>
+                    <option selected value="youtube-shorts">YouTube Shorts · 1080 × 1920</option>
                     <option value="instagram-reels">Instagram Reels · 1080 × 1920</option>
                     <option value="tiktok">TikTok · 1080 × 1920</option>
                     <option value="square">정사각형 피드 · 1080 × 1080</option>
@@ -516,7 +516,7 @@
                 <label for="range-select">생성 범위</label>
                 <div class="select-wrap">
                   <select id="range-select" name="range">
-                    <option value="selection">선택한 클립</option>
+                    <option selected value="selection">선택한 클립</option>
                     <option value="inout">인/아웃 구간</option>
                     <option value="sequence">전체 시퀀스</option>
                     <option value="markers">스토리 마커 구간</option>
@@ -531,7 +531,7 @@
                 <label for="reframe-select">리프레임 방식</label>
                 <div class="select-wrap">
                   <select id="reframe-select" name="reframe">
-                    <option value="fill">화면 채우기</option>
+                    <option selected value="fill">화면 채우기</option>
                     <option value="fit">전체 화면 맞추기</option>
                     <option value="scale-only">비율만 조정</option>
                     <option value="keep">원본 유지</option>
@@ -905,7 +905,7 @@
                   <label for="safe-platform-select">플랫폼</label>
                   <div class="select-wrap">
                     <select id="safe-platform-select">
-                      <option value="youtube-shorts">YouTube Shorts</option>
+                      <option selected value="youtube-shorts">YouTube Shorts</option>
                       <option value="instagram-reels">Instagram Reels</option>
                       <option value="tiktok">TikTok</option>
                     </select>
@@ -915,7 +915,7 @@
                   <label for="safe-role-select">검사 대상</label>
                   <div class="select-wrap">
                     <select id="safe-role-select">
-                      <option value="caption">자막·CTA</option>
+                      <option selected value="caption">자막·CTA</option>
                       <option value="content">인물·핵심 오브젝트</option>
                     </select>
                   </div>
@@ -1053,7 +1053,7 @@
                     <label for="asset-rights-kind-select">유형</label>
                     <div class="select-wrap">
                       <select id="asset-rights-kind-select" disabled>
-                        <option value="music">음악</option>
+                        <option selected value="music">음악</option>
                         <option value="sfx">효과음</option>
                         <option value="image">이미지</option>
                         <option value="video">영상</option>
@@ -1068,7 +1068,7 @@
                     <label for="asset-rights-commercial-select">상업 사용</label>
                     <div class="select-wrap">
                       <select id="asset-rights-commercial-select" disabled>
-                        <option value="unknown">미확인</option>
+                        <option selected value="unknown">미확인</option>
                         <option value="allowed">가능</option>
                         <option value="forbidden">금지</option>
                       </select>
@@ -1106,7 +1106,7 @@
                   <label class="sr-only" for="asset-type-select">에셋 유형</label>
                   <div class="select-wrap">
                     <select id="asset-type-select" name="assetType" aria-label="에셋 유형 필터">
-                      <option value="all">전체 에셋</option>
+                      <option selected value="all">전체 에셋</option>
                       <option value="music">음악</option>
                       <option value="sfx">효과음</option>
                     </select>
@@ -1116,7 +1116,7 @@
                   <label class="sr-only" for="asset-category-select">폴더 카테고리</label>
                   <div class="select-wrap">
                     <select id="asset-category-select" name="assetCategory" aria-label="폴더 카테고리 필터" disabled>
-                      <option value="all">전체 폴더</option>
+                      <option selected value="all">전체 폴더</option>
                     </select>
                   </div>
                 </div>
@@ -1178,7 +1178,7 @@
                   <label for="tts-model-select">모델</label>
                   <div class="select-wrap">
                     <select id="tts-model-select">
-                      <option value="gpt-4o-mini-tts">GPT-4o mini TTS · 추천</option>
+                      <option selected value="gpt-4o-mini-tts">GPT-4o mini TTS · 추천</option>
                       <option value="tts-1-hd">TTS-1 HD · 고품질</option>
                       <option value="tts-1">TTS-1 · 빠른 생성</option>
                     </select>
@@ -1188,7 +1188,7 @@
                   <label for="tts-voice-select">목소리</label>
                   <div class="select-wrap">
                     <select id="tts-voice-select">
-                      <option value="marin">Marin · 고품질 추천</option>
+                      <option selected value="marin">Marin · 고품질 추천</option>
                       <option value="cedar">Cedar · 고품질 추천</option>
                       <option value="coral">Coral</option>
                       <option value="alloy">Alloy</option>
@@ -1208,7 +1208,7 @@
                   <label for="tts-format-select">파일 형식</label>
                   <div class="select-wrap">
                     <select id="tts-format-select">
-                      <option value="wav">WAV · 편집 권장</option>
+                      <option selected value="wav">WAV · 편집 권장</option>
                       <option value="mp3">MP3 · 작은 용량</option>
                       <option value="aac">AAC</option>
                       <option value="flac">FLAC</option>
@@ -1277,7 +1277,7 @@
                   <label for="stt-model-select">변환 방식</label>
                   <div class="select-wrap">
                     <select id="stt-model-select">
-                      <option value="gpt-4o-transcribe-diarize">화자 구분 + 타임코드 SRT · 추천</option>
+                      <option selected value="gpt-4o-transcribe-diarize">화자 구분 + 타임코드 SRT · 추천</option>
                       <option value="gpt-4o-transcribe">고정확도 원고</option>
                       <option value="gpt-4o-mini-transcribe">경제형 원고</option>
                       <option value="whisper-1">Whisper SRT · 레거시</option>
@@ -1292,7 +1292,7 @@
                   <label for="stt-output-format-select">저장 형식</label>
                   <div class="select-wrap">
                     <select id="stt-output-format-select">
-                      <option value="both">TXT + SRT</option>
+                      <option selected value="both">TXT + SRT</option>
                       <option value="srt">SRT</option>
                       <option value="text">TXT</option>
                     </select>
@@ -1467,7 +1467,7 @@
                 <label for="reference-type-select">레퍼런스 유형</label>
                 <div class="select-wrap">
                   <select id="reference-type-select" name="referenceType">
-                    <option value="image">AI 이미지</option>
+                    <option selected value="image">AI 이미지</option>
                     <option value="video">AI 동영상</option>
                     <option value="moodboard">무드보드</option>
                     <option value="other">기타</option>
@@ -1641,7 +1641,7 @@
                 <div class="field"><label for="brand-caption-position-select">자막 위치</label><div class="select-wrap"><select id="brand-caption-position-select"><option value="top">상단</option><option value="center">중앙</option><option value="bottom" selected>하단</option></select></div></div>
                 <label class="checkbox-row"><input id="brand-caption-shadow-checkbox" type="checkbox" checked /><span class="custom-checkbox" aria-hidden="true"></span><span>자막 그림자</span></label>
                 <label class="checkbox-row"><input id="brand-caption-highlight-checkbox" type="checkbox" /><span class="custom-checkbox" aria-hidden="true"></span><span>핵심 단어 강조</span></label>
-                <div class="field"><label for="brand-thumb-layout-select">썸네일 분할</label><div class="select-wrap"><select id="brand-thumb-layout-select"><option value="full">1분할</option><option value="vertical">2분할 좌우</option><option value="horizontal">2분할 상하</option><option value="hero-left">3분할 좌측 강조</option><option value="hero-top">3분할 상단 강조</option><option value="grid">4분할</option></select></div></div>
+                <div class="field"><label for="brand-thumb-layout-select">썸네일 분할</label><div class="select-wrap"><select id="brand-thumb-layout-select"><option selected value="full">1분할</option><option value="vertical">2분할 좌우</option><option value="horizontal">2분할 상하</option><option value="hero-left">3분할 좌측 강조</option><option value="hero-top">3분할 상단 강조</option><option value="grid">4분할</option></select></div></div>
                 <div class="field"><label for="brand-thumb-background-color">썸네일 배경</label><input id="brand-thumb-background-color" type="color" value="#111111" /></div>
                 <div class="field"><label for="brand-thumb-text-color">썸네일 글자</label><input id="brand-thumb-text-color" type="color" value="#ffffff" /></div>
                 <div class="field"><label for="brand-thumb-brightness-input">밝기</label><input id="brand-thumb-brightness-input" type="number" min="0" max="200" step="1" value="100" /></div>
@@ -1657,7 +1657,7 @@
             <div class="brand-kit-section">
               <h4>TTS 기본값</h4>
               <div class="form-grid brand-form-grid">
-                <div class="field"><label for="brand-tts-model-select">모델</label><div class="select-wrap"><select id="brand-tts-model-select"><option value="gpt-4o-mini-tts">GPT-4o mini TTS</option><option value="tts-1-hd">TTS-1 HD</option><option value="tts-1">TTS-1</option></select></div></div>
+                <div class="field"><label for="brand-tts-model-select">모델</label><div class="select-wrap"><select id="brand-tts-model-select"><option selected value="gpt-4o-mini-tts">GPT-4o mini TTS</option><option value="tts-1-hd">TTS-1 HD</option><option value="tts-1">TTS-1</option></select></div></div>
                 <div class="field"><label for="brand-tts-voice-input">목소리</label><input id="brand-tts-voice-input" type="text" maxlength="40" value="marin" /></div>
                 <div class="field"><label for="brand-tts-speed-input">속도</label><input id="brand-tts-speed-input" type="number" min="0.25" max="4" step="0.05" value="1" /></div>
                 <div class="brand-active-summary"><span>활성 키트</span><strong id="brand-active-name">—</strong></div>
@@ -1739,7 +1739,7 @@
               <label class="sr-only" for="thumb-export-format-select">썸네일 내보내기 형식</label>
               <div class="select-wrap">
                 <select id="thumb-export-format-select" name="thumbnailExportFormat">
-                  <option value="png">PNG</option>
+                  <option selected value="png">PNG</option>
                   <option value="jpg">JPG</option>
                 </select>
               </div>
@@ -1779,7 +1779,7 @@
                     <label for="thumbnail-layout-select">화면 분할</label>
                     <div class="select-wrap">
                       <select id="thumbnail-layout-select" name="thumbnailLayout">
-                        <option value="full">1분할 · 전체</option>
+                        <option selected value="full">1분할 · 전체</option>
                         <option value="vertical">2분할 · 좌우</option>
                         <option value="horizontal">2분할 · 상하</option>
                         <option value="hero-left">3분할 · 왼쪽 강조</option>
@@ -1841,7 +1841,7 @@
                     <label for="thumb-ai-preset-select">AI 프리셋</label>
                     <div class="select-wrap">
                       <select id="thumb-ai-preset-select" name="thumbAiPreset">
-                        <option value="none">사용 안 함</option>
+                        <option selected value="none">사용 안 함</option>
                         <option value="basic">기본 보정</option>
                         <option value="vivid">강렬 보정</option>
                         <option value="upscale">화질 개선</option>
@@ -2059,7 +2059,7 @@
                 <label for="export-mode-select">처리 방식</label>
                 <div class="select-wrap">
                   <select id="export-mode-select" name="exportMode">
-                    <option value="queue">Media Encoder 대기열</option>
+                    <option selected value="queue">Media Encoder 대기열</option>
                     <option value="immediate">즉시 내보내기</option>
                   </select>
                 </div>
@@ -2068,7 +2068,7 @@
                 <label for="export-range-select">내보내기 범위</label>
                 <div class="select-wrap">
                   <select id="export-range-select" name="exportRange">
-                    <option value="entire">전체 시퀀스</option>
+                    <option selected value="entire">전체 시퀀스</option>
                     <option value="inout">인/아웃 구간</option>
                     <option value="workarea">작업 영역</option>
                   </select>
@@ -2127,7 +2127,7 @@
                 <label for="ai-provider-select">AI 공급자</label>
                 <div class="select-wrap">
                   <select id="ai-provider-select" name="aiProvider">
-                    <option value="openai">OpenAI</option>
+                    <option selected value="openai">OpenAI</option>
                   </select>
                 </div>
               </div>
