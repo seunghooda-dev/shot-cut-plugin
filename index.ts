@@ -2408,7 +2408,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         const frames: Array<{ time: number; bytes: Uint8Array }> = [];
         for (const [frameIndex, time] of accepted.entries()) {
           setText("busy-message", `비전 검증 프레임 ${frameIndex + 1}/${accepted.length}…`);
-          const { filename } = await exportFrameToFolder(time + 1.2, String(dataFolder.nativePath), 320);
+          // 480px 채택(§89 A/B 실측): 320px는 진짜 앵커 오배제 ~9%, 480px는 오판 0 — 비용 차이는 무시 수준.
+          const { filename } = await exportFrameToFolder(time + 1.2, String(dataFolder.nativePath), 480);
           const frameBytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
           try {
             const entry = await dataFolder.getEntry(filename);
