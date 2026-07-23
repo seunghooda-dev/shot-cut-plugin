@@ -2405,19 +2405,23 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     let verified = accepted;
     if (optionalElement<HTMLInputElement>("news-cut-vision-check")?.checked === true) {
       try {
+        // 후보(2s 그리드)가 실제 컷보다 이르면 +1.2s 프레임이 직전 footage라 진짜 경계가 죽는다
+        // (§91 7/21 실증: 오배제 3건). 하단 띠 필터처럼 +1.2s·+4s 두 프레임이 모두 non-anchor일 때만 배제.
         const frames: Array<{ time: number; bytes: Uint8Array }> = [];
         for (const [frameIndex, time] of accepted.entries()) {
           setText("busy-message", `비전 검증 프레임 ${frameIndex + 1}/${accepted.length}…`);
           // 480px 채택(§89 A/B 실측): 320px는 진짜 앵커 오배제 ~9%, 480px는 오판 0 — 비용 차이는 무시 수준.
-          const { filename } = await exportFrameToFolder(time + 1.2, String(dataFolder.nativePath), 480);
-          const frameBytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-          try {
-            const entry = await dataFolder.getEntry(filename);
-            await entry.delete();
-          } catch {
-            // 임시 파일 삭제 실패는 무시
+          for (const offset of [1.2, 4]) {
+            const { filename } = await exportFrameToFolder(time + offset, String(dataFolder.nativePath), 480);
+            const frameBytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+            try {
+              const entry = await dataFolder.getEntry(filename);
+              await entry.delete();
+            } catch {
+              // 임시 파일 삭제 실패는 무시
+            }
+            if (frameBytes) frames.push({ time, bytes: frameBytes });
           }
-          if (frameBytes) frames.push({ time, bytes: frameBytes });
         }
         const references = loadAnchorExemplars()
           .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
@@ -2425,6 +2429,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           .slice(0, 5);
         const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
         const rejected = new Set<number>();
+        const rejectionVotes = new Map<number, number>();
         // 배치는 장수뿐 아니라 바이트 합계로도 나눈다 — 참조 포함 1.2MB 캡(어댑터) 아래 유지(실기 실측 §78).
         const referenceBytes = references.reduce((sum, reference) => sum + reference.bytes.byteLength, 0);
         const maxFramesPerBatch = Math.max(3, 12 - references.length);
@@ -2451,8 +2456,15 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             references,
           );
           for (const result of results) {
-            if (!result.isAnchor && result.confidence >= 0.6) rejected.add(chunk[result.index]!.time);
+            if (!result.isAnchor && result.confidence >= 0.6) {
+              const time = chunk[result.index]!.time;
+              rejectionVotes.set(time, (rejectionVotes.get(time) ?? 0) + 1);
+            }
           }
+        }
+        // 두 프레임(+1.2s·+4s)이 모두 non-anchor일 때만 배제 — 한 장만 확보된 후보는 배제하지 않는다.
+        for (const [time, votes] of rejectionVotes) {
+          if (votes >= 2) rejected.add(time);
         }
         const kept = accepted.filter((time) => !rejected.has(time));
         if (rejected.size > 0 && kept.length >= 3) {
