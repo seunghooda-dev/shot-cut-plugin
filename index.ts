@@ -2399,26 +2399,35 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     const accepted = hybridAnchorTimes(candidates, modelStarts);
     if (accepted.length === 0) throw new Error("앵커 샷을 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
     activity.add("info", `원클릭 분할 · 앵커 ${accepted.length}개(화면 매칭 후보 ${candidates.length} · 학습 모델 ${modelStarts.length})`);
+    // 실행간 비결정성 진단용(§92) — 확정 후보 시각을 남겨 비전 배제와 후보 누락을 구분한다.
+    activity.add("info", `확정 후보 시각: ${accepted.map((time) => time.toFixed(1)).join(" ")}`);
     // 비전 검증(옵트인·유료) — 확정 후보를 시각 판정으로 재확인해 과분할 오검출을 제거한다
     // (vision-anchor-verify.plan.md). 실패 시 무료 결과 그대로 진행(우아한 강하).
     setNewsCutStep(2);
     let verified = accepted;
     if (optionalElement<HTMLInputElement>("news-cut-vision-check")?.checked === true) {
       try {
-        // 후보(2s 그리드)가 실제 컷보다 이르면 +1.2s 프레임이 직전 footage라 진짜 경계가 죽는다
-        // (§91 7/21 실증: 오배제 3건). 하단 띠 필터처럼 +1.2s·+4s 두 프레임이 모두 non-anchor일 때만 배제.
+        // 후보가 실제 컷보다 이르거나(§91) 늦게(§92 788 실측) 잡히면 판정 프레임이 앵커 구간을
+        // 비껴가고, 비정형 합성 구도(§92 414 실측)는 단일 프레임 판정이 흔들린다. -3s(늦은 후보)·
+        // +1.2s·+4s(정상 위치 이중화)·+7s(이른 후보) 네 프레임이 모두 non-anchor일 때만 배제한다
+        // — 후보가 컷 ±7s 안이면 구간 내 프레임이 확보되고, 정위치면 2장이라 오판 1회를 흡수한다.
         const frames: Array<{ time: number; bytes: Uint8Array }> = [];
         for (const [frameIndex, time] of accepted.entries()) {
           setText("busy-message", `비전 검증 프레임 ${frameIndex + 1}/${accepted.length}…`);
           // 480px 채택(§89 A/B 실측): 320px는 진짜 앵커 오배제 ~9%, 480px는 오판 0 — 비용 차이는 무시 수준.
-          for (const offset of [1.2, 4]) {
-            const { filename } = await exportFrameToFolder(time + offset, String(dataFolder.nativePath), 480);
-            const frameBytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-            try {
-              const entry = await dataFolder.getEntry(filename);
-              await entry.delete();
-            } catch {
-              // 임시 파일 삭제 실패는 무시
+          for (const offset of [-3, 1.2, 4, 7]) {
+            // 프레임 유실 = 표 유실 = votes>=4 불충족으로 FP 자동 생존(§92 실측: 실행당 68장 중 1~4장
+            // 내보내기 유실, 1차 E2E에서 622.75 footage가 이 경로로 생존) — 내보내기 실패는 1회 재시도한다.
+            let frameBytes: Uint8Array | null = null;
+            for (let attempt = 0; attempt < 2 && !frameBytes; attempt += 1) {
+              const { filename } = await exportFrameToFolder(Math.max(0, time + offset), String(dataFolder.nativePath), 480);
+              frameBytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+              try {
+                const entry = await dataFolder.getEntry(filename);
+                await entry.delete();
+              } catch {
+                // 임시 파일 삭제 실패는 무시
+              }
             }
             if (frameBytes) frames.push({ time, bytes: frameBytes });
           }
@@ -2433,43 +2442,68 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         // 배치는 장수뿐 아니라 바이트 합계로도 나눈다 — 참조 포함 1.2MB 캡(어댑터) 아래 유지(실기 실측 §78).
         const referenceBytes = references.reduce((sum, reference) => sum + reference.bytes.byteLength, 0);
         const maxFramesPerBatch = Math.max(3, 12 - references.length);
-        const chunks: Array<typeof frames> = [];
-        let currentChunk: typeof frames = [];
-        let currentBytes = 0;
-        for (const frame of frames) {
-          const overBytes = currentBytes + frame.bytes.byteLength + referenceBytes > 1_100_000;
-          if (currentChunk.length > 0 && (overBytes || currentChunk.length >= maxFramesPerBatch)) {
-            chunks.push(currentChunk);
-            currentChunk = [];
-            currentBytes = 0;
+        // 배치 응답에서 인덱스가 누락된 프레임은 표가 사라져 FP가 생존한다(§92 1차 E2E 622.75 실측)
+        // — 유실분만 모아 1회 재판정한다. 이미 받은 판정(anchor 표·저신뢰 기권 포함)은 재판정하지
+        // 않는다 — 진짜 앵커를 지키는 표를 재시도로 뒤집을 수 있기 때문.
+        let pending = frames;
+        for (let round = 0; round < 2 && pending.length > 0; round += 1) {
+          const chunks: Array<typeof frames> = [];
+          let currentChunk: typeof frames = [];
+          let currentBytes = 0;
+          for (const frame of pending) {
+            const overBytes = currentBytes + frame.bytes.byteLength + referenceBytes > 1_100_000;
+            if (currentChunk.length > 0 && (overBytes || currentChunk.length >= maxFramesPerBatch)) {
+              chunks.push(currentChunk);
+              currentChunk = [];
+              currentBytes = 0;
+            }
+            currentChunk.push(frame);
+            currentBytes += frame.bytes.byteLength;
           }
-          currentChunk.push(frame);
-          currentBytes += frame.bytes.byteLength;
-        }
-        if (currentChunk.length > 0) chunks.push(currentChunk);
-        let done = 0;
-        for (const chunk of chunks) {
-          done += chunk.length;
-          setText("busy-message", `비전 검증 ${done}/${frames.length}…`);
-          const results = await client.classifyAnchorShots(
-            chunk.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" as const })),
-            references,
-          );
-          for (const result of results) {
-            if (!result.isAnchor && result.confidence >= 0.6) {
-              const time = chunk[result.index]!.time;
-              rejectionVotes.set(time, (rejectionVotes.get(time) ?? 0) + 1);
+          if (currentChunk.length > 0) chunks.push(currentChunk);
+          const missed: typeof frames = [];
+          let done = 0;
+          for (const chunk of chunks) {
+            done += chunk.length;
+            setText("busy-message", round === 0 ? `비전 검증 ${done}/${pending.length}…` : `비전 검증 · 유실 재판정 ${done}/${pending.length}…`);
+            try {
+              const results = await client.classifyAnchorShots(
+                chunk.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" as const })),
+                references,
+              );
+              const received = new Set<number>();
+              for (const result of results) {
+                received.add(result.index);
+                // 배제 표는 고신뢰(0.85+) non-anchor만 인정 — 명백한 footage는 0.97+로 판정되고(§92 실측),
+                // 비정형 합성 구도의 흔들리는 판정(경계선 신뢰도)은 진짜 앵커를 죽이지 못하게 한다.
+                if (!result.isAnchor && result.confidence >= 0.85) {
+                  const time = chunk[result.index]!.time;
+                  rejectionVotes.set(time, (rejectionVotes.get(time) ?? 0) + 1);
+                }
+              }
+              chunk.forEach((frame, index) => {
+                if (!received.has(index)) missed.push(frame);
+              });
+            } catch {
+              // 일시 API 오류로 배치 하나가 실패해도 비전 전체를 포기하지 않는다(§92 3차 E2E 실측:
+              // 배치 실패 → 전체 강하 → FP 잔존). 실패 배치는 유실 재판정 라운드로 넘긴다.
+              missed.push(...chunk);
             }
           }
+          pending = missed;
         }
-        // 두 프레임(+1.2s·+4s)이 모두 non-anchor일 때만 배제 — 한 장만 확보된 후보는 배제하지 않는다.
+        if (pending.length > 0) {
+          activity.add("warning", `비전 검증 · 프레임 ${pending.length}장 판정 유실 — 해당 후보는 배제하지 않습니다.`);
+        }
+        // 네 프레임(-3s·+1.2s·+4s·+7s)이 모두 non-anchor일 때만 배제 — 일부만 확보된 후보는 배제하지 않는다.
         for (const [time, votes] of rejectionVotes) {
-          if (votes >= 2) rejected.add(time);
+          if (votes >= 4) rejected.add(time);
         }
         const kept = accepted.filter((time) => !rejected.has(time));
         if (rejected.size > 0 && kept.length >= 3) {
           verified = kept;
           activity.add("info", `비전 검증 · 과분할 의심 ${rejected.size}건 제외 → 앵커 ${verified.length}개 확정`);
+          activity.add("info", `비전 배제 시각: ${[...rejected].sort((a, b) => a - b).map((time) => time.toFixed(1)).join(" ")}`);
         } else if (rejected.size > 0) {
           activity.add("warning", `비전 검증 · 제외 후보 ${rejected.size}건이 있으나 잔여 ${kept.length}개(<3)라 필터를 해제합니다.`);
         } else {
