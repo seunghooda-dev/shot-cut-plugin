@@ -40,7 +40,7 @@ Both reuse the same OpenAI safety plumbing (HTTPS `api.openai.com` pinned, secur
 
 ## Commit/push convention
 
-Checkpoint commits require a passing `npm run check` first — never commit a red tree. As of 2026-07-13 (user directive), commit and push to the `newplugin` remote (https://github.com/seunghooda-dev/newplugin) whenever a meaningful validated unit of work completes; the older "one commit per milestone" rule from "실행 원칙" in [docs/ROADMAP.md](docs/ROADMAP.md) is superseded. The `origin` remote (seunghooda-dev/plugin) is the legacy Codex repo — leave it untouched unless asked.
+Checkpoint commits require a passing `npm run check` first — never commit a red tree. As of 2026-07-13 (user directive), commit and push to the `newplugin` remote (https://github.com/seunghooda-dev/shot-cut-plugin — 2026-07-24 사용자가 비공개 전환·shot-cut-plugin으로 개명, 로컬 원격 별칭은 `newplugin` 유지) whenever a meaningful validated unit of work completes; the older "one commit per milestone" rule from "실행 원칙" in [docs/ROADMAP.md](docs/ROADMAP.md) is superseded. The `origin` remote (seunghooda-dev/plugin) is the legacy Codex repo — leave it untouched unless asked.
 
 ## Things not to carry over from other CEP/UXP reference projects
 
