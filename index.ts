@@ -728,6 +728,7 @@ function applySettingsToUI(): void {
   setValue("ai-endpoint-input", settings.aiEndpoint);
   setValue("ai-model-input", settings.aiModel);
   setChecked("ai-consent-checkbox", settings.aiConsentAccepted);
+  setChecked("news-cut-vision-check", settings.newsCutVision);
   setValue("tts-model-select", settings.ttsModel);
   setValue("tts-voice-select", settings.ttsVoice);
   setValue("tts-format-select", settings.ttsFormat);
@@ -782,6 +783,7 @@ function syncSettingsFromUI(): PluginSettings {
     aiEndpoint: DEFAULT_SETTINGS.aiEndpoint,
     aiModel: valueOf("ai-model-input") || DEFAULT_SETTINGS.aiModel,
     aiConsentAccepted: checkedOf("ai-consent-checkbox"),
+    newsCutVision: checkedOf("news-cut-vision-check"),
     ttsModel: valueOf("tts-model-select") as PluginSettings["ttsModel"],
     ttsVoice: valueOf("tts-voice-select"),
     ttsFormat: valueOf("tts-format-select") as PluginSettings["ttsFormat"],
@@ -2401,19 +2403,30 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     activity.add("info", `원클릭 분할 · 앵커 ${accepted.length}개(화면 매칭 후보 ${candidates.length} · 학습 모델 ${modelStarts.length})`);
     // 실행간 비결정성 진단용(§92) — 확정 후보 시각을 남겨 비전 배제와 후보 누락을 구분한다.
     activity.add("info", `확정 후보 시각: ${accepted.map((time) => time.toFixed(1)).join(" ")}`);
-    // 비전 검증(옵트인·유료) — 확정 후보를 시각 판정으로 재확인해 과분할 오검출을 제거한다
+    // 비전 검증(기본 ON·유료) — 확정 후보를 시각 판정으로 재확인해 과분할 오검출을 제거한다
     // (vision-anchor-verify.plan.md). 실패 시 무료 결과 그대로 진행(우아한 강하).
     setNewsCutStep(2);
     let verified = accepted;
     // 비전 검증 기본 ON(§96) — 오배제 0 확립(§92)·측정 전 회차 F1 100(§93) 근거. 단 키 미설정
     // 사용자는 프레임 내보내기 같은 선행 비용이 들기 전에 조용히 건너뛴다(매 실행 경고 노이즈 방지).
     let visionEnabled = optionalElement<HTMLInputElement>("news-cut-vision-check")?.checked === true;
+    // AI 전송 동의 게이트(§99) — 이 경로는 사용자의 방송 프레임 수십 장을 OpenAI로 올린다.
+    // 기본 OFF 시절에는 "체크하는 행위"가 동의를 대신했지만 기본 ON(§96)이 되며 그 방어선이
+    // 사라졌다. 다른 AI 경로와 달리 예외를 던지지 않는 이유는 무료 분할까지 막으면 안 되기
+    // 때문이다 — 비전만 건너뛰고 무료 결과로 완주시킨다.
+    if (visionEnabled && optionalElement<HTMLInputElement>("ai-consent-checkbox")?.checked !== true) {
+      activity.add("info", "비전 검증 건너뜀 — AI 전송 동의가 없어 무료 결과로 진행합니다(AI 설정 탭에서 동의 시 자동 활성).");
+      visionEnabled = false;
+    }
     if (visionEnabled && !(await hasStoredOpenAIApiKey())) {
       activity.add("info", "비전 검증 건너뜀 — OpenAI API 키가 없어 무료 결과로 진행합니다(AI 설정 탭에서 저장 시 자동 활성).");
       visionEnabled = false;
     }
     if (visionEnabled) {
       try {
+        // 유료 호출의 시작 시점을 로그에 남긴다 — 진행 표시(busy-message)는 사라지므로,
+        // 사후에 "언제 무엇이 몇 장 나갔는지"를 확인할 수 있는 기록이 활동 로그에만 남는다.
+        activity.add("info", `비전 검증 시작 — 앵커 후보 ${accepted.length}개 × 4프레임을 OpenAI로 전송합니다(유료).`);
         // 후보가 실제 컷보다 이르거나(§91) 늦게(§92 788 실측) 잡히면 판정 프레임이 앵커 구간을
         // 비껴가고, 비정형 합성 구도(§92 414 실측)는 단일 프레임 판정이 흔들린다. -3s(늦은 후보)·
         // +1.2s·+4s(정상 위치 이중화)·+7s(이른 후보) 네 프레임이 모두 non-anchor일 때만 배제한다

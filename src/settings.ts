@@ -34,6 +34,7 @@ export interface PluginSettings {
   aiEndpoint: string;
   aiModel: string;
   aiConsentAccepted: boolean;
+  newsCutVision: boolean;
   ttsOutputToken: string;
   ttsOutputName: string;
   ttsModel: "gpt-4o-mini-tts" | "tts-1-hd" | "tts-1";
@@ -77,6 +78,7 @@ export const DEFAULT_SETTINGS: Readonly<PluginSettings> = Object.freeze({
   aiEndpoint: "https://api.openai.com/v1",
   aiModel: "gpt-image-2",
   aiConsentAccepted: false,
+  newsCutVision: true,
   ttsOutputToken: "",
   ttsOutputName: "",
   ttsModel: "gpt-4o-mini-tts",
@@ -140,6 +142,9 @@ export function normalizeSettings(value: unknown): PluginSettings {
     aiEndpoint: DEFAULT_SETTINGS.aiEndpoint,
     aiModel: stringValue(input.aiModel, DEFAULT_SETTINGS.aiModel, 128),
     aiConsentAccepted: input.aiConsentAccepted === true,
+    // 유료 기능의 옵트아웃은 반드시 살아남아야 한다 — 비용을 피하려고 끈 사용자의 선택이
+    // 패널 재적재마다 기본 ON(§96)으로 되돌아가면 안 되므로 false만 명시적으로 보존한다.
+    newsCutVision: input.newsCutVision !== false,
     ttsOutputToken: stringValue(input.ttsOutputToken, "", 4096),
     ttsOutputName: stringValue(input.ttsOutputName, "", 260),
     ttsModel: oneOf(input.ttsModel, ["gpt-4o-mini-tts", "tts-1-hd", "tts-1"], DEFAULT_SETTINGS.ttsModel),

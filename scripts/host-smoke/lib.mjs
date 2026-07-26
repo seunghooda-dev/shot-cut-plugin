@@ -76,7 +76,12 @@ export async function connectPanel({ session, distPath, reload = false } = {}) {
     const reply = await clientReq(candidate, { command: "App", action: "info" }, 1200);
     if (reply && reply.appId) appClientId = candidate;
   }
-  if (appClientId === null) throw new Error("Premiere 앱 클라이언트를 찾지 못했습니다(Premiere 실행·UDT 연결 확인).");
+  if (appClientId === null) {
+    // 실패해도 소켓을 닫는다 — 접속 하나가 clientId를 하나 소비하므로, 닫지 않으면 재시도할수록
+    // 앱 clientId가 밀려나 스캔 범위를 스스로 넘기게 된다(누수가 원인을 재생산하는 구조).
+    service.close();
+    throw new Error("Premiere 앱 클라이언트를 찾지 못했습니다(Premiere 실행·UDT 연결 확인).");
+  }
 
   const proxyTo = (message, timeout = 20000) => new Promise((resolve, reject) => {
     requestSeq += 1;

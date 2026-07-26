@@ -482,6 +482,12 @@ function assertUiDefaults(document: StaticDocument): void {
   assert.equal(defaultOptionValue(document, "ai-provider-select"), DEFAULT_SETTINGS.aiProvider);
   assert.equal(elementById(document, "ai-model-input").attributes.value, DEFAULT_SETTINGS.aiModel);
   assert.ok(!hasAttribute(elementById(document, "ai-consent-checkbox"), "checked"));
+  // 유료 기능의 기본 ON(§96)은 제품 결정이므로 계약으로 고정한다. HTML 기본값과 저장 설정
+  // 기본값이 어긋나면 첫 실행과 재적재 후 동작이 갈리므로 둘을 한 단언으로 묶는다.
+  assert.equal(
+    hasAttribute(elementById(document, "news-cut-vision-check"), "checked"),
+    DEFAULT_SETTINGS.newsCutVision,
+  );
   const endpoint = elementById(document, "ai-endpoint-input");
   assert.equal(endpoint.attributes.value, "https://api.openai.com/v1");
   assert.ok(hasAttribute(endpoint, "readonly"), "the fixed OpenAI endpoint must be readonly");
