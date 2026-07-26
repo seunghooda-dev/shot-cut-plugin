@@ -69,10 +69,12 @@ export async function connectPanel({ session, distPath, reload = false } = {}) {
     service.send(JSON.stringify({ command: "proxy", clientId, requestId, message }));
     setTimeout(() => { if (waiters.has(requestId)) { waiters.delete(requestId); resolve({ __timeout: true }); } }, timeout);
   });
+  // clientId는 서비스에 접속이 생길 때마다 증가한다 — 스모크 러너 자신도 접속을 소비하므로
+  // 장시간 세션에서는 앱 clientId가 6을 훌쩍 넘는다(2026-07-27 실측: UDT 재로드 후 1~6 스캔 실패).
   let appClientId = null;
-  for (const candidate of [1, 2, 3, 4, 5, 6]) {
-    const reply = await clientReq(candidate, { command: "App", action: "info" });
-    if (reply && reply.appId) { appClientId = candidate; break; }
+  for (let candidate = 1; candidate <= 60 && appClientId === null; candidate += 1) {
+    const reply = await clientReq(candidate, { command: "App", action: "info" }, 1200);
+    if (reply && reply.appId) appClientId = candidate;
   }
   if (appClientId === null) throw new Error("Premiere 앱 클라이언트를 찾지 못했습니다(Premiere 실행·UDT 연결 확인).");
 
