@@ -73,6 +73,19 @@ function validateApiKey(value: string): string {
   return key;
 }
 
+/**
+ * 키 저장 여부만 확인한다(키 값은 밖으로 내보내지 않음). 비전 검증처럼 판정 전에 프레임
+ * 내보내기 같은 선행 비용이 있는 경로에서, 키 미설정 사용자를 조용히 건너뛰게 하는 사전 점검용(§96).
+ */
+export async function hasStoredOpenAIApiKey(): Promise<boolean> {
+  try {
+    await defaultApiKeyProvider()();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function defaultApiKeyProvider(): () => Promise<string> {
   return async () => {
     const uxp = require("uxp") as any;

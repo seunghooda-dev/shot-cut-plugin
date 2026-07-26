@@ -293,8 +293,8 @@
             </div>
             <div class="field">
               <label for="news-cut-vision-check">AI 비전 검증(유료) — 발언자·행사장 오검출을 AI가 재확인해 제거합니다. 실패 시 무료 결과로 진행됩니다.</label>
-              <label class="checkbox-row" for="news-cut-vision-check" title="확정된 앵커 후보 프레임(회차당 10~25장)을 AI 비전으로 재확인해 발언자·행사장 오검출(과분할)을 제거합니다. OpenAI API 키가 필요하며 소액 비용이 발생합니다.">
-                <input type="checkbox" id="news-cut-vision-check" name="newsCutVision" />
+              <label class="checkbox-row" for="news-cut-vision-check" title="확정된 앵커 후보 프레임을 AI 비전으로 재확인해 발언자·행사장 오검출(과분할)을 제거합니다. OpenAI API 키가 필요하며 회차당 수십 원 수준의 비용이 발생합니다. 키가 없으면 자동으로 건너뛰고 무료 결과로 진행합니다.">
+                <input type="checkbox" id="news-cut-vision-check" name="newsCutVision" checked />
                 <span class="custom-checkbox" aria-hidden="true"></span>
                 <span>비전 검증 사용</span>
               </label>

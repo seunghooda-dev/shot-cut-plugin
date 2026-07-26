@@ -159,7 +159,7 @@ import {
   formatStyleExamplesForPrompt,
   formatStyleProfileForPrompt,
 } from "./src/shorts-learning";
-import { OpenAITextClient, chunkSubtitleCues } from "./src/openai-text";
+import { OpenAITextClient, chunkSubtitleCues, hasStoredOpenAIApiKey } from "./src/openai-text";
 import {
   buildReferencePrompt,
   type ReferenceFileEntry,
@@ -2405,7 +2405,14 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     // (vision-anchor-verify.plan.md). 실패 시 무료 결과 그대로 진행(우아한 강하).
     setNewsCutStep(2);
     let verified = accepted;
-    if (optionalElement<HTMLInputElement>("news-cut-vision-check")?.checked === true) {
+    // 비전 검증 기본 ON(§96) — 오배제 0 확립(§92)·측정 전 회차 F1 100(§93) 근거. 단 키 미설정
+    // 사용자는 프레임 내보내기 같은 선행 비용이 들기 전에 조용히 건너뛴다(매 실행 경고 노이즈 방지).
+    let visionEnabled = optionalElement<HTMLInputElement>("news-cut-vision-check")?.checked === true;
+    if (visionEnabled && !(await hasStoredOpenAIApiKey())) {
+      activity.add("info", "비전 검증 건너뜀 — OpenAI API 키가 없어 무료 결과로 진행합니다(AI 설정 탭에서 저장 시 자동 활성).");
+      visionEnabled = false;
+    }
+    if (visionEnabled) {
       try {
         // 후보가 실제 컷보다 이르거나(§91) 늦게(§92 788 실측) 잡히면 판정 프레임이 앵커 구간을
         // 비껴가고, 비정형 합성 구도(§92 414 실측)는 단일 프레임 판정이 흔들린다. -3s(늦은 후보)·
