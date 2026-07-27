@@ -2333,6 +2333,24 @@ async function handleNewsCutCleanup(): Promise<void> {
  *
  * 큐가 없으면(초기화 실패) 그대로 실행한다 — 비용 보호는 못 하지만 분할을 막지는 않는다.
  */
+/**
+ * 침묵 실패 유형화(§111-c) — catch가 실패 원인을 삼키면 "판정 유실"이 만능 라벨이 되어
+ * 한도 위장(§110-b)류 디버깅 폭탄이 된다. 유실 경고에 원인 내역을 붙이기 위한 분류.
+ */
+function aiFailureKind(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("한도")) return "한도";
+  if (/429|rate ?limit|과부하|overload/iu.test(message)) return "레이트리밋";
+  if (/timeout|abort|시간|취소/iu.test(message)) return "타임아웃";
+  if (/키|key|401|403/iu.test(message)) return "인증";
+  return "기타";
+}
+
+function formatLossCauses(causes: ReadonlyMap<string, number>): string {
+  if (causes.size === 0) return "";
+  return `(${[...causes.entries()].map(([kind, count]) => `${kind} ${count}`).join("·")})`;
+}
+
 async function runVisionBatch<T>(label: string, frameCount: number, task: () => Promise<T>): Promise<T> {
   if (!aiQueueController) return task();
   // 요청 수는 배치 하나당 1로 잡히고(큐 규약), 비용 단위는 프레임 수에 비례시킨다.
@@ -2516,6 +2534,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         // 일일 한도 도달은 "판정 유실"이 아니다(§110-c 실측: 한도 기각이 유실로 위장돼 원인 불명이 됐다)
         // — 남은 배치·재판정 라운드를 즉시 접고 별도 경고로 알린다.
         let budgetStopped = false;
+        const lossCauses = new Map<string, number>();
         for (let round = 0; round < 2 && pending.length > 0; round += 1) {
           const chunks: Array<typeof frames> = [];
           let currentChunk: typeof frames = [];
@@ -2532,6 +2551,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           }
           if (currentChunk.length > 0) chunks.push(currentChunk);
           const missed: typeof frames = [];
+          // 유실 원인 내역(§111-c) — 마지막 라운드 기준(= 최종 미판정분의 원인)만 남긴다.
+          lossCauses.clear();
           let done = 0;
           for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
             const chunk = chunks[chunkIndex]!;
@@ -2557,7 +2578,10 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 }
               }
               chunk.forEach((frame, index) => {
-                if (!received.has(index)) missed.push(frame);
+                if (!received.has(index)) {
+                  missed.push(frame);
+                  lossCauses.set("응답 누락", (lossCauses.get("응답 누락") ?? 0) + 1);
+                }
               });
             } catch (error) {
               // 일시 API 오류로 배치 하나가 실패해도 비전 전체를 포기하지 않는다(§92 3차 E2E 실측:
@@ -2568,6 +2592,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 for (const rest of chunks.slice(chunkIndex + 1)) missed.push(...rest);
                 break;
               }
+              const kind = aiFailureKind(error);
+              lossCauses.set(kind, (lossCauses.get(kind) ?? 0) + chunk.length);
             }
           }
           pending = missed;
@@ -2576,7 +2602,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         if (budgetStopped) {
           activity.add("warning", `AI 일일 한도 도달 — 비전 검증을 중단합니다(미판정 ${pending.length}장은 배제하지 않습니다). 설정 탭에서 한도를 조정할 수 있습니다.`);
         } else if (pending.length > 0) {
-          activity.add("warning", `비전 검증 · 프레임 ${pending.length}장 판정 유실 — 해당 후보는 배제하지 않습니다.`);
+          activity.add("warning", `비전 검증 · 프레임 ${pending.length}장 판정 유실${formatLossCauses(lossCauses)} — 해당 후보는 배제하지 않습니다.`);
         }
         // 네 프레임(-3s·+1.2s·+4s·+7s)이 모두 non-anchor일 때만 배제 — 일부만 확보된 후보는 배제하지 않는다.
         for (const [time, votes] of rejectionVotes) {
@@ -2682,6 +2708,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           let rescuePending = probes;
           // 검증 경로와 동일한 한도 처리(§110-c) — 한도 기각을 유실로 위장하지 않는다.
           let rescueBudgetStopped = false;
+          const rescueLossCauses = new Map<string, number>();
           const rescueNearMisses: string[] = [];
           const rescueVerdicts: string[] = [];
           for (let rescueRound = 0; rescueRound < 2 && rescuePending.length > 0; rescueRound += 1) {
@@ -2700,6 +2727,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             }
             if (rescueChunk.length > 0) rescueChunks.push(rescueChunk);
             const rescueMissed: typeof probes = [];
+            // 유실 원인 내역(§111-c) — 마지막 라운드 기준(= 최종 미판정분의 원인)만 남긴다.
+            rescueLossCauses.clear();
             let rescueJudged = 0;
             for (let chunkIndex = 0; chunkIndex < rescueChunks.length; chunkIndex += 1) {
               const chunk = rescueChunks[chunkIndex]!;
@@ -2728,7 +2757,10 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                   else if (result.isAnchor) rescueNearMisses.push(`${probe.time.toFixed(0)}(${result.confidence.toFixed(2)})`);
                 }
                 chunk.forEach((probe, index) => {
-                  if (!received.has(index)) rescueMissed.push(probe);
+                  if (!received.has(index)) {
+                    rescueMissed.push(probe);
+                    rescueLossCauses.set("응답 누락", (rescueLossCauses.get("응답 누락") ?? 0) + 1);
+                  }
                 });
               } catch (error) {
                 // 배치 실패는 회수 포기가 아니라 유실이다 — 재판정 라운드로 넘긴다(검증 경로 §92와 동일).
@@ -2738,6 +2770,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                   for (const rest of rescueChunks.slice(chunkIndex + 1)) rescueMissed.push(...rest);
                   break;
                 }
+                const kind = aiFailureKind(error);
+                rescueLossCauses.set(kind, (rescueLossCauses.get(kind) ?? 0) + chunk.length);
               }
             }
             rescuePending = rescueMissed;
@@ -2746,7 +2780,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           if (rescueBudgetStopped) {
             activity.add("warning", `AI 일일 한도 도달 — 놓친 경계 회수를 중단합니다(미판정 ${rescuePending.length}장). 설정 탭에서 한도를 조정할 수 있습니다.`);
           } else if (rescuePending.length > 0) {
-            activity.add("warning", `회수 · 프레임 ${rescuePending.length}장 판정 유실 — 해당 지점은 회수하지 않습니다: ${rescuePending.slice(0, 10).map((probe) => probe.time.toFixed(0)).join(" ")}`);
+            activity.add("warning", `회수 · 프레임 ${rescuePending.length}장 판정 유실${formatLossCauses(rescueLossCauses)} — 해당 지점은 회수하지 않습니다: ${rescuePending.slice(0, 10).map((probe) => probe.time.toFixed(0)).join(" ")}`);
           }
           // 실기 사후 판독용(§110-b) — 프로브별 판정이 없으면 "비전이 뭐라 했는지"를 영영 알 수 없다.
           if (rescueVerdicts.length > 0) {
