@@ -108,7 +108,11 @@ export function planRescueProbes(
   // 리포트 아이템(105~152s)과 길이가 겹쳐 확률로는 구분할 수 없으므로, 경고 회차에 한해
   // 리포트 길이 구간도 훑는 쪽을 택한다(정상 구간 훑기는 비전이 non-anchor로 자연 소거).
   // 알려진 사각: 단신 2개짜리 60~84s 구간은 여전히 안 잡힌다 — 증거가 생기면 재조정.
-  { maxSpan = 100, stepSeconds = 10, edgeSeconds = 20, maxProbes = 100 } = {},
+  //
+  // step 5s(§101-b 2차 실측): 단신 앵커 리드는 5~8초라 10초 격자가 통째로 건너뛴다(758.4·913.8·
+  // 944.5 — 격자 프레임을 눈으로 확인, 판정은 옳았고 격자가 성겼다). 5초면 ≥5s 리드에 반드시
+  // 프로브 하나가 들어간다. 비용은 경고 회차에만 붙는다.
+  { maxSpan = 100, stepSeconds = 5, edgeSeconds = 20, maxProbes = 200 } = {},
 ): RescueProbePlan {
   const times: number[] = [];
   const spans: Array<{ from: number; to: number }> = [];
