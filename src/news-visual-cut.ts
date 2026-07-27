@@ -113,11 +113,16 @@ export function planRescueProbes(
   // 944.5 — 격자 프레임을 눈으로 확인, 판정은 옳았고 격자가 성겼다). 5초면 ≥5s 리드에 반드시
   // 프로브 하나가 들어간다. 비용은 경고 회차에만 붙는다.
   //
-  // edge 30s(§104 실측): 관측된 회수 FP 2건(6/28 27.25·6/03 35.0)은 모두 프로브가 직전 확정
+  // 앞 여유 30s(§104 실측): 관측된 회수 FP 2건(6/28 27.25·6/03 35.0)은 모두 프로브가 직전 확정
   // 경계의 **앵커 리드 연장부**(26s 인사 테이크·25s 개표 스튜디오)에 떨어진 경우다 — 프레임
   // 판정은 옳았지만 아이템 경계가 아니다. 리드가 20초를 넘는 특집·일요일 유형을 덮으려면
   // 구간 앞 여유가 30초여야 한다. 길이 임계는 쓰지 않는다(진짜 16~21s 아이템이 코퍼스에 15개).
-  { maxSpan = 100, stepSeconds = 5, edgeSeconds = 30, maxProbes = 200 } = {},
+  //
+  // 뒤 여유는 20s 유지(§104-b 실측): 뒤쪽에서 난 FP는 관측 0인데, 뒤를 30으로 늘리면 아웃트로
+  // 직전 마지막 단신(6/28 841~872 = 31s)의 리드가 프로브 격자에서 통째로 잘린다 — edge 30 일괄
+  // 적용 실행에서 마지막 프로브가 838로 끊겨 명백한 앵커 리드(841~848)를 못 물었다(배치 구성
+  // 효과로 오인했으나 A/B 진단으로 기각 — footage 위주 배치에서도 842는 3회 전부 anchor 0.99).
+  { maxSpan = 100, stepSeconds = 5, edgeSeconds = 30, tailEdgeSeconds = 20, maxProbes = 200 } = {},
 ): RescueProbePlan {
   const times: number[] = [];
   const spans: Array<{ from: number; to: number }> = [];
@@ -128,7 +133,7 @@ export function planRescueProbes(
     const to = bounds[index + 1]!;
     if (to - from < maxSpan) continue;
     spans.push({ from, to });
-    for (let time = from + edgeSeconds; time <= to - edgeSeconds; time += stepSeconds) {
+    for (let time = from + edgeSeconds; time <= to - tailEdgeSeconds; time += stepSeconds) {
       if (times.length >= maxProbes) break;
       times.push(Math.round(time * 10) / 10);
     }

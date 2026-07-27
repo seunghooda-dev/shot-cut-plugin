@@ -365,10 +365,11 @@ describe("planRescueProbes — 학습 범위 밖 회수 훑기 계획(§101)", (
     assert.deepEqual(plan.spans, []);
   });
 
-  it("구간 양 끝은 edgeSeconds만큼 비운다 — 이미 아는 경계 바로 옆을 다시 제안하지 않으려고", () => {
-    const plan = planRescueProbes([0], 200, { maxSpan: 100, stepSeconds: 10, edgeSeconds: 30 });
+  it("구간 앞은 edgeSeconds, 뒤는 tailEdgeSeconds만큼 비운다 — 앞은 리드 연장부 FP 차단, 뒤는 마지막 단신 리드 보존(§104-b)", () => {
+    const plan = planRescueProbes([0], 200, { maxSpan: 100, stepSeconds: 10, edgeSeconds: 30, tailEdgeSeconds: 20 });
     assert.equal(plan.times[0], 30);
-    assert.ok((plan.times.at(-1) ?? Infinity) <= 170);
+    assert.ok((plan.times.at(-1) ?? 0) > 170);
+    assert.ok((plan.times.at(-1) ?? Infinity) <= 180);
   });
 
   it("maxProbes로 상한을 둔다 — 아주 긴 구간에서 비용이 폭주하지 않게", () => {
