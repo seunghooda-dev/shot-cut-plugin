@@ -70,7 +70,9 @@ export class AIQueueController {
       {
         ...((options.storage ?? browserStorage()) ? { storage: options.storage ?? browserStorage()! } : {}),
         concurrency: 2,
-        budget: { requestLimit: 100, costLimitUnits: 100, confirmationThresholdUnits: 10 },
+        // 비용 한도 400: 비전 ON 뉴스 분할 1회차가 검증+회수로 50~90단위를 쓴다(§110-c 실측).
+        // 100이면 하루 1회차 만에 조용히 소진돼 이후 배치가 전부 기각된다 — 3~4회차 여유로 상향.
+        budget: { requestLimit: 100, costLimitUnits: 400, confirmationThresholdUnits: 10 },
       },
     );
   }
@@ -138,7 +140,7 @@ export class AIQueueController {
       this.queue.setConcurrency(numberOf("ai-queue-concurrency-input", 2));
       this.queue.setBudget({
         requestLimit: numberOf("ai-request-limit-input", 100),
-        costLimitUnits: numberOf("ai-cost-limit-input", 100),
+        costLimitUnits: numberOf("ai-cost-limit-input", 400),
         confirmationThresholdUnits: numberOf("ai-confirm-threshold-input", 10),
       });
       this.options.onActivity?.("AI 큐 동시 실행 수와 일일 한도를 저장했습니다.");
@@ -159,7 +161,7 @@ export class AIQueueController {
     const budget = this.queue.getBudget();
     element<HTMLInputElement>("ai-queue-concurrency-input").value = String(this.queue.currentConcurrency);
     element<HTMLInputElement>("ai-request-limit-input").value = String(budget.requestLimit ?? 100);
-    element<HTMLInputElement>("ai-cost-limit-input").value = String(budget.costLimitUnits ?? 100);
+    element<HTMLInputElement>("ai-cost-limit-input").value = String(budget.costLimitUnits ?? 400);
     element<HTMLInputElement>("ai-confirm-threshold-input").value = String(budget.confirmationThresholdUnits ?? 10);
   }
 

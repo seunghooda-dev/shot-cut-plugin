@@ -2513,6 +2513,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         // — 유실분만 모아 1회 재판정한다. 이미 받은 판정(anchor 표·저신뢰 기권 포함)은 재판정하지
         // 않는다 — 진짜 앵커를 지키는 표를 재시도로 뒤집을 수 있기 때문.
         let pending = frames;
+        // 일일 한도 도달은 "판정 유실"이 아니다(§110-c 실측: 한도 기각이 유실로 위장돼 원인 불명이 됐다)
+        // — 남은 배치·재판정 라운드를 즉시 접고 별도 경고로 알린다.
+        let budgetStopped = false;
         for (let round = 0; round < 2 && pending.length > 0; round += 1) {
           const chunks: Array<typeof frames> = [];
           let currentChunk: typeof frames = [];
@@ -2530,7 +2533,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           if (currentChunk.length > 0) chunks.push(currentChunk);
           const missed: typeof frames = [];
           let done = 0;
-          for (const chunk of chunks) {
+          for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+            const chunk = chunks[chunkIndex]!;
             done += chunk.length;
             setText("busy-message", round === 0 ? `비전 검증 ${done}/${pending.length}…` : `비전 검증 · 유실 재판정 ${done}/${pending.length}…`);
             try {
@@ -2555,15 +2559,23 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
               chunk.forEach((frame, index) => {
                 if (!received.has(index)) missed.push(frame);
               });
-            } catch {
+            } catch (error) {
               // 일시 API 오류로 배치 하나가 실패해도 비전 전체를 포기하지 않는다(§92 3차 E2E 실측:
               // 배치 실패 → 전체 강하 → FP 잔존). 실패 배치는 유실 재판정 라운드로 넘긴다.
               missed.push(...chunk);
+              if (error instanceof Error && error.message.includes("한도")) {
+                budgetStopped = true;
+                for (const rest of chunks.slice(chunkIndex + 1)) missed.push(...rest);
+                break;
+              }
             }
           }
           pending = missed;
+          if (budgetStopped) break;
         }
-        if (pending.length > 0) {
+        if (budgetStopped) {
+          activity.add("warning", `AI 일일 한도 도달 — 비전 검증을 중단합니다(미판정 ${pending.length}장은 배제하지 않습니다). 설정 탭에서 한도를 조정할 수 있습니다.`);
+        } else if (pending.length > 0) {
           activity.add("warning", `비전 검증 · 프레임 ${pending.length}장 판정 유실 — 해당 후보는 배제하지 않습니다.`);
         }
         // 네 프레임(-3s·+1.2s·+4s·+7s)이 모두 non-anchor일 때만 배제 — 일부만 확보된 후보는 배제하지 않는다.
@@ -2614,6 +2626,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         }
         if (plan.times.length > 0) {
           activity.add("info", `놓친 경계 회수 시작 — 격자 ${gridProbeCount}·띠 이벤트 ${bandProbeCount}·재심 ${plan.times.length - gridProbeCount - bandProbeCount} = ${plan.times.length}프레임을 훑습니다(유료).`);
+          // 실기 사후 판독용(§110-b) — 어떤 시각을 훑었는지 없으면 회수 실패를 진단할 수 없다.
+          activity.add("info", `회수 프로브 시각: ${plan.times.slice(0, 60).map((time) => time.toFixed(1)).join(" ")}${plan.times.length > 60 ? " …" : ""}`);
           const probes: Array<{ time: number; bytes: Uint8Array }> = [];
           for (const [probeIndex, time] of plan.times.entries()) {
             setText("busy-message", `회수 훑기 ${probeIndex + 1}/${plan.times.length}…`);
@@ -2661,49 +2675,82 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           // 회수 0건으로 끝났다(§101-b). 실패는 반드시 개수로 가시화한다.
           const rescueRefBytes = rescueRefs.reduce((sum, reference) => sum + reference.bytes.byteLength, 0);
           const rescuePerBatch = Math.max(3, 12 - rescueRefs.length);
-          const rescueChunks: Array<typeof probes> = [];
-          let rescueChunk: typeof probes = [];
-          let rescueChunkBytes = 0;
-          for (const probe of probes) {
-            const overBytes = rescueChunkBytes + probe.bytes.byteLength + rescueRefBytes > 1_100_000;
-            if (rescueChunk.length > 0 && (overBytes || rescueChunk.length >= rescuePerBatch)) {
-              rescueChunks.push(rescueChunk);
-              rescueChunk = [];
-              rescueChunkBytes = 0;
-            }
-            rescueChunk.push(probe);
-            rescueChunkBytes += probe.bytes.byteLength;
-          }
-          if (rescueChunk.length > 0) rescueChunks.push(rescueChunk);
-          let rescueFailedBatches = 0;
-          let rescueJudged = 0;
+          // 판정 유실 재시도(§110-b) — 실기에서 모델이 유효 JSON을 주면서 프레임 엔트리를 통째로
+          // 빠뜨리는 일이 흔하다(7/24 검증 40장 실측). 참조가 크면 청크당 프로브가 1~2장뿐이라
+          // 엔트리 유실 = 그 지점 회수의 조용한 실패다. 검증 경로(§92)와 동일하게 수신 인덱스를
+          // 대조해 유실분만 1회 재판정하고, 남으면 개수·시각으로 가시화한다.
+          let rescuePending = probes;
+          // 검증 경로와 동일한 한도 처리(§110-c) — 한도 기각을 유실로 위장하지 않는다.
+          let rescueBudgetStopped = false;
           const rescueNearMisses: string[] = [];
-          for (const chunk of rescueChunks) {
-            rescueJudged += chunk.length;
-            setText("busy-message", `회수 판정 ${rescueJudged}/${probes.length}…`);
-            try {
-              const results = await runVisionBatch(
-                `rescue:${chunk[0]?.time ?? 0}`,
-                chunk.length,
-                () => rescueClient.classifyAnchorShots(
-                  chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
-                  rescueRefs,
-                ),
-              );
-              // 회수는 "추가"라 오검출이 곧 과분할이다 — 검증 경로(0.85)보다 엄격하게 0.9를 요구한다.
-              for (const result of results) {
-                const probe = chunk[result.index];
-                if (probe && result.isAnchor && result.confidence >= 0.9) found.push(probe.time);
-                // 임계 바로 아래 판정은 진단 가치가 있다(§101-c) — "오독"과 "임계 미달"을 로그로 가른다.
-                else if (probe && result.isAnchor) rescueNearMisses.push(`${probe.time.toFixed(0)}(${result.confidence.toFixed(2)})`);
+          const rescueVerdicts: string[] = [];
+          for (let rescueRound = 0; rescueRound < 2 && rescuePending.length > 0; rescueRound += 1) {
+            const rescueChunks: Array<typeof probes> = [];
+            let rescueChunk: typeof probes = [];
+            let rescueChunkBytes = 0;
+            for (const probe of rescuePending) {
+              const overBytes = rescueChunkBytes + probe.bytes.byteLength + rescueRefBytes > 1_100_000;
+              if (rescueChunk.length > 0 && (overBytes || rescueChunk.length >= rescuePerBatch)) {
+                rescueChunks.push(rescueChunk);
+                rescueChunk = [];
+                rescueChunkBytes = 0;
               }
-            } catch {
-              // 배치 실패는 회수 포기일 뿐 분할 자체를 막지 않는다.
-              rescueFailedBatches += 1;
+              rescueChunk.push(probe);
+              rescueChunkBytes += probe.bytes.byteLength;
             }
+            if (rescueChunk.length > 0) rescueChunks.push(rescueChunk);
+            const rescueMissed: typeof probes = [];
+            let rescueJudged = 0;
+            for (let chunkIndex = 0; chunkIndex < rescueChunks.length; chunkIndex += 1) {
+              const chunk = rescueChunks[chunkIndex]!;
+              rescueJudged += chunk.length;
+              setText("busy-message", rescueRound === 0
+                ? `회수 판정 ${rescueJudged}/${rescuePending.length}…`
+                : `회수 · 유실 재판정 ${rescueJudged}/${rescuePending.length}…`);
+              try {
+                const results = await runVisionBatch(
+                  `rescue:${rescueRound}:${chunk[0]?.time ?? 0}`,
+                  chunk.length,
+                  () => rescueClient.classifyAnchorShots(
+                    chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
+                    rescueRefs,
+                  ),
+                );
+                const received = new Set<number>();
+                // 회수는 "추가"라 오검출이 곧 과분할이다 — 검증 경로(0.85)보다 엄격하게 0.9를 요구한다.
+                for (const result of results) {
+                  received.add(result.index);
+                  const probe = chunk[result.index];
+                  if (!probe) continue;
+                  rescueVerdicts.push(`${probe.time.toFixed(0)}${result.isAnchor ? "→앵커" : "→비앵커"}(${result.confidence.toFixed(2)})`);
+                  if (result.isAnchor && result.confidence >= 0.9) found.push(probe.time);
+                  // 임계 바로 아래 판정은 진단 가치가 있다(§101-c) — "오독"과 "임계 미달"을 로그로 가른다.
+                  else if (result.isAnchor) rescueNearMisses.push(`${probe.time.toFixed(0)}(${result.confidence.toFixed(2)})`);
+                }
+                chunk.forEach((probe, index) => {
+                  if (!received.has(index)) rescueMissed.push(probe);
+                });
+              } catch (error) {
+                // 배치 실패는 회수 포기가 아니라 유실이다 — 재판정 라운드로 넘긴다(검증 경로 §92와 동일).
+                rescueMissed.push(...chunk);
+                if (error instanceof Error && error.message.includes("한도")) {
+                  rescueBudgetStopped = true;
+                  for (const rest of rescueChunks.slice(chunkIndex + 1)) rescueMissed.push(...rest);
+                  break;
+                }
+              }
+            }
+            rescuePending = rescueMissed;
+            if (rescueBudgetStopped) break;
           }
-          if (rescueFailedBatches > 0) {
-            activity.add("warning", `학습 범위 밖 회수 · 판정 배치 ${rescueFailedBatches}/${rescueChunks.length}개 실패 — 실패분은 회수하지 않습니다.`);
+          if (rescueBudgetStopped) {
+            activity.add("warning", `AI 일일 한도 도달 — 놓친 경계 회수를 중단합니다(미판정 ${rescuePending.length}장). 설정 탭에서 한도를 조정할 수 있습니다.`);
+          } else if (rescuePending.length > 0) {
+            activity.add("warning", `회수 · 프레임 ${rescuePending.length}장 판정 유실 — 해당 지점은 회수하지 않습니다: ${rescuePending.slice(0, 10).map((probe) => probe.time.toFixed(0)).join(" ")}`);
+          }
+          // 실기 사후 판독용(§110-b) — 프로브별 판정이 없으면 "비전이 뭐라 했는지"를 영영 알 수 없다.
+          if (rescueVerdicts.length > 0) {
+            activity.add("info", `회수 판정 상세: ${rescueVerdicts.slice(0, 40).join(" ")}${rescueVerdicts.length > 40 ? " …" : ""}`);
           }
           if (rescueNearMisses.length > 0) {
             activity.add("info", `회수 · 임계(0.9) 미달 앵커 판정 ${rescueNearMisses.length}건: ${rescueNearMisses.slice(0, 8).join(" ")}`);

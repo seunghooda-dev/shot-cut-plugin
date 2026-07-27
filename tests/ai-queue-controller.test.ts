@@ -231,11 +231,11 @@ describe("AIQueueController confirmation and budget", () => {
     const promise = controller.run("video", { id: "over-budget" }, async () => {
       calls += 1;
       return "never";
-    }, { estimateUnits: 150 });
+    }, { estimateUnits: 450 });
     await settle();
     const job = controller.queue.list()[0];
     assert.ok(job);
-    assert.equal(job.confirmRequired, true, "150 units must exceed the 10-unit threshold");
+    assert.equal(job.confirmRequired, true, "450 units must exceed the 10-unit threshold");
     controller.queue.confirm(job.id);
     await assert.rejects(promise, /비용 단위 한도/u);
     assert.equal(calls, 0);
@@ -320,9 +320,10 @@ describe("AIQueueController DOM integration", () => {
       await controller.initialize();
       assert.equal(dom.getElementById("ai-queue-concurrency-input")?.value, "2");
       assert.equal(dom.getElementById("ai-request-limit-input")?.value, "100");
-      assert.equal(dom.getElementById("ai-cost-limit-input")?.value, "100");
+      // 비용 한도 기본 400 — 비전 ON 1회차 50~90단위 실측(§110-c) 반영.
+      assert.equal(dom.getElementById("ai-cost-limit-input")?.value, "400");
       assert.equal(dom.getElementById("ai-confirm-threshold-input")?.value, "10");
-      assert.equal(dom.getElementById("ai-queue-usage")?.textContent, "0 / 100회 · 0.0 / 100단위");
+      assert.equal(dom.getElementById("ai-queue-usage")?.textContent, "0 / 100회 · 0.0 / 400단위");
       assert.equal(dom.getElementById("ai-cache-count")?.textContent, "0개");
       assert.equal(dom.getElementById("ai-queue-pause-btn")?.textContent, "큐 일시정지");
       const list = dom.getElementById("ai-job-list");
