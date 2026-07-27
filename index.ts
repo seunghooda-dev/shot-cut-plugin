@@ -2566,10 +2566,28 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             }
             if (bytes) probes.push({ time, bytes });
           }
-          const rescueRefs = loadAnchorExemplars()
-            .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
-            .filter((reference) => looksCompleteImage(reference.bytes, "png"))
-            .slice(0, 5);
+          // 같은 회차에서 이미 확정된 앵커 프레임을 참조로 우선 주입(§101-c) — 연단·기자회견이
+          // 배경으로 합성된 앵커샷 오독은 프롬프트 절로도 남았다(3차 실기 799.6·833.8 잔존).
+          // "같은 스튜디오·같은 앵커·같은 데스크"의 실물 예시가 코퍼스 예시보다 강한 신호다.
+          // 검증을 통과한 verified 앞쪽에서 뽑으므로 footage가 참조로 들어갈 위험은 없다.
+          const sameEpisodeRefs: Array<{ bytes: Uint8Array; mimeType: "image/png" }> = [];
+          for (const anchorTime of verified.slice(0, 3)) {
+            const { filename } = await exportFrameToFolder(Math.max(0, anchorTime + 1.2), String(dataFolder.nativePath), 480);
+            const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+            try {
+              const entry = await dataFolder.getEntry(filename);
+              await entry.delete();
+            } catch {
+              // 임시 파일 삭제 실패는 무시
+            }
+            if (bytes && looksCompleteImage(bytes, "png")) sameEpisodeRefs.push({ bytes, mimeType: "image/png" });
+          }
+          const rescueRefs = [
+            ...sameEpisodeRefs,
+            ...loadAnchorExemplars()
+              .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
+              .filter((reference) => looksCompleteImage(reference.bytes, "png")),
+          ].slice(0, 5);
           const rescueClient = new OpenAITextClient({ endpoint: settings.aiEndpoint });
           const found: number[] = [];
           // 배치는 검증 경로와 동일하게 장수(참조 포함 12)와 바이트 합계(1.1MB)로 나눈다 —
