@@ -9,7 +9,7 @@ import {
 // 20260723_Thu는 **코퍼스에 없던 최신 회차**로 잡은 홀드아웃이다(§100) — 날짜 무작위 홀드아웃은
 // "학습 분포 안의 미측정 회차"라 일반화 실패를 못 잡는다. 이 회차 하나가 실제로 F1 47.1로
 // 무너졌는데 코퍼스 전체는 97.9였다. 학습셋으로 흡수되면 그 실패가 지표에서 사라지므로 고정한다.
-const DEFAULT_HOLDOUT = ["Train_KBC_20260709_Thu", "Train_KBC_20260711_Sat", "Train_KBC_20260712_Sun", "Train_KBC_20260628_Sun", "Train_KBC_20260723_Thu"];
+const DEFAULT_HOLDOUT = ["Train_KBC_20260709_Thu", "Train_KBC_20260711_Sat", "Train_KBC_20260712_Sun", "Train_KBC_20260628_Sun", "Train_KBC_20260723_Thu", "Train_KBC_20260724_Fri"];
 const SWEEP = [
   { epochs: 300, lr: 0.4, posWeight: 8, l2: 4e-5 },   // 구 스크립트 기본(비교 기준)
   { epochs: 800, lr: 1, posWeight: 8, l2: 0 },        // §71-e 평일 재현 설정
