@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  BANK_FIT_WARN_DISTANCE,
+  bankFitDistance,
   buildAnchorMatcher,
   buildItemsFromStarts,
   collectAnchorCandidates,
@@ -318,5 +320,33 @@ describe("하단 자막 띠(인용·이름표) 감지", () => {
     assert.equal(rows[220 - 195]!.dark, 0);
     assert.equal(Math.round(rows[0]!.mean), 40);
     assert.equal(rows[0]!.dark, 100);
+  });
+});
+
+describe("bankFitDistance — 학습 범위 밖 경고 신호(§100)", () => {
+  const reference = new Array<number>(144).fill(100);
+  const matcher = buildAnchorMatcher([reference]);
+  const sampleOf = (time: number, value: number): GridSample => ({ time, grid: Float64Array.from(new Array<number>(144).fill(value)) });
+
+  it("스캔 전체에서 가장 참조에 가까운 프레임의 거리를 돌려준다", () => {
+    const distance = bankFitDistance([sampleOf(0, 200), sampleOf(2, 102), sampleOf(4, 160)], matcher);
+    assert.ok(distance < bankFitDistance([sampleOf(0, 200), sampleOf(2, 160)], matcher));
+  });
+
+  it("격자 없는 표본은 건너뛰고, 전부 없으면 무한대를 돌려준다", () => {
+    const withHole = bankFitDistance([{ time: 0, grid: null }, sampleOf(2, 102)], matcher);
+    assert.equal(withHole, bankFitDistance([sampleOf(2, 102)], matcher));
+    assert.equal(bankFitDistance([{ time: 0, grid: null }], matcher), Number.POSITIVE_INFINITY);
+  });
+
+  it("참조와 동일한 프레임이 있으면 거리 0이라 경고 임계 아래다", () => {
+    const distance = bankFitDistance([sampleOf(0, 100)], matcher);
+    assert.equal(distance, 0);
+    assert.ok(distance <= BANK_FIT_WARN_DISTANCE);
+  });
+
+  // 임계는 코퍼스 82회차 실측으로 고른 값이라, 무심코 바뀌면 경고가 전 회차에 뜨거나 사라진다.
+  it("경고 임계는 0.1로 고정되어 있다", () => {
+    assert.equal(BANK_FIT_WARN_DISTANCE, 0.1);
   });
 });

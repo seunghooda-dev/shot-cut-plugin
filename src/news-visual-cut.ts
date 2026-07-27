@@ -63,6 +63,27 @@ export function buildAnchorMatcher(referenceGrids: ReadonlyArray<ArrayLike<numbe
  * 평일 회차는 항상 첫 번째(평일) 뱅크로 라우팅돼 기존 동작이 그대로 보존된다(min 합성은
  * 전 회차 FP 급증으로 기각 — sunday-format-reference-bank.design.md).
  */
+/**
+ * 학습 범위 밖 경고 임계(§100). 코퍼스 82회차 실측에서 0.10이 실패 회차 2건(F1 47·73)을 모두
+ * 포착하고 놓치는 실패가 0이었다(경고 6회차 = 오경보 4). 거리가 높아도 정상인 회차가 있으므로
+ * (20260603_Wed 거리 0.110·F1 100) 이것은 실패 판정이 아니라 "결과를 확인하라"는 신호다.
+ */
+export const BANK_FIT_WARN_DISTANCE = 0.1;
+
+/**
+ * 참조 뱅크가 이 회차와 얼마나 맞는지 — 스캔 전체에서 가장 앵커에 가까운 프레임의 거리.
+ * 이 값이 크면 뱅크가 회차의 앵커샷을 못 알아본다는 뜻이고, 뱅크 거리는 학습 모델의 특징이기도
+ * 해서 후보 생성과 모델이 **함께** 약해진다(§100 — 두 경로가 독립이 아니다).
+ */
+export function bankFitDistance(samples: readonly GridSample[], matcher: AnchorMatcher): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (const sample of samples) {
+    if (!sample.grid) continue;
+    best = Math.min(best, matcher.distance(sample.grid));
+  }
+  return best;
+}
+
 /** 특수 포맷 뱅크 채택 상한 — 진짜 포맷 일치는 0.001~0.025, 평일 오라우팅은 0.07~0.09 실측(완벽 분리). */
 const ROUTE_MAX_DIST = 0.05;
 const ROUTE_RATIO = 0.5;

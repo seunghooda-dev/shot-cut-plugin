@@ -123,6 +123,8 @@ import {
 import {
   buildAnchorMatcher,
   buildItemsFromStarts,
+  bankFitDistance,
+  BANK_FIT_WARN_DISTANCE,
   collectAnchorCandidates,
   detectMismatchBorder,
   selectAnchorMatcher,
@@ -2392,6 +2394,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
       buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS),
       buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS_SUNDAY_NEW),
     ]);
+    // 학습 범위 밖 경고(§100) — 뱅크가 이 회차 앵커샷을 못 알아보면 후보와 학습 모델이 함께
+    // 약해져 아이템이 조용히 적게 나온다(7/23 실측: 정답 12개 중 4개). 검출을 바꾸지는 않고,
+    // 사용자가 결과를 그대로 믿지 않도록 미리 알린다.
+    const bankFit = bankFitDistance(samples, matcher);
+    if (bankFit > BANK_FIT_WARN_DISTANCE) {
+      activity.add("warning", `이 회차는 학습 범위 밖일 수 있습니다(화면 일치도 ${bankFit.toFixed(3)} · 기준 ${BANK_FIT_WARN_DISTANCE}) — 아이템이 실제보다 적게 나올 수 있으니 결과를 확인해 주세요.`);
+    }
     const candidates = collectAnchorCandidates(samples, matcher);
     if (candidates.length === 0) throw new Error("앵커 샷 후보를 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
     const tailStart = detectStaticTailStart(samples);
