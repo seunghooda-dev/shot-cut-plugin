@@ -2321,6 +2321,29 @@ async function handleNewsCutCleanup(): Promise<void> {
 // 원클릭 분할 — STT·자막 없이 화면(앵커 샷) 분석만으로 분할하고, 내보내기 설정이 없으면
 // 기본 프리셋·폴더로 렌더까지 한 번에 끝낸다(설계: newscut-visual-oneclick.design.md).
 // exportAfter=false 면 시퀀스 생성까지만 하고 내보내기는 생략한다(검토 후 '일괄 내보내기' 사용).
+/**
+ * 비전 배치 한 번을 AI 큐를 거쳐 실행한다(§106) — 일일 요청·비용 한도와 "오늘 사용" 집계에
+ * 비전 호출이 잡히게 하는 것이 목적이다(그 전에는 이 경로만 큐 밖이었다 — 릴리스 리뷰 H-1).
+ *
+ * `confirmRequired`는 넘기지 않는다. 승인 대기는 큐가 잡을 붙든 채 사용자의 승인 클릭을 기다리는데,
+ * 분할은 이미 시작돼 스캔·프레임 내보내기를 마친 상태라 여기서 멈추면 사용자에겐 멎은 것처럼 보인다.
+ * 이 경로의 사전 동의는 ①AI 전송 동의 게이트(§99) ②"(유료)" 라벨과 가시 비용 고지 ③실행 직전
+ * 활동 로그의 전송량 안내가 담당한다. 배치 단위 승인은 별도 설계 과제로 남긴다(런북 §106).
+ *
+ * 큐가 없으면(초기화 실패) 그대로 실행한다 — 비용 보호는 못 하지만 분할을 막지는 않는다.
+ */
+async function runVisionBatch<T>(label: string, frameCount: number, task: () => Promise<T>): Promise<T> {
+  if (!aiQueueController) return task();
+  // 요청 수는 배치 하나당 1로 잡히고(큐 규약), 비용 단위는 프레임 수에 비례시킨다.
+  // 큐 자체 재시도는 끈다 — 이 경로는 유실 재판정·배치 격리로 자체 복원한다(§92).
+  return aiQueueController.run(
+    "image",
+    { source: "news-cut-vision", label, frameCount },
+    task,
+    { estimateUnits: frameCount, cacheTtlMs: 0, maxRetries: 0 },
+  );
+}
+
 async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
   const api = frameDataFolderApi();
   if (!api) throw new Error("프레임 내보내기 API를 사용할 수 없습니다.");
@@ -2499,9 +2522,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             done += chunk.length;
             setText("busy-message", round === 0 ? `비전 검증 ${done}/${pending.length}…` : `비전 검증 · 유실 재판정 ${done}/${pending.length}…`);
             try {
-              const results = await client.classifyAnchorShots(
-                chunk.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" as const })),
-                references,
+              const results = await runVisionBatch(
+                `verify:${round}:${chunk[0]?.time ?? 0}`,
+                chunk.length,
+                () => client.classifyAnchorShots(
+                  chunk.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" as const })),
+                  references,
+                ),
               );
               const received = new Set<number>();
               for (const result of results) {
@@ -2629,9 +2656,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             rescueJudged += chunk.length;
             setText("busy-message", `회수 판정 ${rescueJudged}/${probes.length}…`);
             try {
-              const results = await rescueClient.classifyAnchorShots(
-                chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
-                rescueRefs,
+              const results = await runVisionBatch(
+                `rescue:${chunk[0]?.time ?? 0}`,
+                chunk.length,
+                () => rescueClient.classifyAnchorShots(
+                  chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
+                  rescueRefs,
+                ),
               );
               // 회수는 "추가"라 오검출이 곧 과분할이다 — 검증 경로(0.85)보다 엄격하게 0.9를 요구한다.
               for (const result of results) {
