@@ -112,7 +112,12 @@ export function planRescueProbes(
   // step 5s(§101-b 2차 실측): 단신 앵커 리드는 5~8초라 10초 격자가 통째로 건너뛴다(758.4·913.8·
   // 944.5 — 격자 프레임을 눈으로 확인, 판정은 옳았고 격자가 성겼다). 5초면 ≥5s 리드에 반드시
   // 프로브 하나가 들어간다. 비용은 경고 회차에만 붙는다.
-  { maxSpan = 100, stepSeconds = 5, edgeSeconds = 20, maxProbes = 200 } = {},
+  //
+  // edge 30s(§104 실측): 관측된 회수 FP 2건(6/28 27.25·6/03 35.0)은 모두 프로브가 직전 확정
+  // 경계의 **앵커 리드 연장부**(26s 인사 테이크·25s 개표 스튜디오)에 떨어진 경우다 — 프레임
+  // 판정은 옳았지만 아이템 경계가 아니다. 리드가 20초를 넘는 특집·일요일 유형을 덮으려면
+  // 구간 앞 여유가 30초여야 한다. 길이 임계는 쓰지 않는다(진짜 16~21s 아이템이 코퍼스에 15개).
+  { maxSpan = 100, stepSeconds = 5, edgeSeconds = 30, maxProbes = 200 } = {},
 ): RescueProbePlan {
   const times: number[] = [];
   const spans: Array<{ from: number; to: number }> = [];
