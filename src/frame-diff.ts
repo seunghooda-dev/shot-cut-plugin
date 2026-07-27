@@ -102,6 +102,35 @@ export function lumaGrid(frame: BmpFrame, cols = FRAME_DIFF_GRID_COLS, rows = FR
   return grid;
 }
 
+/**
+ * 하단 헤드라인 띠 영역의 휘도 벡터(§110) — 스캔 프레임(96px 폭 BMP)에서 띠가 놓이는
+ * 비율 영역(x 9/96~89/96 · y 44/54~50/54, 1080 기준 하단 배너 위치)을 80×6 셀 평균으로 뽑는다.
+ * 띠 텍스트가 바뀌면 이 벡터가 크게 변하고, 새 헤드라인은 이후 수십 초 유지된다 —
+ * 8회차 실측에서 아이템 경계 재현 96%(런북 §109). 추가 프레임 내보내기 없이 스캔 BMP를 재사용한다.
+ */
+export function bandRow(frame: BmpFrame, cols = 80, rows = 6): Float64Array {
+  const band = new Float64Array(cols * rows);
+  const x0r = 9 / 96, x1r = 89 / 96, y0r = 44 / 54, y1r = 50 / 54;
+  const bx0 = Math.floor(frame.width * x0r);
+  const bx1 = Math.max(bx0 + cols, Math.floor(frame.width * x1r));
+  const by0 = Math.floor(frame.height * y0r);
+  const by1 = Math.max(by0 + rows, Math.floor(frame.height * y1r));
+  for (let cellY = 0; cellY < rows; cellY += 1) {
+    const y0 = by0 + Math.floor((cellY * (by1 - by0)) / rows);
+    const y1 = Math.max(y0 + 1, by0 + Math.floor(((cellY + 1) * (by1 - by0)) / rows));
+    for (let cellX = 0; cellX < cols; cellX += 1) {
+      const x0 = bx0 + Math.floor((cellX * (bx1 - bx0)) / cols);
+      const x1 = Math.max(x0 + 1, bx0 + Math.floor(((cellX + 1) * (bx1 - bx0)) / cols));
+      let sum = 0;
+      for (let y = y0; y < y1; y += 1) {
+        for (let x = x0; x < x1; x += 1) sum += frame.lumaAt(Math.min(x, frame.width - 1), Math.min(y, frame.height - 1));
+      }
+      band[cellY * cols + cellX] = sum / ((y1 - y0) * (x1 - x0));
+    }
+  }
+  return band;
+}
+
 /** 두 그리드의 평균 절대 휘도차를 0..1로 정규화해 돌려준다. 크기가 다르면 1(무조건 다름). */
 export function frameDifference(a: Float64Array, b: Float64Array): number {
   if (a.length !== b.length || a.length === 0) return 1;

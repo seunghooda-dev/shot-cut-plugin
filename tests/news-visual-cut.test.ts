@@ -9,6 +9,7 @@ import {
   buildItemsFromStarts,
   collectAnchorCandidates,
   selectAnchorMatcher,
+  detectBandEvents,
   detectMismatchBorder,
   detectModelStarts,
   detectStaticTailStart,
@@ -380,5 +381,35 @@ describe("planRescueProbes — 학습 범위 밖 회수 훑기 계획(§101)", (
   it("마지막 경계 뒤 구간도 대상이다 — 아웃트로 직전 아이템이 길 수 있다", () => {
     const plan = planRescueProbes([0, 500], 900, { maxSpan: 180, stepSeconds: 100, edgeSeconds: 20 });
     assert.deepEqual(plan.spans, [{ from: 0, to: 500 }, { from: 500, to: 900 }]);
+  });
+});
+
+describe("detectBandEvents — 하단 띠 이벤트(§110)", () => {
+  const band = (value: number): Float64Array => Float64Array.from(new Array<number>(480).fill(value));
+  const seq = (values: Array<number | null>): Array<{ time: number; band: Float64Array | null }> =>
+    values.map((value, index) => ({ time: index * 2, band: value === null ? null : band(value) }));
+
+  it("큰 변화 뒤 안정이 이어지면 이벤트로 잡는다", () => {
+    // 100 → 200 변화(diff 0.39) 후 200 유지 = 새 헤드라인 등장 패턴
+    const events = detectBandEvents(seq([100, 100, 100, 200, 200, 200, 200, 200, 200]));
+    assert.deepEqual(events, [6]);
+  });
+
+  it("변화 뒤가 계속 흔들리면(자막·인용띠 교체) 이벤트가 아니다", () => {
+    const events = detectBandEvents(seq([100, 100, 200, 120, 210, 90, 200, 110, 205]));
+    assert.deepEqual(events, []);
+  });
+
+  it("minGapSeconds 안의 연속 이벤트는 첫 것만 남긴다", () => {
+    const events = detectBandEvents(
+      seq([100, 200, 200, 200, 200, 200, 60, 60, 60, 60, 60, 60]),
+      { minGapSeconds: 30 },
+    );
+    assert.deepEqual(events, [2]);
+  });
+
+  it("null 밴드는 건너뛰고 시간축은 유지한다", () => {
+    const events = detectBandEvents(seq([100, null, 100, 200, 200, 200, 200, 200, 200]));
+    assert.deepEqual(events, [6]);
   });
 });

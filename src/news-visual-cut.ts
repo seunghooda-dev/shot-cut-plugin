@@ -84,6 +84,36 @@ export function bankFitDistance(samples: readonly GridSample[], matcher: AnchorM
   return best;
 }
 
+export interface BandSample {
+  time: number;
+  band: Float64Array | null;
+}
+
+/**
+ * 하단 띠 이벤트 감지(§110) — "띠가 크게 변한 뒤(changeMin 초과) stableCount 표본 동안
+ * 안정(stableMax 미만)"인 시각들. 새 헤드라인 띠는 등장 후 수십 초 유지되고 인용띠·자막은
+ * 수 초 단위로 바뀌므로 이 조합이 새 아이템 시작을 가린다(8회차 실측 재현 96% — §109).
+ * 이벤트는 minGapSeconds 안에 하나만 남긴다(같은 전환의 중복 발화 방지).
+ */
+export function detectBandEvents(
+  samples: readonly BandSample[],
+  { changeMin = 0.1, stableMax = 0.06, stableCount = 4, minGapSeconds = 10 } = {},
+): number[] {
+  const usable = samples.filter((sample): sample is { time: number; band: Float64Array } => sample.band !== null);
+  const events: number[] = [];
+  for (let index = 1; index < usable.length - stableCount; index += 1) {
+    if (frameDifference(usable[index]!.band, usable[index - 1]!.band) <= changeMin) continue;
+    let stable = true;
+    for (let k = 0; k < stableCount; k += 1) {
+      if (frameDifference(usable[index + k + 1]!.band, usable[index + k]!.band) >= stableMax) { stable = false; break; }
+    }
+    if (!stable) continue;
+    const time = usable[index]!.time;
+    if (events.length === 0 || time - events[events.length - 1]! > minGapSeconds) events.push(time);
+  }
+  return events;
+}
+
 export interface RescueProbePlan {
   /** 훑을 시각들 — 이 시각의 프레임이 앵커샷이면 그 앞 컷이 놓친 경계다. */
   times: number[];

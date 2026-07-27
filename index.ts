@@ -125,6 +125,7 @@ import {
   buildItemsFromStarts,
   bankFitDistance,
   BANK_FIT_WARN_DISTANCE,
+  detectBandEvents,
   planRescueProbes,
   collectAnchorCandidates,
   detectMismatchBorder,
@@ -146,7 +147,7 @@ import { NEWS_ANCHOR_MODEL_BIAS, NEWS_ANCHOR_MODEL_WEIGHTS } from "./src/news-an
 import { base64ToBytes, bytesToBase64, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
 import { LICENSE_CLOCK_KEY, LICENSE_STORAGE_KEY, licenseFailureMessage, verifyLicenseKey } from "./src/license";
 import { LICENSE_PUBLIC_KEY } from "./src/license-public-key";
-import { cloneSamplesForReusedTimes, looksCompleteImage, lumaGrid, parseBmp24, planFrameSampling } from "./src/frame-diff";
+import { bandRow, cloneSamplesForReusedTimes, looksCompleteImage, lumaGrid, parseBmp24, planFrameSampling } from "./src/frame-diff";
 import { loadCachedSpans, saveCachedSpans } from "./src/vision-cache";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus, removeStyleExample } from "./src/style-corpus";
 import { computeDuckingEnvelope, duckLevelValueFromDb, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
@@ -2362,10 +2363,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
   const dataFolder = await api.fileSystem.getDataFolder();
   // 같은 시각 재요청(경계 재스냅)이 잦아 시각별 그리드를 메모한다.
   const gridCache = new Map<number, Float64Array | null>();
+  // 하단 띠 벡터(§110) — 같은 BMP에서 함께 뽑아 추가 내보내기 없이 띠 이벤트를 계산한다.
+  const bandCache = new Map<number, Float64Array | null>();
   const grabGrid = async (time: number): Promise<Float64Array | null> => {
     const key = Math.round(time * 100);
     if (gridCache.has(key)) return gridCache.get(key)!;
     let grid: Float64Array | null = null;
+    let band: Float64Array | null = null;
     try {
       const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 96, undefined, "bmp");
       const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
@@ -2377,10 +2381,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
       }
       const bmp = bytes ? parseBmp24(bytes) : null;
       grid = bmp ? lumaGrid(bmp) : null;
+      band = bmp ? bandRow(bmp) : null;
     } catch {
       grid = null;
     }
     gridCache.set(key, grid);
+    bandCache.set(key, band);
     return grid;
   };
 
@@ -2413,6 +2419,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         busy.progress(percent);
       }
     }
+    // 하단 띠 이벤트(§110) — 스캔 BMP에서 함께 뽑은 띠 벡터로 "변화 후 안정" 지점을 계산한다.
+    // 새 헤드라인 등장 지점이라 놓친 아이템 경계의 강한 후보다(8회차 실측 재현 96% — §109).
+    const bandEvents = detectBandEvents(samples.map((sample) => ({
+      time: sample.time,
+      band: bandCache.get(Math.round(sample.time * 100)) ?? null,
+    })));
     // 2/4 후보 도출(무료 화면 매칭) + 아웃트로(구독 범퍼) 검출 — 포맷 라우팅(평일·레터박스·신형 중 최근접 뱅크)
     const matcher = selectAnchorMatcher(samples, [
       buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS),
@@ -2578,22 +2590,30 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     // 신호로도 oracle 63.2가 천장이었다). 판별 정보는 픽셀에 있으므로, 비정상적으로 긴 아이템
     // 안쪽만 균등 간격으로 훑어 비전에 직접 묻는다.
     //
-    // §107-b: 발동 조건은 경고 회차(bankFit>0.1)로 한정한다 — 전면 발동(§107)을 실측 후 원복.
-    // 배치15c 실측: 전면 발동의 이득은 6/23 FN 1건 회수뿐이었고, 비경고 회차에서 회수가 FP 3건
-    // (7/12 footage B-roll 컷·스탠드업, 6/05 컷 없는 PIP 인터뷰)을 만들어 순손실이었다.
-    // 경고 회차에서는 §104 이후 회수 FP 0이 유지되는 것과 대조적 — 뱅크가 정상인 회차의 긴
-    // 구간은 대부분 "진짜 긴 아이템"이라 훑기의 오판 노출만 늘린다. 비경고 회차의 잔여 FN
-    // (비정형 코너·짧은 구간)은 무료 경로의 알려진 한계로 정직하게 남긴다(§107-b).
-    if (visionEnabled && bankFit > BANK_FIT_WARN_DISTANCE) {
+    // 놓친 경계 회수(§110) — 프로브 소스 3종:
+    //  ①균등 격자: 경고 회차(bankFit>0.1)에만. §107 전면 발동은 비경고 회차 FP 3건으로 원복됐다
+    //    (§107-b) — 무차별 훑기가 오판 노출을 늘리기 때문.
+    //  ②띠 이벤트: 전 회차. "새 헤드라인 등장" 사전 신호가 있는 지점만이라(회차당 20~30곳)
+    //    §107의 실패 요인이 없고, 격자 사정권 밖(75s 구간·짧은 리드)의 FN도 닿는다(§109 실측 96%).
+    //  ③배제 재심: 검증이 배제한 후보(§101-c) — 오배제 자기치유.
+    if (visionEnabled) {
       try {
-        const plan = planRescueProbes(verified, tailStart ?? duration);
-        // 검증이 배제한 후보도 회수 프로브에 넣는다(§101-c) — 오배제(834 4연속·872 실측)를 격자
-        // 우연이 아니라 구조로 자기치유한다. 같은 회차 참조가 포함된 회수 판정이 재심 역할을 한다.
+        const plan = bankFit > BANK_FIT_WARN_DISTANCE
+          ? planRescueProbes(verified, tailStart ?? duration)
+          : { times: [] as number[], spans: [] as Array<{ from: number; to: number }> };
+        const gridProbeCount = plan.times.length;
+        // 띠 이벤트 시각은 "띠가 바뀐 직후 표본"이라 이미 새 아이템 리드 안 — 그대로 프로브로 쓴다.
+        for (const eventTime of bandEvents) {
+          const nearVerified = verified.some((existing) => Math.abs(existing - eventTime) <= 8);
+          const nearProbe = plan.times.some((existing) => Math.abs(existing - eventTime) <= 2);
+          if (!nearVerified && !nearProbe && eventTime < (tailStart ?? duration) - 5) plan.times.push(eventTime);
+        }
+        const bandProbeCount = plan.times.length - gridProbeCount;
         for (const rejectedTime of visionRejectedTimes) {
           if (plan.times.every((existing) => Math.abs(existing - rejectedTime) > 2)) plan.times.push(rejectedTime + 1.2);
         }
         if (plan.times.length > 0) {
-          activity.add("info", `학습 범위 밖 회수 시작 — 긴 구간 ${plan.spans.length}곳을 ${plan.times.length}프레임으로 훑습니다(유료).`);
+          activity.add("info", `놓친 경계 회수 시작 — 격자 ${gridProbeCount}·띠 이벤트 ${bandProbeCount}·재심 ${plan.times.length - gridProbeCount - bandProbeCount} = ${plan.times.length}프레임을 훑습니다(유료).`);
           const probes: Array<{ time: number; bytes: Uint8Array }> = [];
           for (const [probeIndex, time] of plan.times.entries()) {
             setText("busy-message", `회수 훑기 ${probeIndex + 1}/${plan.times.length}…`);
