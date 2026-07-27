@@ -2551,6 +2551,11 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     if (visionEnabled && bankFit > BANK_FIT_WARN_DISTANCE) {
       try {
         const plan = planRescueProbes(verified, tailStart ?? duration);
+        // 검증이 배제한 후보도 회수 프로브에 넣는다(§101-c) — 오배제(834 4연속·872 실측)를 격자
+        // 우연이 아니라 구조로 자기치유한다. 같은 회차 참조가 포함된 회수 판정이 재심 역할을 한다.
+        for (const rejectedTime of rejected) {
+          if (plan.times.every((existing) => Math.abs(existing - rejectedTime) > 2)) plan.times.push(rejectedTime + 1.2);
+        }
         if (plan.times.length > 0) {
           activity.add("info", `학습 범위 밖 회수 시작 — 긴 구간 ${plan.spans.length}곳을 ${plan.times.length}프레임으로 훑습니다(유료).`);
           const probes: Array<{ time: number; bytes: Uint8Array }> = [];
@@ -2565,6 +2570,11 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
               // 임시 파일 삭제 실패는 무시
             }
             if (bytes) probes.push({ time, bytes });
+          }
+          // 내보내기 유실은 그 지점의 회수 기회 상실이다(§101-c 진단) — 몇 장이 어디서 빠졌는지 남긴다.
+          if (probes.length < plan.times.length) {
+            const lost = plan.times.filter((time) => !probes.some((probe) => probe.time === time));
+            activity.add("info", `회수 훑기 · 프레임 내보내기 유실 ${lost.length}장: ${lost.slice(0, 10).map((time) => time.toFixed(0)).join(" ")}`);
           }
           // 같은 회차에서 이미 확정된 앵커 프레임을 참조로 우선 주입(§101-c) — 연단·기자회견이
           // 배경으로 합성된 앵커샷 오독은 프롬프트 절로도 남았다(3차 실기 799.6·833.8 잔존).
@@ -2611,6 +2621,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           if (rescueChunk.length > 0) rescueChunks.push(rescueChunk);
           let rescueFailedBatches = 0;
           let rescueJudged = 0;
+          const rescueNearMisses: string[] = [];
           for (const chunk of rescueChunks) {
             rescueJudged += chunk.length;
             setText("busy-message", `회수 판정 ${rescueJudged}/${probes.length}…`);
@@ -2623,6 +2634,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
               for (const result of results) {
                 const probe = chunk[result.index];
                 if (probe && result.isAnchor && result.confidence >= 0.9) found.push(probe.time);
+                // 임계 바로 아래 판정은 진단 가치가 있다(§101-c) — "오독"과 "임계 미달"을 로그로 가른다.
+                else if (probe && result.isAnchor) rescueNearMisses.push(`${probe.time.toFixed(0)}(${result.confidence.toFixed(2)})`);
               }
             } catch {
               // 배치 실패는 회수 포기일 뿐 분할 자체를 막지 않는다.
@@ -2631,6 +2644,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           }
           if (rescueFailedBatches > 0) {
             activity.add("warning", `학습 범위 밖 회수 · 판정 배치 ${rescueFailedBatches}/${rescueChunks.length}개 실패 — 실패분은 회수하지 않습니다.`);
+          }
+          if (rescueNearMisses.length > 0) {
+            activity.add("info", `회수 · 임계(0.9) 미달 앵커 판정 ${rescueNearMisses.length}건: ${rescueNearMisses.slice(0, 8).join(" ")}`);
           }
           // 훑기 격자(10s)라 경계보다 최대 그만큼 뒤다. 재스냅이 뒤로 36초를 훑으므로 그대로 넘긴다.
           const merged = [...verified];
