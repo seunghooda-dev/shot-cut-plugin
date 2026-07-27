@@ -104,7 +104,11 @@ export interface RescueProbePlan {
 export function planRescueProbes(
   starts: readonly number[],
   endTime: number,
-  { maxSpan = 180, stepSeconds = 10, edgeSeconds = 20, maxProbes = 60 } = {},
+  // maxSpan 100(§101-b 실측): 7/23의 872→982 구간(110s)에 단신 2개가 통째로 숨어 있었다 —
+  // 리포트 아이템(105~152s)과 길이가 겹쳐 확률로는 구분할 수 없으므로, 경고 회차에 한해
+  // 리포트 길이 구간도 훑는 쪽을 택한다(정상 구간 훑기는 비전이 non-anchor로 자연 소거).
+  // 알려진 사각: 단신 2개짜리 60~84s 구간은 여전히 안 잡힌다 — 증거가 생기면 재조정.
+  { maxSpan = 100, stepSeconds = 10, edgeSeconds = 20, maxProbes = 100 } = {},
 ): RescueProbePlan {
   const times: number[] = [];
   const spans: Array<{ from: number; to: number }> = [];

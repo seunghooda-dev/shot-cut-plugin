@@ -2571,11 +2571,31 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             .filter((reference) => looksCompleteImage(reference.bytes, "png"))
             .slice(0, 5);
           const rescueClient = new OpenAITextClient({ endpoint: settings.aiEndpoint });
-          const perBatch = Math.max(3, 12 - rescueRefs.length);
           const found: number[] = [];
-          for (let offset = 0; offset < probes.length; offset += perBatch) {
-            const chunk = probes.slice(offset, offset + perBatch);
-            setText("busy-message", `회수 판정 ${offset + chunk.length}/${probes.length}…`);
+          // 배치는 검증 경로와 동일하게 장수(참조 포함 12)와 바이트 합계(1.1MB)로 나눈다 —
+          // 1차 E2E에서 장수로만 나눴다가 어댑터 1.2MB 상한에 전 배치가 조용히 걸려
+          // 회수 0건으로 끝났다(§101-b). 실패는 반드시 개수로 가시화한다.
+          const rescueRefBytes = rescueRefs.reduce((sum, reference) => sum + reference.bytes.byteLength, 0);
+          const rescuePerBatch = Math.max(3, 12 - rescueRefs.length);
+          const rescueChunks: Array<typeof probes> = [];
+          let rescueChunk: typeof probes = [];
+          let rescueChunkBytes = 0;
+          for (const probe of probes) {
+            const overBytes = rescueChunkBytes + probe.bytes.byteLength + rescueRefBytes > 1_100_000;
+            if (rescueChunk.length > 0 && (overBytes || rescueChunk.length >= rescuePerBatch)) {
+              rescueChunks.push(rescueChunk);
+              rescueChunk = [];
+              rescueChunkBytes = 0;
+            }
+            rescueChunk.push(probe);
+            rescueChunkBytes += probe.bytes.byteLength;
+          }
+          if (rescueChunk.length > 0) rescueChunks.push(rescueChunk);
+          let rescueFailedBatches = 0;
+          let rescueJudged = 0;
+          for (const chunk of rescueChunks) {
+            rescueJudged += chunk.length;
+            setText("busy-message", `회수 판정 ${rescueJudged}/${probes.length}…`);
             try {
               const results = await rescueClient.classifyAnchorShots(
                 chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
@@ -2588,7 +2608,11 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
               }
             } catch {
               // 배치 실패는 회수 포기일 뿐 분할 자체를 막지 않는다.
+              rescueFailedBatches += 1;
             }
+          }
+          if (rescueFailedBatches > 0) {
+            activity.add("warning", `학습 범위 밖 회수 · 판정 배치 ${rescueFailedBatches}/${rescueChunks.length}개 실패 — 실패분은 회수하지 않습니다.`);
           }
           // 훑기 격자(10s)라 경계보다 최대 그만큼 뒤다. 재스냅이 뒤로 36초를 훑으므로 그대로 넘긴다.
           const merged = [...verified];
