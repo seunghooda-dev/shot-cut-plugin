@@ -2417,6 +2417,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     // (vision-anchor-verify.plan.md). 실패 시 무료 결과 그대로 진행(우아한 강하).
     setNewsCutStep(2);
     let verified = accepted;
+    // 검증이 배제한 시각 — 회수 재심(§101-c)이 블록 밖에서 참조하므로 여기 선언한다.
+    let visionRejectedTimes: number[] = [];
     // 비전 검증 기본 ON(§96) — 오배제 0 확립(§92)·측정 전 회차 F1 100(§93) 근거. 단 키 미설정
     // 사용자는 프레임 내보내기 같은 선행 비용이 들기 전에 조용히 건너뛴다(매 실행 경고 노이즈 방지).
     let visionEnabled = optionalElement<HTMLInputElement>("news-cut-vision-check")?.checked === true;
@@ -2529,6 +2531,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         for (const [time, votes] of rejectionVotes) {
           if (votes >= 4) rejected.add(time);
         }
+        visionRejectedTimes = [...rejected];
         const kept = accepted.filter((time) => !rejected.has(time));
         if (rejected.size > 0 && kept.length >= 3) {
           verified = kept;
@@ -2553,7 +2556,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         const plan = planRescueProbes(verified, tailStart ?? duration);
         // 검증이 배제한 후보도 회수 프로브에 넣는다(§101-c) — 오배제(834 4연속·872 실측)를 격자
         // 우연이 아니라 구조로 자기치유한다. 같은 회차 참조가 포함된 회수 판정이 재심 역할을 한다.
-        for (const rejectedTime of rejected) {
+        for (const rejectedTime of visionRejectedTimes) {
           if (plan.times.every((existing) => Math.abs(existing - rejectedTime) > 2)) plan.times.push(rejectedTime + 1.2);
         }
         if (plan.times.length > 0) {
