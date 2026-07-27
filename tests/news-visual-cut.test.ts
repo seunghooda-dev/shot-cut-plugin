@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   BANK_FIT_WARN_DISTANCE,
   bankFitDistance,
+  planRescueProbes,
   buildAnchorMatcher,
   buildItemsFromStarts,
   collectAnchorCandidates,
@@ -348,5 +349,35 @@ describe("bankFitDistance — 학습 범위 밖 경고 신호(§100)", () => {
   // 임계는 코퍼스 82회차 실측으로 고른 값이라, 무심코 바뀌면 경고가 전 회차에 뜨거나 사라진다.
   it("경고 임계는 0.1로 고정되어 있다", () => {
     assert.equal(BANK_FIT_WARN_DISTANCE, 0.1);
+  });
+});
+
+describe("planRescueProbes — 학습 범위 밖 회수 훑기 계획(§101)", () => {
+  it("긴 구간만 균등 간격으로 훑고 정상 길이 구간은 건드리지 않는다", () => {
+    const plan = planRescueProbes([0, 100, 400], 500, { maxSpan: 180, stepSeconds: 50, edgeSeconds: 20 });
+    assert.deepEqual(plan.spans, [{ from: 100, to: 400 }]);
+    assert.deepEqual(plan.times, [120, 170, 220, 270, 320, 370]);
+  });
+
+  it("긴 구간이 없으면 훑지 않는다 — 정상 회차의 비용이 0인 근거", () => {
+    const plan = planRescueProbes([0, 100, 200], 300, { maxSpan: 180 });
+    assert.deepEqual(plan.times, []);
+    assert.deepEqual(plan.spans, []);
+  });
+
+  it("구간 양 끝은 edgeSeconds만큼 비운다 — 이미 아는 경계 바로 옆을 다시 제안하지 않으려고", () => {
+    const plan = planRescueProbes([0], 200, { maxSpan: 100, stepSeconds: 10, edgeSeconds: 30 });
+    assert.equal(plan.times[0], 30);
+    assert.ok((plan.times.at(-1) ?? Infinity) <= 170);
+  });
+
+  it("maxProbes로 상한을 둔다 — 아주 긴 구간에서 비용이 폭주하지 않게", () => {
+    const plan = planRescueProbes([0], 10000, { maxSpan: 180, stepSeconds: 10, edgeSeconds: 20, maxProbes: 7 });
+    assert.equal(plan.times.length, 7);
+  });
+
+  it("마지막 경계 뒤 구간도 대상이다 — 아웃트로 직전 아이템이 길 수 있다", () => {
+    const plan = planRescueProbes([0, 500], 900, { maxSpan: 180, stepSeconds: 100, edgeSeconds: 20 });
+    assert.deepEqual(plan.spans, [{ from: 0, to: 500 }, { from: 500, to: 900 }]);
   });
 });

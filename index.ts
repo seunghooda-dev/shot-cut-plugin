@@ -125,6 +125,7 @@ import {
   buildItemsFromStarts,
   bankFitDistance,
   BANK_FIT_WARN_DISTANCE,
+  planRescueProbes,
   collectAnchorCandidates,
   detectMismatchBorder,
   selectAnchorMatcher,
@@ -2540,6 +2541,71 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         }
       } catch (error) {
         activity.add("warning", `비전 검증 실패 — 무료 결과 그대로 진행: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    // 학습 범위 밖 회차 회수(§101) — 뱅크가 이 회차 앵커를 못 알아보면 무료 신호로는 놓친 경계를
+    // 원리적으로 찾을 수 없다(§100: 놓친 앵커의 뱅크 거리가 회차 중앙값보다 나쁜 경우까지 있고,
+    // 어떤 임계·영역·컷 신호로도 oracle 63.2가 천장이었다). 판별 정보는 픽셀에 있으므로,
+    // 비정상적으로 긴 아이템 안쪽만 균등 간격으로 훑어 비전에 직접 묻는다.
+    // 정상 회차는 긴 아이템이 없어 이 경로를 아예 지나지 않는다(코퍼스 937아이템 중 0.9%).
+    if (visionEnabled && bankFit > BANK_FIT_WARN_DISTANCE) {
+      try {
+        const plan = planRescueProbes(verified, tailStart ?? duration);
+        if (plan.times.length > 0) {
+          activity.add("info", `학습 범위 밖 회수 시작 — 긴 구간 ${plan.spans.length}곳을 ${plan.times.length}프레임으로 훑습니다(유료).`);
+          const probes: Array<{ time: number; bytes: Uint8Array }> = [];
+          for (const [probeIndex, time] of plan.times.entries()) {
+            setText("busy-message", `회수 훑기 ${probeIndex + 1}/${plan.times.length}…`);
+            const { filename } = await exportFrameToFolder(Math.max(0, time), String(dataFolder.nativePath), 480);
+            const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+            try {
+              const entry = await dataFolder.getEntry(filename);
+              await entry.delete();
+            } catch {
+              // 임시 파일 삭제 실패는 무시
+            }
+            if (bytes) probes.push({ time, bytes });
+          }
+          const rescueRefs = loadAnchorExemplars()
+            .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
+            .filter((reference) => looksCompleteImage(reference.bytes, "png"))
+            .slice(0, 5);
+          const rescueClient = new OpenAITextClient({ endpoint: settings.aiEndpoint });
+          const perBatch = Math.max(3, 12 - rescueRefs.length);
+          const found: number[] = [];
+          for (let offset = 0; offset < probes.length; offset += perBatch) {
+            const chunk = probes.slice(offset, offset + perBatch);
+            setText("busy-message", `회수 판정 ${offset + chunk.length}/${probes.length}…`);
+            try {
+              const results = await rescueClient.classifyAnchorShots(
+                chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
+                rescueRefs,
+              );
+              // 회수는 "추가"라 오검출이 곧 과분할이다 — 검증 경로(0.85)보다 엄격하게 0.9를 요구한다.
+              for (const result of results) {
+                const probe = chunk[result.index];
+                if (probe && result.isAnchor && result.confidence >= 0.9) found.push(probe.time);
+              }
+            } catch {
+              // 배치 실패는 회수 포기일 뿐 분할 자체를 막지 않는다.
+            }
+          }
+          // 훑기 격자(10s)라 경계보다 최대 그만큼 뒤다. 재스냅이 뒤로 36초를 훑으므로 그대로 넘긴다.
+          const merged = [...verified];
+          for (const time of found.sort((a, b) => a - b)) {
+            if (merged.every((existing) => Math.abs(existing - time) > 20)) merged.push(time);
+          }
+          merged.sort((a, b) => a - b);
+          if (merged.length > verified.length) {
+            activity.add("info", `학습 범위 밖 회수 · 경계 ${merged.length - verified.length}개 추가 → 앵커 ${merged.length}개`);
+            activity.add("info", `회수 시각: ${merged.filter((time) => !verified.includes(time)).map((time) => time.toFixed(1)).join(" ")}`);
+            verified = merged;
+          } else {
+            activity.add("info", "학습 범위 밖 회수 · 추가 경계 없음");
+          }
+        }
+      } catch (error) {
+        activity.add("warning", `학습 범위 밖 회수 실패 — 기존 결과로 진행: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     // 하단 띠 검사(무료) — 인용·이름표 띠(흰 띠는 있는데 큰 헤드라인 글자 없음)가 +2s·+4s

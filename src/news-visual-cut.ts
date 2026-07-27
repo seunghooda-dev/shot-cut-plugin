@@ -84,6 +84,45 @@ export function bankFitDistance(samples: readonly GridSample[], matcher: AnchorM
   return best;
 }
 
+export interface RescueProbePlan {
+  /** 훑을 시각들 — 이 시각의 프레임이 앵커샷이면 그 앞 컷이 놓친 경계다. */
+  times: number[];
+  /** 대상이 된 긴 구간(진단 로그용). */
+  spans: Array<{ from: number; to: number }>;
+}
+
+/**
+ * 놓친 경계 회수용 훑기 계획(§101) — 비정상적으로 긴 아이템 안쪽을 균등 간격으로 훑는다.
+ *
+ * 뱅크 거리·컷 크기 같은 무료 신호는 이 구간에서 원리적으로 실패한다(§100 — 놓친 앵커의 뱅크
+ * 거리가 회차 중앙값보다 나쁜 경우까지 있다). 판별 정보는 픽셀에 있으므로 여기서는 **후보를
+ * 고르지 않고 균등하게 훑기만** 하고, 앵커 여부 판정은 비전에 맡긴다.
+ *
+ * 되짚기는 재스냅이 담당한다 — `refineBoundaryToTransition`이 뒤로 최대 36초를 훑고 앞으로는
+ * 스냅하지 않으므로, 경계보다 뒤에 있는 훑기 시각을 그대로 넘겨도 컷으로 정확히 당겨진다.
+ */
+export function planRescueProbes(
+  starts: readonly number[],
+  endTime: number,
+  { maxSpan = 180, stepSeconds = 10, edgeSeconds = 20, maxProbes = 60 } = {},
+): RescueProbePlan {
+  const times: number[] = [];
+  const spans: Array<{ from: number; to: number }> = [];
+  const bounds = [...starts].sort((a, b) => a - b);
+  if (endTime > (bounds.at(-1) ?? 0)) bounds.push(endTime);
+  for (let index = 0; index < bounds.length - 1; index += 1) {
+    const from = bounds[index]!;
+    const to = bounds[index + 1]!;
+    if (to - from < maxSpan) continue;
+    spans.push({ from, to });
+    for (let time = from + edgeSeconds; time <= to - edgeSeconds; time += stepSeconds) {
+      if (times.length >= maxProbes) break;
+      times.push(Math.round(time * 10) / 10);
+    }
+  }
+  return { times, spans };
+}
+
 /** 특수 포맷 뱅크 채택 상한 — 진짜 포맷 일치는 0.001~0.025, 평일 오라우팅은 0.07~0.09 실측(완벽 분리). */
 const ROUTE_MAX_DIST = 0.05;
 const ROUTE_RATIO = 0.5;
