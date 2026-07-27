@@ -147,7 +147,7 @@ import { NEWS_ANCHOR_MODEL_BIAS, NEWS_ANCHOR_MODEL_WEIGHTS } from "./src/news-an
 import { base64ToBytes, bytesToBase64, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
 import { LICENSE_CLOCK_KEY, LICENSE_STORAGE_KEY, licenseFailureMessage, verifyLicenseKey } from "./src/license";
 import { LICENSE_PUBLIC_KEY } from "./src/license-public-key";
-import { bandRow, cloneSamplesForReusedTimes, looksCompleteImage, lumaGrid, parseBmp24, planFrameSampling } from "./src/frame-diff";
+import { bandRow, cloneSamplesForReusedTimes, looksCompleteImage, lumaGrid, parseBmp24, planFrameSampling, TOP_BAND_REGION } from "./src/frame-diff";
 import { loadCachedSpans, saveCachedSpans } from "./src/vision-cache";
 import { addStyleExample, clearStyleCorpus, loadStyleCorpus, removeStyleExample } from "./src/style-corpus";
 import { computeDuckingEnvelope, duckLevelValueFromDb, duckRangesFromEnvelope, speechSpansFromCues } from "./src/audio-ducking";
@@ -2383,11 +2383,14 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
   const gridCache = new Map<number, Float64Array | null>();
   // 하단 띠 벡터(§110) — 같은 BMP에서 함께 뽑아 추가 내보내기 없이 띠 이벤트를 계산한다.
   const bandCache = new Map<number, Float64Array | null>();
+  // 좌상단 코너 그래픽 벡터(§112-b) — 앵커 없이 시작하는 아이템·스탠딩 코너의 등장 신호.
+  const topBandCache = new Map<number, Float64Array | null>();
   const grabGrid = async (time: number): Promise<Float64Array | null> => {
     const key = Math.round(time * 100);
     if (gridCache.has(key)) return gridCache.get(key)!;
     let grid: Float64Array | null = null;
     let band: Float64Array | null = null;
+    let topBand: Float64Array | null = null;
     try {
       const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 96, undefined, "bmp");
       const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
@@ -2400,11 +2403,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
       const bmp = bytes ? parseBmp24(bytes) : null;
       grid = bmp ? lumaGrid(bmp) : null;
       band = bmp ? bandRow(bmp) : null;
+      topBand = bmp ? bandRow(bmp, 21, 3, TOP_BAND_REGION) : null;
     } catch {
       grid = null;
     }
     gridCache.set(key, grid);
     bandCache.set(key, band);
+    topBandCache.set(key, topBand);
     return grid;
   };
 
@@ -2442,6 +2447,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     const bandEvents = detectBandEvents(samples.map((sample) => ({
       time: sample.time,
       band: bandCache.get(Math.round(sample.time * 100)) ?? null,
+    })));
+    // 좌상단 띠 이벤트(§112-b) — 앵커 복귀 없이 코너 그래픽을 달고 시작하는 아이템(6/23 202)과
+    // 스탠딩 코너(6/30 651·시뮬 656 적중)의 신호. 쌍프레임 문맥 판정(classifyItemStarts)으로 회수한다.
+    const topBandEvents = detectBandEvents(samples.map((sample) => ({
+      time: sample.time,
+      band: topBandCache.get(Math.round(sample.time * 100)) ?? null,
     })));
     // 2/4 후보 도출(무료 화면 매칭) + 아웃트로(구독 범퍼) 검출 — 포맷 라우팅(평일·레터박스·신형 중 최근접 뱅크)
     const matcher = selectAnchorMatcher(samples, [
@@ -2650,10 +2661,20 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         for (const rejectedTime of visionRejectedTimes) {
           if (plan.times.every((existing) => Math.abs(existing - rejectedTime) > 2)) plan.times.push(rejectedTime + 1.2);
         }
-        if (plan.times.length > 0) {
-          activity.add("info", `놓친 경계 회수 시작 — 격자 ${gridProbeCount}·띠 이벤트 ${bandProbeCount}·재심 ${plan.times.length - gridProbeCount - bandProbeCount} = ${plan.times.length}프레임을 훑습니다(유료).`);
+        // 좌상단 띠 이벤트(§112-b)는 별도 풀 — "앵커샷인가"가 아니라 "새 아이템 시작인가"를
+        // 쌍프레임(t−6, t) 문맥으로 판정한다. 앵커 풀과 겹쳐도 빼지 않는다(앵커 없는 시작은
+        // 앵커 판정으로는 못 살리므로).
+        const itemTimes: number[] = [];
+        for (const eventTime of topBandEvents) {
+          if (eventTime < 6.5) continue;
+          const nearVerified = verified.some((existing) => Math.abs(existing - eventTime) <= 8);
+          const nearItem = itemTimes.some((existing) => Math.abs(existing - eventTime) <= 2);
+          if (!nearVerified && !nearItem && eventTime < (tailStart ?? duration) - 5) itemTimes.push(eventTime);
+        }
+        if (plan.times.length + itemTimes.length > 0) {
+          activity.add("info", `놓친 경계 회수 시작 — 격자 ${gridProbeCount}·띠 이벤트 ${bandProbeCount}·재심 ${plan.times.length - gridProbeCount - bandProbeCount}·상단 띠 ${itemTimes.length} = ${plan.times.length + itemTimes.length}지점을 훑습니다(유료).`);
           // 실기 사후 판독용(§110-b) — 어떤 시각을 훑었는지 없으면 회수 실패를 진단할 수 없다.
-          activity.add("info", `회수 프로브 시각: ${plan.times.slice(0, 60).map((time) => time.toFixed(1)).join(" ")}${plan.times.length > 60 ? " …" : ""}`);
+          activity.add("info", `회수 프로브 시각: ${plan.times.slice(0, 40).map((time) => time.toFixed(1)).join(" ")}${itemTimes.length > 0 ? ` ↑${itemTimes.slice(0, 20).map((time) => time.toFixed(1)).join(" ↑")}` : ""}`);
           const probes: Array<{ time: number; bytes: Uint8Array }> = [];
           for (const [probeIndex, time] of plan.times.entries()) {
             setText("busy-message", `회수 훑기 ${probeIndex + 1}/${plan.times.length}…`);
@@ -2666,6 +2687,25 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
               // 임시 파일 삭제 실패는 무시
             }
             if (bytes) probes.push({ time, bytes });
+          }
+          // 아이템 풀 쌍(t−6, t) 내보내기(§112-b) — 한쪽이라도 유실되면 그 지점은 포기(문맥 없이는 오판).
+          const itemProbes: Array<{ time: number; before: Uint8Array; frame: Uint8Array }> = [];
+          for (const [itemIndex, time] of itemTimes.entries()) {
+            setText("busy-message", `회수 상단 띠 ${itemIndex + 1}/${itemTimes.length}…`);
+            const grabProbeFrame = async (seconds: number): Promise<Uint8Array | null> => {
+              const { filename } = await exportFrameToFolder(Math.max(0, seconds), String(dataFolder.nativePath), 480);
+              const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+              try {
+                const entry = await dataFolder.getEntry(filename);
+                await entry.delete();
+              } catch {
+                // 임시 파일 삭제 실패는 무시
+              }
+              return bytes;
+            };
+            const before = await grabProbeFrame(time - 6);
+            const frame = await grabProbeFrame(time);
+            if (before && frame) itemProbes.push({ time, before, frame });
           }
           // 내보내기 유실은 그 지점의 회수 기회 상실이다(§101-c 진단) — 몇 장이 어디서 빠졌는지 남긴다.
           if (probes.length < plan.times.length) {
@@ -2782,12 +2822,84 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           } else if (rescuePending.length > 0) {
             activity.add("warning", `회수 · 프레임 ${rescuePending.length}장 판정 유실${formatLossCauses(rescueLossCauses)} — 해당 지점은 회수하지 않습니다: ${rescuePending.slice(0, 10).map((probe) => probe.time.toFixed(0)).join(" ")}`);
           }
+          // 아이템 풀 판정(§112-b) — 쌍프레임 문맥. 한도 중단 플래그·원인 유형화는 앵커 풀과 공유.
+          if (itemProbes.length > 0 && !rescueBudgetStopped) {
+            const itemPerBatch = Math.max(1, Math.floor((12 - rescueRefs.length) / 2));
+            let itemPending = itemProbes;
+            for (let itemRound = 0; itemRound < 2 && itemPending.length > 0 && !rescueBudgetStopped; itemRound += 1) {
+              const itemChunks: Array<typeof itemProbes> = [];
+              let itemChunk: typeof itemProbes = [];
+              let itemChunkBytes = 0;
+              for (const probe of itemPending) {
+                const pairBytes = probe.before.byteLength + probe.frame.byteLength;
+                const overBytes = itemChunkBytes + pairBytes + rescueRefBytes > 1_100_000;
+                if (itemChunk.length > 0 && (overBytes || itemChunk.length >= itemPerBatch)) {
+                  itemChunks.push(itemChunk);
+                  itemChunk = [];
+                  itemChunkBytes = 0;
+                }
+                itemChunk.push(probe);
+                itemChunkBytes += pairBytes;
+              }
+              if (itemChunk.length > 0) itemChunks.push(itemChunk);
+              const itemMissed: typeof itemProbes = [];
+              let itemJudged = 0;
+              for (let chunkIndex = 0; chunkIndex < itemChunks.length; chunkIndex += 1) {
+                const chunk = itemChunks[chunkIndex]!;
+                itemJudged += chunk.length;
+                setText("busy-message", itemRound === 0
+                  ? `회수 상단 판정 ${itemJudged}/${itemPending.length}…`
+                  : `회수 상단 · 유실 재판정 ${itemJudged}/${itemPending.length}…`);
+                try {
+                  const results = await runVisionBatch(
+                    `rescue-item:${itemRound}:${chunk[0]?.time ?? 0}`,
+                    chunk.length,
+                    () => rescueClient.classifyItemStarts(
+                      chunk.map((probe) => ({
+                        before: { bytes: probe.before, mimeType: "image/png" as const },
+                        frame: { bytes: probe.frame, mimeType: "image/png" as const },
+                      })),
+                      rescueRefs,
+                    ),
+                  );
+                  const received = new Set<number>();
+                  for (const result of results) {
+                    received.add(result.index);
+                    const probe = chunk[result.index];
+                    if (!probe) continue;
+                    rescueVerdicts.push(`${probe.time.toFixed(0)}${result.isItemStart ? "↑시작" : "↑무시"}(${result.confidence.toFixed(2)})`);
+                    if (result.isItemStart && result.confidence >= 0.9) found.push(probe.time);
+                    else if (result.isItemStart) rescueNearMisses.push(`${probe.time.toFixed(0)}(${result.confidence.toFixed(2)})`);
+                  }
+                  chunk.forEach((probe, index) => {
+                    if (!received.has(index)) {
+                      itemMissed.push(probe);
+                      rescueLossCauses.set("응답 누락", (rescueLossCauses.get("응답 누락") ?? 0) + 1);
+                    }
+                  });
+                } catch (error) {
+                  itemMissed.push(...chunk);
+                  if (error instanceof Error && error.message.includes("한도")) {
+                    rescueBudgetStopped = true;
+                    for (const rest of itemChunks.slice(chunkIndex + 1)) itemMissed.push(...rest);
+                    break;
+                  }
+                  const kind = aiFailureKind(error);
+                  rescueLossCauses.set(kind, (rescueLossCauses.get(kind) ?? 0) + chunk.length);
+                }
+              }
+              itemPending = itemMissed;
+            }
+            if (itemPending.length > 0 && !rescueBudgetStopped) {
+              activity.add("warning", `회수 상단 · 쌍 ${itemPending.length}건 판정 유실${formatLossCauses(rescueLossCauses)} — 해당 지점은 회수하지 않습니다.`);
+            }
+          }
           // 실기 사후 판독용(§110-b) — 프로브별 판정이 없으면 "비전이 뭐라 했는지"를 영영 알 수 없다.
           if (rescueVerdicts.length > 0) {
             activity.add("info", `회수 판정 상세: ${rescueVerdicts.slice(0, 40).join(" ")}${rescueVerdicts.length > 40 ? " …" : ""}`);
           }
           if (rescueNearMisses.length > 0) {
-            activity.add("info", `회수 · 임계(0.9) 미달 앵커 판정 ${rescueNearMisses.length}건: ${rescueNearMisses.slice(0, 8).join(" ")}`);
+            activity.add("info", `회수 · 임계(0.9) 미달 판정 ${rescueNearMisses.length}건: ${rescueNearMisses.slice(0, 8).join(" ")}`);
           }
           // 훑기 격자(10s)라 경계보다 최대 그만큼 뒤다. 재스냅이 뒤로 36초를 훑으므로 그대로 넘긴다.
           const merged = [...verified];

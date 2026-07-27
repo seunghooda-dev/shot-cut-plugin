@@ -4,6 +4,8 @@ import { beforeEach, describe, it } from "node:test";
 import {
   FRAME_DIFF_GRID_COLS,
   FRAME_DIFF_GRID_ROWS,
+  TOP_BAND_REGION,
+  bandRow,
   cloneSamplesForReusedTimes,
   frameDifference,
   looksCompleteImage,
@@ -114,6 +116,25 @@ describe("lumaGrid + frameDifference", () => {
     assert.equal(frameDifference(black, black2), 0);
     assert.ok(frameDifference(black, white) > 0.99);
     assert.equal(frameDifference(black, new Float64Array(3)), 1); // 크기 불일치 = 다름
+  });
+});
+
+describe("bandRow regions", () => {
+  it("좌상단 영역(TOP_BAND_REGION)만 밝은 프레임에서 상단 벡터는 밝고 하단(기본) 벡터는 어둡다", () => {
+    const frame = parseBmp24(bmp24(96, 54, (x, y) => (x >= 4 && x < 25 && y >= 4 && y < 7 ? [255, 255, 255] : [0, 0, 0])))!;
+    const top = bandRow(frame, 21, 3, TOP_BAND_REGION);
+    const bottom = bandRow(frame);
+    const mean = (v: Float64Array) => v.reduce((sum, value) => sum + value, 0) / v.length;
+    assert.equal(top.length, 21 * 3);
+    assert.ok(mean(top) > 200, "상단 평균이 밝아야 한다: " + mean(top));
+    assert.ok(mean(bottom) < 5, "하단 평균은 어두워야 한다: " + mean(bottom));
+  });
+
+  it("기본 호출은 §110 하단 띠 영역(80×6)을 그대로 읽는다", () => {
+    const frame = parseBmp24(bmp24(96, 54, (x, y) => (y >= 44 && y < 50 && x >= 9 && x < 89 ? [255, 255, 255] : [0, 0, 0])))!;
+    const bottom = bandRow(frame);
+    assert.equal(bottom.length, 80 * 6);
+    assert.ok(bottom.every((value) => value > 200));
   });
 });
 
