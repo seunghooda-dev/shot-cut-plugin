@@ -514,14 +514,15 @@ describe("daily provider-unit budgets", () => {
     assert.equal(queue.getUsage().requests, 2);
   });
 
-  it("resets usage on the next UTC day", async () => {
-    let now = Date.parse("2026-07-11T23:59:59Z");
+  it("resets usage on the next local day", async () => {
+    // 로컬 성분으로 생성해 어느 타임존에서 돌아도 "로컬 자정을 넘는 두 시각"이 되게 한다.
+    let now = new Date(2026, 6, 11, 23, 59, 59).getTime();
     const queue = new JobQueue(successExecutor(), {
       now: () => now,
       budget: { requestLimit: 1 },
     });
     await queue.waitFor(queue.enqueue(request(1)).id);
-    now = Date.parse("2026-07-12T00:00:01Z");
+    now = new Date(2026, 6, 12, 0, 0, 1).getTime();
     const second = await queue.waitFor(queue.enqueue(request(2)).id);
     assert.equal(second.state, "succeeded");
     assert.equal(queue.getUsage().requests, 1);

@@ -366,7 +366,9 @@ function containsStoragePlaceholder(value: unknown, seen = new Set<object>()): b
 }
 
 function dayKey(timestamp: number): string {
-  return new Date(timestamp).toISOString().slice(0, 10);
+  // 로컬 날짜 기준 — toISOString(UTC)이면 한국 사용자의 "오늘" 한도가 09:00에 리셋된다(§110-c 실측).
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function defaultTransientError(error: unknown): boolean {
