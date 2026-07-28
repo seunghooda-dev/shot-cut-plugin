@@ -2615,6 +2615,43 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         } else if (pending.length > 0) {
           activity.add("warning", `비전 검증 · 프레임 ${pending.length}장 판정 유실${formatLossCauses(lossCauses)} — 해당 후보는 배제하지 않습니다.`);
         }
+        // 표 분포 가시화(§113) — 224류 요동(같은 FP가 실행마다 배제↔생존)의 표가 몇 표에서
+        // 갈리는지 없이는 중재 사정권(3표)을 조정할 수 없다.
+        if (rejectionVotes.size > 0) {
+          activity.add("info", `배제 표 분포: ${[...rejectionVotes.entries()].map(([time, votes]) => `${time.toFixed(0)}=${votes}`).join(" ")}`);
+        }
+        // 배제 3표 후보의 이견 재판정(§113) — 4표 규칙에서 1표가 요동으로 갈리면 같은 FP가
+        // 실행마다 생존/배제를 오간다(6/23 224 실측 3례). 3표 후보의 프레임 4장을 통째로 1회
+        // 재판정해 4표 전원 합의가 나올 때만 배제로 승격한다 — 배제 문턱을 낮추지 않으므로
+        // §92 오배제 0 원칙은 그대로다(진짜 앵커는 재판정에서도 anchor 표를 받는다).
+        if (!budgetStopped) {
+          for (const [time, votes] of [...rejectionVotes.entries()]) {
+            if (votes !== 3) continue;
+            const candidateFrames = frames.filter((frame) => frame.time === time);
+            if (candidateFrames.length < 4) continue;
+            setText("busy-message", `비전 검증 · 3표 재판정 ${time.toFixed(0)}s…`);
+            try {
+              const results = await runVisionBatch(
+                `verify-arbit:${time}`,
+                candidateFrames.length,
+                () => client.classifyAnchorShots(
+                  candidateFrames.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" as const })),
+                  references,
+                ),
+              );
+              let revotes = 0;
+              for (const result of results) {
+                if (!result.isAnchor && result.confidence >= 0.85) revotes += 1;
+              }
+              if (revotes >= 4) {
+                rejectionVotes.set(time, 4);
+                activity.add("info", `비전 검증 · 3표 후보 ${time.toFixed(1)}s 재판정 4표 합의 — 배제로 승격.`);
+              }
+            } catch (error) {
+              if (error instanceof Error && error.message.includes("한도")) budgetStopped = true;
+            }
+          }
+        }
         // 네 프레임(-3s·+1.2s·+4s·+7s)이 모두 non-anchor일 때만 배제 — 일부만 확보된 후보는 배제하지 않는다.
         for (const [time, votes] of rejectionVotes) {
           if (votes >= 4) rejected.add(time);
