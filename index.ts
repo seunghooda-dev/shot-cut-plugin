@@ -2725,14 +2725,15 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           : { times: [] as number[], spans: [] as Array<{ from: number; to: number }> };
         const gridProbeCount = plan.times.length;
         // 띠 이벤트 시각은 "띠가 바뀐 직후 표본"이라 보통은 새 아이템 리드 안 — 그대로 프로브로 쓴다.
-        // 앵커 블록이 짧고 배너가 늦으면 이벤트가 컷 이후로 밀려 회수가 실패한다(§121 3/24 920 실측).
-        // 이벤트 6초 앞을 되짚는 2차 라운드를 실기 2회 시험했으나 매번 직전 아이템의 긴 앵커 블록
-        // 안(78s·90s — 둘 다 진짜 앵커)에 떨어져 FP를 만들었고, 거리 기반 중복제거로는 "긴 앵커
-        // 블록"과 "새 단신"을 가를 수 없어 원복했다(§121-c). 재도전은 연속성 판정이 선행 조건이다.
+        // 그 전제가 깨지는 경우(짧은 앵커 블록 + 늦은 배너)는 되짚기 2차 라운드가 맡는다(§123).
+        const bandProbeTimes: number[] = [];
         for (const eventTime of bandEvents) {
           const nearVerified = verified.some((existing) => Math.abs(existing - eventTime) <= 8);
           const nearProbe = plan.times.some((existing) => Math.abs(existing - eventTime) <= 2);
-          if (!nearVerified && !nearProbe && eventTime < (tailStart ?? duration) - 5) plan.times.push(eventTime);
+          if (!nearVerified && !nearProbe && eventTime < (tailStart ?? duration) - 5) {
+            plan.times.push(eventTime);
+            bandProbeTimes.push(eventTime);
+          }
         }
         const bandProbeCount = plan.times.length - gridProbeCount;
         for (const rejectedTime of visionRejectedTimes) {
@@ -2883,9 +2884,125 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           if (rescueNearMisses.length > 0) {
             activity.add("info", `회수 · 임계(0.9) 미달 판정 ${rescueNearMisses.length}건: ${rescueNearMisses.slice(0, 8).join(" ")}`);
           }
+          // 되짚기 2차 라운드(§123) — 띠 이벤트는 "배너가 뜨고 띠가 안정된 표본"이라 짧은 앵커
+          // 블록에서는 리드인의 **끝 이후**를 가리킨다(3/24 920 실측: 블록 920~927에 배너가 923에
+          // 떠서 이벤트가 컷 뒤 930에 잡혔고 그 프레임은 b-roll이라 회수 실패). 1차가 빗나간 띠
+          // 지점만 6초 앞을 다시 본다. 6초는 실측에서 나왔다 — 930−6=924가 블록 안이고, 10초로
+          // 잡으면 920이라 컷 직전으로 샌다.
+          //
+          // §121-c에서 이 라운드를 거리 기반 중복제거로만 걸렀다가 두 번 다 FP를 냈다(78s·90s —
+          // 둘 다 진짜 앵커였고, 아이템1의 앵커 블록이 90초 넘게 이어진 것). 창을 20→30초로 넓혀도
+          // 새어 원복했다. 거리로는 "긴 앵커 블록"과 "새 단신"을 가를 수 없기 때문이다.
+          // 이번에는 **연속성**으로 가른다 — 직전 시작과 되짚기 발견의 중간점이 앵커면 둘은 같은
+          // 블록이므로 버린다(3/24: (52+78)/2=65 앵커 → 기각, (866+924)/2=895 b-roll → 채택).
+          const backAccepted: number[] = [];
+          const backoffTimes = bandProbeTimes
+            .filter((time) => !found.includes(time))
+            .map((time) => time - 6)
+            .filter((time) => time > 0
+              && time < (tailStart ?? duration) - 5
+              && verified.every((existing) => Math.abs(existing - time) > 8)
+              && plan.times.every((existing) => Math.abs(existing - time) > 2));
+          if (!rescueBudgetStopped && backoffTimes.length > 0) {
+            activity.add("info", `회수 되짚기 — 1차 실패한 띠 지점 ${backoffTimes.length}곳의 6초 앞을 재훑기합니다(유료): ${backoffTimes.slice(0, 20).map((time) => time.toFixed(0)).join(" ")}`);
+            const backVerdicts: string[] = [];
+            const grab = async (time: number): Promise<Uint8Array | null> => {
+              let bytes: Uint8Array | null = null;
+              for (let attempt = 0; attempt < 2 && !bytes; attempt += 1) {
+                const { filename } = await exportFrameToFolder(Math.max(0, time), String(dataFolder.nativePath), 480);
+                bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+                try {
+                  const entry = await dataFolder.getEntry(filename);
+                  await entry.delete();
+                } catch {
+                  // 임시 파일 삭제 실패는 무시
+                }
+              }
+              return bytes;
+            };
+            const judge = async (probes: Array<{ time: number; bytes: Uint8Array }>): Promise<Map<number, boolean>> => {
+              const out = new Map<number, boolean>();
+              // 장수뿐 아니라 바이트 합계로도 나눈다 — 장수로만 나눴다가 어댑터 상한에 배치가 통째로
+              // 걸려 되짚기가 0건으로 끝났다(§121-b 실기: "프레임 합계가 너무 큽니다" 2회).
+              const chunks: Array<typeof probes> = [];
+              let current: typeof probes = [];
+              let bytes = 0;
+              for (const probe of probes) {
+                const over = bytes + probe.bytes.byteLength + rescueRefBytes > 1_100_000;
+                if (current.length > 0 && (over || current.length >= rescuePerBatch)) {
+                  chunks.push(current);
+                  current = [];
+                  bytes = 0;
+                }
+                current.push(probe);
+                bytes += probe.bytes.byteLength;
+              }
+              if (current.length > 0) chunks.push(current);
+              for (const chunk of chunks) {
+                try {
+                  const results = await runVisionBatch(
+                    `rescue-back:${chunk[0]?.time ?? 0}`,
+                    chunk.length,
+                    () => rescueClient.classifyAnchorShots(
+                      chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
+                      rescueRefs,
+                    ),
+                  );
+                  for (const result of results) {
+                    const probe = chunk[result.index];
+                    if (!probe) continue;
+                    backVerdicts.push(`${probe.time.toFixed(0)}${result.isAnchor ? "→앵커" : "→비앵커"}(${result.confidence.toFixed(2)})`);
+                    out.set(probe.time, result.isAnchor && result.confidence >= 0.9);
+                  }
+                } catch (error) {
+                  activity.add("warning", `회수 되짚기 배치 실패 — 해당 지점은 회수하지 않습니다: ${error instanceof Error ? error.message : String(error)}`);
+                }
+              }
+              return out;
+            };
+            const backProbes: Array<{ time: number; bytes: Uint8Array }> = [];
+            for (const [backIndex, time] of backoffTimes.entries()) {
+              setText("busy-message", `회수 되짚기 ${backIndex + 1}/${backoffTimes.length}…`);
+              const bytes = await grab(time);
+              if (bytes) backProbes.push({ time, bytes });
+            }
+            const backHits = await judge(backProbes);
+            // 연속성 판정 — 직전 시작과 60초 이내면 중간점을 한 장 더 봐서 같은 블록인지 가른다.
+            // 60초: 실측 최장 앵커 블록이 40초 안쪽이라 그보다 멀면 물어볼 필요가 없다(프레임 절약).
+            const midCandidates: number[] = [];
+            const midOwner = new Map<number, number>();
+            for (const [time, isAnchor] of backHits) {
+              if (!isAnchor) continue;
+              const starts = [...verified, ...found].filter((start) => start < time).sort((a, b) => b - a);
+              const prev = starts[0];
+              if (prev === undefined || time - prev >= 60) { backAccepted.push(time); continue; }
+              const mid = Math.round((prev + time) / 2 * 4) / 4;
+              midCandidates.push(mid);
+              midOwner.set(mid, time);
+            }
+            if (midCandidates.length > 0) {
+              setText("busy-message", `회수 되짚기 · 연속성 확인 ${midCandidates.length}곳…`);
+              const midProbes: Array<{ time: number; bytes: Uint8Array }> = [];
+              for (const mid of midCandidates) {
+                const bytes = await grab(mid);
+                if (bytes) midProbes.push({ time: mid, bytes });
+              }
+              const midHits = await judge(midProbes);
+              for (const mid of midCandidates) {
+                const owner = midOwner.get(mid)!;
+                // 중간점 판정을 못 받았으면(내보내기·응답 유실) 보수적으로 버린다 — 되짚기 FP가
+                // §121-c의 실패 모드였으므로 불확실할 때는 추가하지 않는 쪽이 맞다.
+                if (midHits.get(mid) === false) backAccepted.push(owner);
+              }
+            }
+            if (backVerdicts.length > 0) {
+              activity.add("info", `회수 되짚기 판정: ${backVerdicts.slice(0, 40).join(" ")}${backVerdicts.length > 40 ? " …" : ""}`);
+            }
+            activity.add("info", `회수 되짚기 · 앵커 ${[...backHits.values()].filter(Boolean).length}건 중 연속성 통과 ${backAccepted.length}건`);
+          }
           // 훑기 격자(10s)라 경계보다 최대 그만큼 뒤다. 재스냅이 뒤로 36초를 훑으므로 그대로 넘긴다.
           const merged = [...verified];
-          for (const time of found.sort((a, b) => a - b)) {
+          for (const time of [...found, ...backAccepted].sort((a, b) => a - b)) {
             if (merged.every((existing) => Math.abs(existing - time) > 20)) merged.push(time);
           }
           merged.sort((a, b) => a - b);
