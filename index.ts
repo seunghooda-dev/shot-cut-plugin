@@ -2694,12 +2694,20 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         }
         visionRejectedTimes = [...rejected];
         const kept = accepted.filter((time) => !rejected.has(time));
-        if (rejected.size > 0 && kept.length >= 3) {
+        // 안전망 문턱 3→1(§124) — "잔여가 적으면 배제를 통째로 되돌린다"는 규칙이 분포 밖 회차에서
+        // 정확히 거꾸로 작동했다. 2/10 실측: 후보 7개 중 6개를 배제하려 했고 **그 6건이 전부 옳았는데**
+        // (라벨 12개 중 어느 것과도 대응하지 않음) 잔여 1개라 필터가 해제돼 FP 4건이 최종 출력에 남았다
+        // (F1 76.9). 후보가 부실한 회차일수록 배제 비율이 높은 게 정상인데, 안전망은 그 비율을 폭주로
+        // 오인한다 — 그런 회차는 회수가 아이템을 다시 채운다(2/10은 배제 6에 회수 9).
+        // 3이라는 값은 §92 당시 보수적으로 잡은 것이고, 그 뒤 §113 재판정·§120 누수 규칙으로 배제
+        // 문턱이 더 높아졌다. 실측도 뒷받침한다 — 1/13·1/27·2/03·2/10의 배제 15건이 전부 정당했다.
+        // 이제 막는 것은 "전부 배제"뿐이다.
+        if (rejected.size > 0 && kept.length >= 1) {
           verified = kept;
           activity.add("info", `비전 검증 · 과분할 의심 ${rejected.size}건 제외 → 앵커 ${verified.length}개 확정`);
           activity.add("info", `비전 배제 시각: ${[...rejected].sort((a, b) => a - b).map((time) => time.toFixed(1)).join(" ")}`);
         } else if (rejected.size > 0) {
-          activity.add("warning", `비전 검증 · 제외 후보 ${rejected.size}건이 있으나 잔여 ${kept.length}개(<3)라 필터를 해제합니다.`);
+          activity.add("warning", `비전 검증 · 제외 후보 ${rejected.size}건이 있으나 잔여 ${kept.length}개(<1)라 필터를 해제합니다.`);
         } else {
           activity.add("info", "비전 검증 · 전 후보 앵커 확인(제외 0)");
         }
@@ -2878,8 +2886,14 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             activity.add("warning", `회수 · 프레임 ${rescuePending.length}장 판정 유실${formatLossCauses(rescueLossCauses)} — 해당 지점은 회수하지 않습니다: ${rescuePending.slice(0, 10).map((probe) => probe.time.toFixed(0)).join(" ")}`);
           }
           // 실기 사후 판독용(§110-b) — 프로브별 판정이 없으면 "비전이 뭐라 했는지"를 영영 알 수 없다.
+          // 앵커 판정을 먼저 싣는다(§124-b) — 격자 회차는 프로브가 150장이라 40건 절단에 **정작 경계가
+          // 된 판정이 잘려나갔다**(1/20 706·786 FP를 로그에서 볼 수 없어 진단이 막혔다). 경계를 만든
+          // 판정은 몇 건 안 되므로 우선 싣고, 남는 자리에만 비앵커를 채운다.
           if (rescueVerdicts.length > 0) {
-            activity.add("info", `회수 판정 상세: ${rescueVerdicts.slice(0, 40).join(" ")}${rescueVerdicts.length > 40 ? " …" : ""}`);
+            const anchorLines = rescueVerdicts.filter((line) => line.includes("→앵커"));
+            const otherLines = rescueVerdicts.filter((line) => !line.includes("→앵커"));
+            const shown = [...anchorLines, ...otherLines.slice(0, Math.max(0, 40 - anchorLines.length))];
+            activity.add("info", `회수 판정 상세: ${shown.join(" ")}${rescueVerdicts.length > shown.length ? " …" : ""}`);
           }
           if (rescueNearMisses.length > 0) {
             activity.add("info", `회수 · 임계(0.9) 미달 판정 ${rescueNearMisses.length}건: ${rescueNearMisses.slice(0, 8).join(" ")}`);
