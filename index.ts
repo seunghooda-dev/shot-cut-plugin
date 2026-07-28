@@ -2496,7 +2496,25 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         // 비껴가고, 비정형 합성 구도(§92 414 실측)는 단일 프레임 판정이 흔들린다. -3s(늦은 후보)·
         // +1.2s·+4s(정상 위치 이중화)·+7s(이른 후보) 네 프레임이 모두 non-anchor일 때만 배제한다
         // — 후보가 컷 ±7s 안이면 구간 내 프레임이 확보되고, 정위치면 2장이라 오판 1회를 흡수한다.
-        const frames: Array<{ time: number; bytes: Uint8Array }> = [];
+        const frames: Array<{ time: number; offset: number; bytes: Uint8Array }> = [];
+        // 내보내기 워밍업(§122 실측) — 시퀀스 활성화 직후의 첫 1~2장은 exportSequenceFrame이
+        // true를 반환하고도 파일을 남기지 않는다(같은 시각 반복 측정에서 rep0의 2장만 실패,
+        // 이후 전부 성공·바이트 동일). 첫 후보의 표가 그 자리에서 통째로 날아가면 FP가 살아남으므로
+        // 버릴 프레임 한 장으로 파이프라인을 깨운 뒤 본 루프를 돈다.
+        if (accepted.length > 0) {
+          try {
+            const warm = await exportFrameToFolder(Math.max(0, accepted[0]!), String(dataFolder.nativePath), 480);
+            await readExportedFrameBytes(dataFolder, api.formats, warm.filename);
+            try {
+              const entry = await dataFolder.getEntry(warm.filename);
+              await entry.delete();
+            } catch {
+              // 임시 파일 삭제 실패는 무시
+            }
+          } catch {
+            // 워밍업 실패는 무시 — 본 루프가 재시도한다
+          }
+        }
         // 후보별 필요 표수(§120) — -3s 프로브가 직전 후보의 앵커 블록으로 새면 그 표는 "앞 아이템의
         // 앵커"를 보고 찍힌 것이라 뒤 후보의 FP를 살린다(5/08 382 실측: 379s 프로브가 360~380 앵커
         // 블록 안). 그런 후보는 -3s를 빼고 남은 3표 전원 합의로 배제한다.
@@ -2524,7 +2542,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 // 임시 파일 삭제 실패는 무시
               }
             }
-            if (frameBytes) frames.push({ time, bytes: frameBytes });
+            if (frameBytes) frames.push({ time, offset, bytes: frameBytes });
           }
         }
         const references = loadAnchorExemplars()
@@ -2534,6 +2552,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
         const rejected = new Set<number>();
         const rejectionVotes = new Map<number, number>();
+        const verifyVerdicts = new Map<number, string[]>();
         // 배치는 장수뿐 아니라 바이트 합계로도 나눈다 — 참조 포함 1.2MB 캡(어댑터) 아래 유지(실기 실측 §78).
         const referenceBytes = references.reduce((sum, reference) => sum + reference.bytes.byteLength, 0);
         const maxFramesPerBatch = Math.max(3, 12 - references.length);
@@ -2580,6 +2599,16 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
               const received = new Set<number>();
               for (const result of results) {
                 received.add(result.index);
+                // 프레임별 판정 기록(§122) — 배제는 "4표 전원 합의"라 표 수만으로는 어느 프로브가
+                // 어떻게 판정됐는지 알 수 없다. 4/20 846(진짜 앵커)이 4표로 배제된 사건을 동일
+                // 프레임·동일 참조·동일 파라미터로 9회 재현했으나 전부 2표였다 — 간접 추론이
+                // 막혔으므로 실기가 실제로 무엇을 받았는지 남긴다.
+                const judged = chunk[result.index];
+                if (judged) {
+                  const list = verifyVerdicts.get(judged.time) ?? [];
+                  list.push(`${judged.offset >= 0 ? "+" : ""}${judged.offset}${result.isAnchor ? "앵커" : "비앵커"}(${result.confidence.toFixed(2)})`);
+                  verifyVerdicts.set(judged.time, list);
+                }
                 // 배제 표는 고신뢰(0.85+) non-anchor만 인정 — 명백한 footage는 0.97+로 판정되고(§92 실측),
                 // 비정형 합성 구도의 흔들리는 판정(경계선 신뢰도)은 진짜 앵커를 죽이지 못하게 한다.
                 if (!result.isAnchor && result.confidence >= 0.85) {
@@ -2656,6 +2685,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         // -3s를 뺀 후보(§120)는 3표 전원 합의가 기준이다.
         for (const [time, votes] of rejectionVotes) {
           if (votes >= (requiredVotes.get(time) ?? 4)) rejected.add(time);
+        }
+        // 배제된 후보의 프레임별 판정(§122) — "왜 배제됐는지"를 사후에 프레임 단위로 볼 수 있어야
+        // 오배제와 정당한 배제를 가를 수 있다. 배제분만 남겨 로그 길이를 지킨다.
+        for (const time of rejected) {
+          const detail = verifyVerdicts.get(time) ?? [];
+          activity.add("info", `배제 판정 상세 ${time.toFixed(0)}s (${detail.length}/${requiredVotes.get(time) ?? 4}장): ${detail.join(" ")}`);
         }
         visionRejectedTimes = [...rejected];
         const kept = accepted.filter((time) => !rejected.has(time));
