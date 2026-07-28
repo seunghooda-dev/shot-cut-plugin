@@ -12,7 +12,7 @@ import {
 // 새 회차를 training-data에 추가하면 반드시 여기에도 넣는다(CLAUDE.md 측정 규약) —
 // 넣지 않으면 다음 학습이 그 회차를 삼켜 실패가 지표에서 사라진다(§100에서 실제 발생).
 // 5/20·5/27·7/26은 블라인드 3연속 F1 100의 측정 대상이라 학습에서 반드시 제외한다(§114).
-const DEFAULT_HOLDOUT = ["Train_KBC_20260709_Thu", "Train_KBC_20260711_Sat", "Train_KBC_20260712_Sun", "Train_KBC_20260628_Sun", "Train_KBC_20260723_Thu", "Train_KBC_20260724_Fri", "Train_KBC_20260725_Sat", "Train_KBC_20260520_Wed", "Train_KBC_20260527_Wed", "Train_KBC_20260726_Sun"];
+const DEFAULT_HOLDOUT = ["Train_KBC_20260709_Thu", "Train_KBC_20260711_Sat", "Train_KBC_20260712_Sun", "Train_KBC_20260628_Sun", "Train_KBC_20260723_Thu", "Train_KBC_20260724_Fri", "Train_KBC_20260725_Sat", "Train_KBC_20260520_Wed", "Train_KBC_20260527_Wed", "Train_KBC_20260726_Sun", "Train_KBC_20260601_Mon", "Train_KBC_20260604_Thu", "Train_KBC_20260511_Mon"];
 const SWEEP = [
   { epochs: 300, lr: 0.4, posWeight: 8, l2: 4e-5 },   // 구 스크립트 기본(비교 기준)
   { epochs: 800, lr: 1, posWeight: 8, l2: 0 },        // §71-e 평일 재현 설정
