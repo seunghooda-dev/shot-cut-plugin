@@ -2645,8 +2645,16 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         }
         // 표 분포 가시화(§113) — 224류 요동(같은 FP가 실행마다 배제↔생존)의 표가 몇 표에서
         // 갈리는지 없이는 중재 사정권(3표)을 조정할 수 없다.
-        if (rejectionVotes.size > 0) {
-          activity.add("info", `배제 표 분포: ${[...rejectionVotes.entries()].map(([time, votes]) => `${time.toFixed(0)}=${votes}`).join(" ")}`);
+        // 표 수만으로는 "프레임을 못 구해 표가 모자란 것"과 "모델이 앵커로 본 것"을 못 가른다(§124-d).
+        // 3/10 실측: 620(도시 전경 b-roll)·684(이름+직함 인터뷰)가 2·3표로 살아남아 FP가 됐는데,
+        // 확보 프레임 수가 없어 유실인지 오판인지 판정할 수 없었다. 후보별로 `표/확보장수`를 남긴다.
+        if (accepted.length > 0) {
+          const frameCount = new Map<number, number>();
+          for (const frame of frames) frameCount.set(frame.time, (frameCount.get(frame.time) ?? 0) + 1);
+          const line = accepted
+            .map((time) => `${time.toFixed(0)}=${rejectionVotes.get(time) ?? 0}/${frameCount.get(time) ?? 0}`)
+            .join(" ");
+          activity.add("info", `배제 표/확보 분포(필요 ${[...new Set(requiredVotes.values())].join("·")}표): ${line}`);
         }
         // 배제 3표 후보의 이견 재판정(§113) — 4표 규칙에서 1표가 요동으로 갈리면 같은 FP가
         // 실행마다 생존/배제를 오간다(6/23 224 실측 3례). 3표 후보의 프레임 4장을 통째로 1회
