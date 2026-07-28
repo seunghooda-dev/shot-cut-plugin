@@ -2497,10 +2497,20 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         // +1.2s·+4s(정상 위치 이중화)·+7s(이른 후보) 네 프레임이 모두 non-anchor일 때만 배제한다
         // — 후보가 컷 ±7s 안이면 구간 내 프레임이 확보되고, 정위치면 2장이라 오판 1회를 흡수한다.
         const frames: Array<{ time: number; bytes: Uint8Array }> = [];
+        // 후보별 필요 표수(§120) — -3s 프로브가 직전 후보의 앵커 블록으로 새면 그 표는 "앞 아이템의
+        // 앵커"를 보고 찍힌 것이라 뒤 후보의 FP를 살린다(5/08 382 실측: 379s 프로브가 360~380 앵커
+        // 블록 안). 그런 후보는 -3s를 빼고 남은 3표 전원 합의로 배제한다.
+        // 창 25s: 앵커 블록은 10~30s이고(§112 시맨틱) 실측 최장 20s(5/08 360~380)였다. 8s로는
+        // 그 블록 끝을 못 덮어 1차 수정이 무효였다. 진짜 앵커는 -3s를 빼도 남은 3표가 앵커라
+        // 오배제로 이어지지 않는다(5/07 회귀 12/12 확인).
+        const requiredVotes = new Map<number, number>();
         for (const [frameIndex, time] of accepted.entries()) {
           setText("busy-message", `비전 검증 프레임 ${frameIndex + 1}/${accepted.length}…`);
+          const leaks = accepted.some((other) => other < time && time - 3 >= other && time - 3 <= other + 25);
+          const offsets = leaks ? [1.2, 4, 7] : [-3, 1.2, 4, 7];
+          requiredVotes.set(time, offsets.length);
           // 480px 채택(§89 A/B 실측): 320px는 진짜 앵커 오배제 ~9%, 480px는 오판 0 — 비용 차이는 무시 수준.
-          for (const offset of [-3, 1.2, 4, 7]) {
+          for (const offset of offsets) {
             // 프레임 유실 = 표 유실 = votes>=4 불충족으로 FP 자동 생존(§92 실측: 실행당 68장 중 1~4장
             // 내보내기 유실, 1차 E2E에서 622.75 footage가 이 경로로 생존) — 내보내기 실패는 1회 재시도한다.
             let frameBytes: Uint8Array | null = null;
@@ -2615,9 +2625,10 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         // §92 오배제 0 원칙은 그대로다(진짜 앵커는 재판정에서도 anchor 표를 받는다).
         if (!budgetStopped) {
           for (const [time, votes] of [...rejectionVotes.entries()]) {
-            if (votes !== 3) continue;
+            const need = requiredVotes.get(time) ?? 4;
+            if (votes !== need - 1) continue;
             const candidateFrames = frames.filter((frame) => frame.time === time);
-            if (candidateFrames.length < 4) continue;
+            if (candidateFrames.length < need) continue;
             setText("busy-message", `비전 검증 · 3표 재판정 ${time.toFixed(0)}s…`);
             try {
               const results = await runVisionBatch(
@@ -2632,9 +2643,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
               for (const result of results) {
                 if (!result.isAnchor && result.confidence >= 0.85) revotes += 1;
               }
-              if (revotes >= 4) {
-                rejectionVotes.set(time, 4);
-                activity.add("info", `비전 검증 · 3표 후보 ${time.toFixed(1)}s 재판정 4표 합의 — 배제로 승격.`);
+              if (revotes >= need) {
+                rejectionVotes.set(time, need);
+                activity.add("info", `비전 검증 · ${need - 1}표 후보 ${time.toFixed(1)}s 재판정 ${need}표 합의 — 배제로 승격.`);
               }
             } catch (error) {
               if (error instanceof Error && error.message.includes("한도")) budgetStopped = true;
@@ -2642,8 +2653,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           }
         }
         // 네 프레임(-3s·+1.2s·+4s·+7s)이 모두 non-anchor일 때만 배제 — 일부만 확보된 후보는 배제하지 않는다.
+        // -3s를 뺀 후보(§120)는 3표 전원 합의가 기준이다.
         for (const [time, votes] of rejectionVotes) {
-          if (votes >= 4) rejected.add(time);
+          if (votes >= (requiredVotes.get(time) ?? 4)) rejected.add(time);
         }
         visionRejectedTimes = [...rejected];
         const kept = accepted.filter((time) => !rejected.has(time));
