@@ -624,28 +624,3 @@ describe("detectSubjectTimeline", () => {
   });
 });
 
-describe("classifyItemStarts (§112-b 쌍프레임)", () => {
-  it("빈 쌍 배열은 네트워크 호출 없이 던진다", async () => {
-    let calls = 0;
-    const fetcher = (async () => { calls += 1; return { ok: true, status: 200, json: async () => ({}) } as Response; }) as typeof fetch;
-    await assert.rejects(client(fetcher).classifyItemStarts([]), /프레임이 없습니다/u);
-    assert.equal(calls, 0);
-  });
-
-  it("응답을 검증해 범위 밖·중복 인덱스는 버리고 신뢰도를 0..1로 죈다", async () => {
-    const { fetcher } = okFetcher(() => ({
-      frames: [
-        { index: 0, isItemStart: true, confidence: 1.7 },
-        { index: 0, isItemStart: false, confidence: 0.2 },
-        { index: 5, isItemStart: true, confidence: 0.9 },
-        { index: 1, isItemStart: false, confidence: 0.97 },
-      ],
-    }));
-    const pair = () => ({ before: { bytes: new Uint8Array([1]) }, frame: { bytes: new Uint8Array([2]) } });
-    const results = await client(fetcher).classifyItemStarts([pair(), pair()]);
-    assert.deepEqual(results, [
-      { index: 0, isItemStart: true, confidence: 1 },
-      { index: 1, isItemStart: false, confidence: 0.97 },
-    ]);
-  });
-});

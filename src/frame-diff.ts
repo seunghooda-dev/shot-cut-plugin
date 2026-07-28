@@ -113,16 +113,9 @@ export interface BandRegion {
 /** 하단 헤드라인 띠(§110) — 1080 기준 하단 배너 위치. */
 export const BOTTOM_BAND_REGION: BandRegion = { x0r: 9 / 96, x1r: 89 / 96, y0r: 44 / 54, y1r: 50 / 54 };
 /**
- * 좌상단 코너 그래픽 띠(§112-b) — 단독 배지·코너 타이틀 등 앵커 없이 시작하는 아이템(6/23 202)과
- * 스탠딩 앵커 코너(6/30 651)가 다는 배지 위치(1080 기준 x 80~500 · y 75~135).
- */
-export const TOP_BAND_REGION: BandRegion = { x0r: 4 / 96, x1r: 25 / 96, y0r: 4 / 54, y1r: 7 / 54 };
-
-/**
  * 띠 영역의 휘도 벡터(§110) — 스캔 프레임(96px 폭 BMP)에서 지정 비율 영역을 cols×rows 셀
  * 평균으로 뽑는다. 기본은 하단 헤드라인 띠(80×6): 띠 텍스트가 바뀌면 이 벡터가 크게 변하고,
- * 새 헤드라인은 이후 수십 초 유지된다 — 8회차 실측 재현 96%(런북 §109). 좌상단 영역은
- * 21×3을 쓴다(§112-b). 추가 프레임 내보내기 없이 스캔 BMP를 재사용한다.
+ * 새 헤드라인은 이후 수십 초 유지된다 — 8회차 실측 재현 96%(런북 §109). 추가 프레임 내보내기 없이 스캔 BMP를 재사용한다.
  */
 export function bandRow(frame: BmpFrame, cols = 80, rows = 6, region: BandRegion = BOTTOM_BAND_REGION): Float64Array {
   const band = new Float64Array(cols * rows);
