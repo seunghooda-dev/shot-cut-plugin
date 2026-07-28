@@ -2689,7 +2689,11 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           ? planRescueProbes(verified, tailStart ?? duration)
           : { times: [] as number[], spans: [] as Array<{ from: number; to: number }> };
         const gridProbeCount = plan.times.length;
-        // 띠 이벤트 시각은 "띠가 바뀐 직후 표본"이라 이미 새 아이템 리드 안 — 그대로 프로브로 쓴다.
+        // 띠 이벤트 시각은 "띠가 바뀐 직후 표본"이라 보통은 새 아이템 리드 안 — 그대로 프로브로 쓴다.
+        // 앵커 블록이 짧고 배너가 늦으면 이벤트가 컷 이후로 밀려 회수가 실패한다(§121 3/24 920 실측).
+        // 이벤트 6초 앞을 되짚는 2차 라운드를 실기 2회 시험했으나 매번 직전 아이템의 긴 앵커 블록
+        // 안(78s·90s — 둘 다 진짜 앵커)에 떨어져 FP를 만들었고, 거리 기반 중복제거로는 "긴 앵커
+        // 블록"과 "새 단신"을 가를 수 없어 원복했다(§121-c). 재도전은 연속성 판정이 선행 조건이다.
         for (const eventTime of bandEvents) {
           const nearVerified = verified.some((existing) => Math.abs(existing - eventTime) <= 8);
           const nearProbe = plan.times.some((existing) => Math.abs(existing - eventTime) <= 2);
@@ -2706,13 +2710,19 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           const probes: Array<{ time: number; bytes: Uint8Array }> = [];
           for (const [probeIndex, time] of plan.times.entries()) {
             setText("busy-message", `회수 훑기 ${probeIndex + 1}/${plan.times.length}…`);
-            const { filename } = await exportFrameToFolder(Math.max(0, time), String(dataFolder.nativePath), 480);
-            const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-            try {
-              const entry = await dataFolder.getEntry(filename);
-              await entry.delete();
-            } catch {
-              // 임시 파일 삭제 실패는 무시
+            // 내보내기 재시도(§121-b) — 검증 경로(§92)에만 있던 재시도가 여기엔 없어서, 내보내기가
+            // 조용히 빈손으로 끝나면 그 지점의 회수 기회가 통째로 사라졌다. 3/24 재실행 실측:
+            // 252 프로브 1장이 유실돼 248 경계가 그대로 FN이 됐다(F1 96.3).
+            let bytes: Uint8Array | null = null;
+            for (let attempt = 0; attempt < 2 && !bytes; attempt += 1) {
+              const { filename } = await exportFrameToFolder(Math.max(0, time), String(dataFolder.nativePath), 480);
+              bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+              try {
+                const entry = await dataFolder.getEntry(filename);
+                await entry.delete();
+              } catch {
+                // 임시 파일 삭제 실패는 무시
+              }
             }
             if (bytes) probes.push({ time, bytes });
           }
