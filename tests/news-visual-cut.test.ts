@@ -300,6 +300,19 @@ describe("하단 자막 띠(인용·이름표) 감지", () => {
     assert.equal(isQuoteBandStats(makeRows(() => null), 270), false);
   });
 
+  // §148-b — 성금 캠페인 리드는 진짜 13.8초 아이템이다(1/14 실측, 라벨 355아이템 중 최단).
+  it("13.8초 아이템은 병합되지 않는다 — 성금 캠페인 리드(§148-b)", async () => {
+    const { buildItemsFromStarts } = await import("../src/news-visual-cut");
+    const items = buildItemsFromStarts([591.5, 716.4, 730.2, 782.4], 891);
+    assert.deepEqual(items.map((item) => item.start), [591.5, 716.4, 730.2, 782.4]);
+  });
+
+  it("10초 조각(앵커 리드 한 문장)은 여전히 다음 아이템으로 병합된다", async () => {
+    const { buildItemsFromStarts } = await import("../src/news-visual-cut");
+    const items = buildItemsFromStarts([100, 200, 210, 300], 400);
+    assert.deepEqual(items.map((item) => item.start), [100, 200, 300]);
+  });
+
   // §141 줄 수 규칙 — 앵커 헤드라인 띠는 텍스트 1줄, 인터뷰·발언 인용 띠는 2줄(사용자 제공).
   it("2줄(12+11행)인 띠는 글자가 커도 인용띠다 — 대담 샷 FP 계열", async () => {
     const { quoteBandFromStats, isQuoteBandStats } = await import("../src/news-visual-cut");

@@ -3200,10 +3200,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
       }
     }
     // 2/4 경계 정밀 재스냅(인점 = 전환 컷 정확히, §61)
+    // §148 — 재스냅을 아이템 구성 **앞**에 한다. 회수·되짚기 시각은 격자·이벤트 지연으로
+    // 진짜 컷보다 최대 6초 늦어, 구성-후-재스냅 순서에서는 최소 길이 병합(§148-b 12s)이
+    // 재스냅 전의 인위로 짧아진 간격으로 판정된다(1/15 실측: 진짜 16.9s 아이템이 pre-snap
+    // 13.5s로 읽혀 839.2 경계가 병합·소실).
     setNewsCutStep(3);
-    const rawItems = buildItemsFromStarts(verified, tailStart ?? duration);
-    if (rawItems.length === 0) throw new Error("보도 아이템을 구성하지 못했습니다.");
-    const bounds = [...rawItems.map((item) => item.start), rawItems.at(-1)!.end];
+    const bounds = [...[...new Set(verified)].sort((a, b) => a - b), tailStart ?? duration];
     const refined: number[] = [];
     for (const [index, bound] of bounds.entries()) {
       const percent = Math.round((index / Math.max(1, bounds.length)) * 100);
@@ -3218,13 +3220,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     if (tailStart !== null) {
       activity.add("info", `원클릭 분할 · 아웃트로(구독 범퍼) ${Math.round(refined.at(-1)! * 10) / 10}s부터 제외`);
     }
-    return refined.slice(0, -1)
-      .map((start, index) => ({
-        start,
-        end: refined[index + 1]!,
-        title: `아이템 ${index + 1}`,
-      }))
-      .filter((item) => item.end - item.start > 1);
+    const rawItems = buildItemsFromStarts(refined.slice(0, -1), refined.at(-1)!);
+    if (rawItems.length === 0) throw new Error("보도 아이템을 구성하지 못했습니다.");
+    return rawItems.filter((item) => item.end - item.start > 1);
   });
 
   newsCutItems = items;

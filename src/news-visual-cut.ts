@@ -410,7 +410,10 @@ export function buildItemsFromStarts(starts: readonly number[], endTime: number)
     end: index + 1 < ordered.length ? ordered[index + 1]! : endTime,
     title: `아이템 ${index + 1}`,
   }));
-  return mergeShortItemsForward(items).slice(0, MAX_NEWS_ITEMS);
+  // 병합 문턱 12s(§148-b, 구 15) — 성금 나눔 캠페인 리드는 **진짜 13.8초 아이템**이다
+  // (1/14 실측 · 라벨 28회차 355아이템 중 최단. 1/06 15.0·1/28 15.1은 0.1초 차로 생존해
+  // 문턱 15의 문제를 가려 왔다). 앵커 리드 조각(한 문장, 4~10초)은 12에서도 병합된다.
+  return mergeShortItemsForward(items, 12).slice(0, MAX_NEWS_ITEMS);
 }
 
 export interface RefineOptions {
