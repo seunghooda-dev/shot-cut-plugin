@@ -259,6 +259,16 @@ describe("refineBoundaryToTransition", () => {
     const snapped = await refineBoundaryToTransition(async () => null, 58);
     assert.equal(snapped, 58);
   });
+
+  // §150 — 전환이 확장 창과 첫 창의 이음새에 정확히 걸리면(짧은 리드에서 경계가 리드 끝에
+  // 놓인 경우) 확장 창 전체가 상이하다. 이때 원 경계가 아니라 이음새를 반환해야 한다.
+  it("확장 창 전체가 상이하면 이음새로 되돌린다 — 짧은 리드의 늦은 회수 경계(§150)", async () => {
+    // 컷 716.4: 그 이전은 b-roll(값 10), 이후는 앵커(값 200). 경계 720 → 첫 창 [716.5,720.5]
+    // 전부 앵커(동일), 확장 창 [704.5,716.25] 전부 b-roll(상이) → 이음새 716.5를 반환해야 한다.
+    const sampler = async (time: number) => Float64Array.from({ length: 144 }, () => (time >= 716.4 ? 200 : 10));
+    const snapped = await refineBoundaryToTransition(sampler, 720);
+    assert.equal(snapped, 716.5);
+  });
 });
 
 describe("하단 자막 띠(인용·이름표) 감지", () => {

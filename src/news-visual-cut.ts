@@ -465,14 +465,18 @@ export async function refineBoundaryToTransition(
   for (let block = 1; block <= blocks; block += 1) {
     const from = windowStart - blockSeconds;
     const extended = await scanWindow(from, windowStart - step);
-    windowStart = from;
     let farIndex = -1;
     for (let index = 0; index < extended.length; index += 1) {
       if (!extended[index]!.similar) farIndex = index;
     }
     if (farIndex >= 0) {
-      return farIndex < extended.length - 1 ? extended[farIndex + 1]!.time : boundary;
+      // 확장 창의 **마지막 프로브까지 상이**하면 전환은 이 창과 이전(동일했던) 창의 이음새에
+      // 있다 — 이때 원 경계를 반환하면 되돌림 전체가 무효가 된다(§150 실측: 1/14 리드가
+      // 716.4~721로 짧아 snap(720)의 첫 창 [716.5,720.5]가 전부 앵커, 확장 창 [704.5,716.25]가
+      // 전부 b-roll → 이음새 716.5가 정답인데 720을 반환해 §148 병합이 짝을 삼켰다).
+      return farIndex < extended.length - 1 ? extended[farIndex + 1]!.time : windowStart;
     }
+    windowStart = from;
   }
   return boundary; // 36s 역방향에도 동일 — 수동 확인 영역, 원 경계 유지
 }
