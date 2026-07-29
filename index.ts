@@ -2545,6 +2545,41 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             if (frameBytes) frames.push({ time, offset, bytes: frameBytes });
           }
         }
+        // 부족분 재수집(§132) — 확보 프레임이 필요 표수보다 적으면 그 후보는 **원리적으로 배제 불가**다
+        // (표 상한이 문턱보다 낮으므로). 1/21 실측: 후보 192가 4장 중 2장만 확보돼 2/2 비앵커로도
+        // 4표 문턱을 못 넘고 FP가 확정 생존했다(회의장 다인 화면 · F1 96.3).
+        // offset별 2회 재시도로도 남는 유실이라, 전 후보 수집이 끝난 뒤 빠진 offset만 한 번 더 모은다.
+        {
+          const collected = new Map<number, Set<number>>();
+          for (const frame of frames) {
+            if (!collected.has(frame.time)) collected.set(frame.time, new Set());
+            collected.get(frame.time)!.add(frame.offset);
+          }
+          const missing: Array<{ time: number; offset: number }> = [];
+          for (const time of accepted) {
+            const need = requiredVotes.get(time) ?? 4;
+            const have = collected.get(time) ?? new Set<number>();
+            if (have.size >= need) continue;
+            for (const offset of need === 3 ? [1.2, 4, 7] : [-3, 1.2, 4, 7]) {
+              if (!have.has(offset)) missing.push({ time, offset });
+            }
+          }
+          if (missing.length > 0) {
+            activity.add("info", `비전 검증 · 프레임 부족 후보 ${new Set(missing.map((entry) => entry.time)).size}개의 ${missing.length}장을 재수집합니다.`);
+            for (const [index, entry] of missing.entries()) {
+              setText("busy-message", `비전 검증 · 부족분 재수집 ${index + 1}/${missing.length}…`);
+              const { filename } = await exportFrameToFolder(Math.max(0, entry.time + entry.offset), String(dataFolder.nativePath), 480);
+              const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+              try {
+                const fileEntry = await dataFolder.getEntry(filename);
+                await fileEntry.delete();
+              } catch {
+                // 임시 파일 삭제 실패는 무시
+              }
+              if (bytes) frames.push({ time: entry.time, offset: entry.offset, bytes });
+            }
+          }
+        }
         const references = loadAnchorExemplars()
           .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
           .filter((reference) => looksCompleteImage(reference.bytes, "png"))
