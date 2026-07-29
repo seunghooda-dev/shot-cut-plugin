@@ -300,6 +300,30 @@ describe("하단 자막 띠(인용·이름표) 감지", () => {
     assert.equal(isQuoteBandStats(makeRows(() => null), 270), false);
   });
 
+  // §135 — 앵커 리드가 4초보다 짧으면 +2s·+4s 프로브가 다음 꼭지에 떨어져 그 화면을 판정한다.
+  // 1/28 687(성금 카드 계좌번호를 이름표 띠로 오인)이 그렇게 지워졌다.
+  it("같은 샷이면 true — 진짜 앵커의 프로브 거리(≤0.06)", async () => {
+    const { isSameShotGrid } = await import("../src/news-visual-cut");
+    const base = Float64Array.from({ length: 144 }, (_, index) => index % 200);
+    const moved = base.map((value) => Math.min(255, value + 10));
+    assert.equal(isSameShotGrid(base, moved), true);
+  });
+
+  it("샷이 바뀌면 false — 프로브가 다음 꼭지에 떨어진 경우(거리 0.38)", async () => {
+    const { isSameShotGrid } = await import("../src/news-visual-cut");
+    const base = new Float64Array(144).fill(30);
+    const other = new Float64Array(144).fill(230);
+    assert.equal(isSameShotGrid(base, other), false);
+  });
+
+  it("격자를 못 얻으면 false — 배제를 보류해 진짜 앵커를 지키는 쪽", async () => {
+    const { isSameShotGrid } = await import("../src/news-visual-cut");
+    const base = new Float64Array(144).fill(30);
+    assert.equal(isSameShotGrid(base, null), false);
+    assert.equal(isSameShotGrid(null, base), false);
+    assert.equal(isSameShotGrid(base, new Float64Array(9).fill(30)), false);
+  });
+
   it("글리프 경계값(정확히 12행)은 인용띠로 판정하지 않는다", async () => {
     const { isQuoteBandStats } = await import("../src/news-visual-cut");
     const rows = makeRows((y) => {

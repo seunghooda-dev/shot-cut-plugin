@@ -134,6 +134,7 @@ import {
   detectStaticTailStart,
   hybridAnchorTimes,
   isQuoteBandStats,
+  isSameShotGrid,
   lowerThirdRowStats,
   refineBoundaryToTransition,
   scoreAnchorSamples,
@@ -2152,6 +2153,16 @@ const DEFAULT_EXPORT_PRESET_PATH =
   "C:\\Program Files\\Adobe\\Adobe Premiere Pro 2026\\MediaIO\\systempresets\\4E49434B_48323634\\YouTube 1080p HD.epr";
 const DEFAULT_EXPORT_OUTPUT_DIR = "C:\\Users\\seung\\Videos\\premiere_내보내기";
 
+/**
+ * 회수·되짚기가 새 경계를 **추가**하는 최소 신뢰도(§137).
+ *
+ * 회수는 검증과 방향이 반대다 — 검증은 배제(오배제가 위험)라 0.85로 느슨하지만, 회수는 추가라
+ * 오검출이 곧 과분할이다. 전 실행 로그의 앵커 판정을 라벨과 대조한 실측(2026-07-29)에서
+ * 0.95 미만은 2건뿐이었고 **둘 다 FP**였다(1/28 428 인터뷰이 0.91, 3/04 602 회견 발언자 0.92).
+ * 참 회수는 0.95 이상에만 있었으므로, 0.9→0.95는 잃는 것 없이 FP만 줄인다.
+ */
+const RESCUE_ANCHOR_MIN_CONFIDENCE = 0.95;
+
 // 뉴스 분할 탭 화질 선택 — 시스템 프리셋(.epr) 매핑(내부 베타: Premiere 2026 설치 경로 고정,
 // 파일 존재는 내보내기 시점에 Host가 검증). H.264=YouTube 계열, H.265=HEVC 계열 프리셋을 쓴다.
 const NEWS_CUT_H264_PRESET_DIR =
@@ -2383,25 +2394,37 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
   const gridCache = new Map<number, Float64Array | null>();
   // 하단 띠 벡터(§110) — 같은 BMP에서 함께 뽑아 추가 내보내기 없이 띠 이벤트를 계산한다.
   const bandCache = new Map<number, Float64Array | null>();
+  // 격자 확보에 끝내 실패한 시각 — 재스냅이 이를 "정착과 상이"로 읽어 경계를 못 되돌리므로,
+  // 개수가 아니라 시각을 남겨 사후에 어느 경계가 오염됐는지 알 수 있게 한다(§136).
+  const gridFailureTimes: number[] = [];
   const grabGrid = async (time: number): Promise<Float64Array | null> => {
     const key = Math.round(time * 100);
     if (gridCache.has(key)) return gridCache.get(key)!;
     let grid: Float64Array | null = null;
     let band: Float64Array | null = null;
-    try {
-      const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 96, undefined, "bmp");
-      const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+    // 프레임 추출은 간헐적으로 실패한다(§121·§122·§132와 같은 계열) — 한 번 더 시도한다.
+    for (let attempt = 0; attempt < 2 && grid === null; attempt += 1) {
       try {
-        const entry = await dataFolder.getEntry(filename);
-        await entry.delete();
+        const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 96, undefined, "bmp");
+        const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+        try {
+          const entry = await dataFolder.getEntry(filename);
+          await entry.delete();
+        } catch {
+          // 임시 파일 삭제 실패는 무시
+        }
+        const bmp = bytes ? parseBmp24(bytes) : null;
+        grid = bmp ? lumaGrid(bmp) : null;
+        band = bmp ? bandRow(bmp) : null;
       } catch {
-        // 임시 파일 삭제 실패는 무시
+        grid = null;
       }
-      const bmp = bytes ? parseBmp24(bytes) : null;
-      grid = bmp ? lumaGrid(bmp) : null;
-      band = bmp ? bandRow(bmp) : null;
-    } catch {
-      grid = null;
+    }
+    // 실패는 캐시하지 않는다 — 한 번의 간헐 실패를 캐시하면 그 시각이 영구히 오염돼,
+    // 뒤이은 재스냅·띠 검사가 모두 같은 거짓 실패를 다시 본다(1/28 588→579.5 유실).
+    if (grid === null) {
+      gridFailureTimes.push(time);
+      return null;
     }
     gridCache.set(key, grid);
     bandCache.set(key, band);
@@ -2892,13 +2915,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                   ),
                 );
                 const received = new Set<number>();
-                // 회수는 "추가"라 오검출이 곧 과분할이다 — 검증 경로(0.85)보다 엄격하게 0.9를 요구한다.
+                // 회수는 "추가"라 오검출이 곧 과분할이다 — 검증 경로(0.85)보다 엄격한 문턱을 쓴다(§137).
                 for (const result of results) {
                   received.add(result.index);
                   const probe = chunk[result.index];
                   if (!probe) continue;
                   rescueVerdicts.push(`${probe.time.toFixed(0)}${result.isAnchor ? "→앵커" : "→비앵커"}(${result.confidence.toFixed(2)})`);
-                  if (result.isAnchor && result.confidence >= 0.9) found.push(probe.time);
+                  if (result.isAnchor && result.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE) found.push(probe.time);
                   // 임계 바로 아래 판정은 진단 가치가 있다(§101-c) — "오독"과 "임계 미달"을 로그로 가른다.
                   else if (result.isAnchor) rescueNearMisses.push(`${probe.time.toFixed(0)}(${result.confidence.toFixed(2)})`);
                 }
@@ -3009,7 +3032,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                     const probe = chunk[result.index];
                     if (!probe) continue;
                     backVerdicts.push(`${probe.time.toFixed(0)}${result.isAnchor ? "→앵커" : "→비앵커"}(${result.confidence.toFixed(2)})`);
-                    out.set(probe.time, result.isAnchor && result.confidence >= 0.9);
+                    out.set(probe.time, result.isAnchor && result.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE);
                   }
                 } catch (error) {
                   activity.add("warning", `회수 되짚기 배치 실패 — 해당 지점은 회수하지 않습니다: ${error instanceof Error ? error.message : String(error)}`);
@@ -3101,7 +3124,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         setText("busy-message", `하단 띠 검사 ${checkIndex + 1}/${verified.length - 1}…`);
         const near = await probeQuoteBand(time + 2);
         const far = await probeQuoteBand(time + 4);
-        if (near === true && far === true) rejected.push(time);
+        // 프로브가 후보와 같은 샷일 때만 그 판정을 믿는다(§135) — 앵커 리드가 4초보다 짧으면
+        // +2s·+4s가 **다음 꼭지**에 떨어져 그 화면의 잔글씨를 인용 띠로 오인한다. 1/28 687이
+        // 그렇게 지워졌다(성금 카드 계좌번호를 이름표 띠로 판정, 격자 거리 0.38 — 진짜 앵커는 0.06 이하).
+        const base = await grabGrid(time + 0.5);
+        const sameShot = isSameShotGrid(base, await grabGrid(time + 2))
+          && isSameShotGrid(base, await grabGrid(time + 4));
+        if (near === true && far === true && sameShot) rejected.push(time);
         else kept.push(time);
       }
       if (rejected.length > 0 && kept.length >= 3) {
@@ -3124,6 +3153,10 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
       setText("busy-message", `2/4 경계 재스냅 ${index + 1}/${bounds.length} · ${percent}%`);
       busy.progress(percent);
       refined.push(await refineBoundaryToTransition(grabGrid, bound));
+    }
+    if (gridFailureTimes.length > 0) {
+      // 재스냅은 격자를 못 얻은 시각을 "정착과 상이"로 읽는다 — 그 경계는 되돌려지지 않았을 수 있다.
+      activity.add("warning", `격자 확보 실패 ${gridFailureTimes.length}건 — 해당 경계는 재스냅이 불완전할 수 있습니다: ${gridFailureTimes.slice(0, 12).map((time) => time.toFixed(2)).join(" ")}`);
     }
     if (tailStart !== null) {
       activity.add("info", `원클릭 분할 · 아웃트로(구독 범퍼) ${Math.round(refined.at(-1)! * 10) / 10}s부터 제외`);

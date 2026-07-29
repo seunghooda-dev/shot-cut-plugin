@@ -552,6 +552,25 @@ export function quoteBandFromStats(rows: readonly LowerThirdRowStat[], frameHeig
   return { band: true, height: best.len, maxGlyph };
 }
 
+/**
+ * 띠 프로브를 후보와 같은 샷으로 보는 휘도 격자 거리 상한(§135).
+ *
+ * 실측(2026-07-29): 진짜 앵커의 +2s·+4s 거리는 0.002~0.060, 필터가 옳게 지운 발언·대담 샷은
+ * 0.013~0.032. 반면 앵커 리드가 4초뿐이라 프로브가 **다음 꼭지**에 떨어진 1/28 687은 0.371·0.384였다.
+ */
+export const QUOTE_BAND_SAME_SHOT_MAX = 0.15;
+
+/**
+ * 두 휘도 격자가 같은 샷인지 — **같은 샷임을 확인했을 때만** true다.
+ * 격자를 못 얻었거나 길이가 다르면 false를 준다(호출 측에서 배제를 보류하는 안전한 쪽).
+ */
+export function isSameShotGrid(a: Float64Array | null, b: Float64Array | null): boolean {
+  if (!a || !b || a.length === 0 || a.length !== b.length) return false;
+  let sum = 0;
+  for (let index = 0; index < a.length; index += 1) sum += Math.abs(a[index]! - b[index]!);
+  return sum / a.length / 255 < QUOTE_BAND_SAME_SHOT_MAX;
+}
+
 /** 인용·이름표 띠 판정 — 흰 띠는 있는데 큰 헤드라인 글자가 없다. */
 export function isQuoteBandStats(rows: readonly LowerThirdRowStat[], frameHeight: number): boolean {
   const result = quoteBandFromStats(rows, frameHeight);
