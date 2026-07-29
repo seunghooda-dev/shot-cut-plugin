@@ -3083,7 +3083,25 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           // 훑기 격자(10s)라 경계보다 최대 그만큼 뒤다. 재스냅이 뒤로 36초를 훑으므로 그대로 넘긴다.
           const merged = [...verified];
           for (const time of [...found, ...backAccepted].sort((a, b) => a - b)) {
-            if (merged.every((existing) => Math.abs(existing - time) > 20)) merged.push(time);
+            let nearest: number | null = null;
+            for (const existing of merged) {
+              if (nearest === null || Math.abs(existing - time) < Math.abs(nearest - time)) nearest = existing;
+            }
+            if (nearest === null) { merged.push(time); continue; }
+            const gap = Math.abs(nearest - time);
+            // 허용오차(±8s) 안이면 같은 경계다 — 더 볼 것 없다.
+            if (gap <= 8) continue;
+            if (gap > 20) { merged.push(time); continue; }
+            // 8~20초는 갈림길이다(§138). 이전에는 20초 안이면 무조건 버렸는데, 그 규칙이
+            // **성금 나눔 캠페인 구조**를 통째로 삼켰다 — 짧은 앵커 리드 → 전면 카드 → 앵커 복귀가
+            // 13~16초 간격이라 두 번째 앵커가 언제나 폐기됐다(1/28 702·1/06 809·1/14 716 실측).
+            // 두 앵커 사이가 끊겼는지를 중간점으로 가른다(§123과 같은 착상). 실측 마진 5배:
+            // 같은 블록 중복 0.002~0.050, 진짜 다음 아이템 0.270~0.367.
+            const base = await grabGrid(nearest + 0.5);
+            const mid = await grabGrid(Math.round(((nearest + time) / 2) * 10) / 10);
+            // 못 재면 예전 동작(폐기)을 따른다 — 회수는 추가라 못 재는 쪽에서 늘리지 않는다.
+            const sameBlock = base === null || mid === null ? true : isSameShotGrid(base, mid);
+            if (!sameBlock) merged.push(time);
           }
           merged.sort((a, b) => a - b);
           if (merged.length > verified.length) {
@@ -3122,15 +3140,20 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
       const rejected: number[] = [];
       for (const [checkIndex, time] of verified.slice(1).entries()) {
         setText("busy-message", `하단 띠 검사 ${checkIndex + 1}/${verified.length - 1}…`);
-        const near = await probeQuoteBand(time + 2);
-        const far = await probeQuoteBand(time + 4);
         // 프로브가 후보와 같은 샷일 때만 그 판정을 믿는다(§135) — 앵커 리드가 4초보다 짧으면
         // +2s·+4s가 **다음 꼭지**에 떨어져 그 화면의 잔글씨를 인용 띠로 오인한다. 1/28 687이
         // 그렇게 지워졌다(성금 카드 계좌번호를 이름표 띠로 판정, 격자 거리 0.38 — 진짜 앵커는 0.06 이하).
+        // 두 프로브 모두 같은 샷일 것을 요구하면 필터가 너무 무뎌진다(1/28 428은 +4s만 샷을
+        // 벗어나는데 그 때문에 발언 샷 FP가 살아남았다) — **같은 샷인 프로브의 표만** 세고,
+        // 표가 하나도 없으면 배제하지 않는다.
         const base = await grabGrid(time + 0.5);
-        const sameShot = isSameShotGrid(base, await grabGrid(time + 2))
-          && isSameShotGrid(base, await grabGrid(time + 4));
-        if (near === true && far === true && sameShot) rejected.push(time);
+        const votes: boolean[] = [];
+        for (const offset of [2, 4]) {
+          if (!isSameShotGrid(base, await grabGrid(time + offset))) continue;
+          const verdict = await probeQuoteBand(time + offset);
+          if (verdict !== null) votes.push(verdict);
+        }
+        if (votes.length > 0 && votes.every((vote) => vote)) rejected.push(time);
         else kept.push(time);
       }
       if (rejected.length > 0 && kept.length >= 3) {
