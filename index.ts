@@ -3106,7 +3106,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
       }
       if (rejected.length > 0 && kept.length >= 3) {
         verified = kept;
-        activity.add("info", `하단 띠 검사 · 인용·이름표 띠 ${rejected.length}건 배제 → 앵커 ${verified.length}개`);
+        // 배제 시각을 반드시 남긴다(§134) — 개수만 남기면 이 필터가 진짜 앵커를 지워도
+        // 사후 판독으로 알 수 없다(1/28 687 실측: 헤드라인 띠를 인용 띠로 오인해 TP 1개 소실).
+        activity.add("info", `하단 띠 검사 · 인용·이름표 띠 ${rejected.length}건 배제 → 앵커 ${verified.length}개 (배제 ${rejected.map((time) => time.toFixed(1)).join(" ")})`);
       } else if (rejected.length > 0) {
         activity.add("warning", `하단 띠 검사 · 배제 후보 ${rejected.length}건이 있으나 잔여 ${kept.length}개(<3)라 필터를 해제합니다.`);
       }
@@ -3140,6 +3142,10 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
   renderNewsCutList();
   if (items.length === 0) throw new Error("보도 아이템을 만들지 못했습니다.");
   activity.add("success", `원클릭 분할 · 화면 분석 아이템 ${items.length}개`);
+  // 최종 경계를 반드시 기록한다(§134) — 개수만 남기면 사후 채점이 후보·회수 로그를 재구성하는
+  // 근사치가 되고, 그 값은 띠 필터·재스냅 **이전**이라 실제 산출물과 다르다(2026-07-29 실측:
+  // 4/09를 90.9로 적었으나 실제는 95.2, 1/28은 83.9가 아니라 82.8이었다).
+  activity.add("info", `최종 아이템 시작: ${items.map((item) => item.start.toFixed(1)).join(" ")}`);
   setNewsCutStep(4);
   await handleNewsCutCreate();
   if (newsCutCreatedNames.length === 0) {
