@@ -2792,6 +2792,11 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     //  ②띠 이벤트: 전 회차. "새 헤드라인 등장" 사전 신호가 있는 지점만이라(회차당 20~30곳)
     //    §107의 실패 요인이 없고, 격자 사정권 밖(75s 구간·짧은 리드)의 FN도 닿는다(§109 실측 96%).
     //  ③배제 재심: 검증이 배제한 후보(§101-c) — 오배제 자기치유.
+    // 회수·되짚기가 추가한 경계(§145) — 띠 필터는 이들에게만 적용한다. 비전 4프로브 검증을
+    // 통과한 본선 후보를 무료 luma 휴리스틱이 뒤집는 것은 위계가 거꾸로다(2/19 560 실측:
+    // 검증 배제 2/4표로 생존한 진짜 앵커를 띠 필터가 지웠다 — 데스크 잡동사니가 첫 줄로
+    // 흡수돼 글리프·줄수 어느 기하로도 오판하는 프레임이었다).
+    const rescueAddedTimes = new Set<number>();
     if (visionEnabled) {
       try {
         const plan = bankFit > BANK_FIT_WARN_DISTANCE
@@ -2909,9 +2914,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 const results = await runVisionBatch(
                   `rescue:${rescueRound}:${chunk[0]?.time ?? 0}`,
                   chunk.length,
+                  // 위치 단서는 회수(추가) 경로에만 켠다(§139) — 검증(배제) 경로에 켜면
+                  // §92 오배제 0이 위험하지만, 추가를 엄격하게 하는 방향은 안전하다.
                   () => rescueClient.classifyAnchorShots(
                     chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
                     rescueRefs,
+                    {},
+                    { anchorLeftDesk: true },
                   ),
                 );
                 const received = new Set<number>();
@@ -2976,15 +2985,19 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           // 이번에는 **연속성**으로 가른다 — 직전 시작과 되짚기 발견의 중간점이 앵커면 둘은 같은
           // 블록이므로 버린다(3/24: (52+78)/2=65 앵커 → 기각, (866+924)/2=895 b-roll → 채택).
           const backAccepted: number[] = [];
+          // −6과 −2 두 점을 본다(§144) — −6 한 점만으로는 짧은 리드(4~5초)에서 컷 직전으로 샌다.
+          // 1/14 실측: 이벤트 722(성금 카드), −6=716.0은 직전 리포트 b-roll인데 진짜 시작은
+          // 716.4 — 0.4초 차이로 빗나갔고, −2=720은 앵커였다. 비용은 실패 띠 지점당 +1장.
           const backoffTimes = bandProbeTimes
             .filter((time) => !found.includes(time))
-            .map((time) => time - 6)
+            .flatMap((time) => [time - 6, time - 2])
+            .filter((time, index, list) => list.indexOf(time) === index)
             .filter((time) => time > 0
               && time < (tailStart ?? duration) - 5
               && verified.every((existing) => Math.abs(existing - time) > 8)
               && plan.times.every((existing) => Math.abs(existing - time) > 2));
           if (!rescueBudgetStopped && backoffTimes.length > 0) {
-            activity.add("info", `회수 되짚기 — 1차 실패한 띠 지점 ${backoffTimes.length}곳의 6초 앞을 재훑기합니다(유료): ${backoffTimes.slice(0, 20).map((time) => time.toFixed(0)).join(" ")}`);
+            activity.add("info", `회수 되짚기 — 1차 실패한 띠 지점의 6·2초 앞 ${backoffTimes.length}곳을 재훑기합니다(유료): ${backoffTimes.slice(0, 20).map((time) => time.toFixed(0)).join(" ")}`);
             const backVerdicts: string[] = [];
             const grab = async (time: number): Promise<Uint8Array | null> => {
               let bytes: Uint8Array | null = null;
@@ -3023,9 +3036,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                   const results = await runVisionBatch(
                     `rescue-back:${chunk[0]?.time ?? 0}`,
                     chunk.length,
+                    // 되짚기도 회수(추가) 경로다 — 위치 단서를 함께 켠다(§139).
                     () => rescueClient.classifyAnchorShots(
                       chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
                       rescueRefs,
+                      {},
+                      { anchorLeftDesk: true },
                     ),
                   );
                   for (const result of results) {
@@ -3107,6 +3123,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           if (merged.length > verified.length) {
             activity.add("info", `학습 범위 밖 회수 · 경계 ${merged.length - verified.length}개 추가 → 앵커 ${merged.length}개`);
             activity.add("info", `회수 시각: ${merged.filter((time) => !verified.includes(time)).map((time) => time.toFixed(1)).join(" ")}`);
+            for (const time of merged) if (!verified.includes(time)) rescueAddedTimes.add(time);
             verified = merged;
           } else {
             activity.add("info", "학습 범위 밖 회수 · 추가 경계 없음");
@@ -3122,6 +3139,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     if (verified.length > 1) {
       const probeQuoteBand = async (time: number): Promise<boolean | null> => {
         try {
+          // 480px 유지 — 960px 실험(§141-c)은 기각됐다: 밀집 인용문은 540p에서도 한 덩어리
+          // (51~63행)로 읽혀 못 잡고, 진짜 앵커 오판만 1건 늘었다(1/28 232.4). 밀집 인용
+          // FP의 판별자는 띠가 아니라 §139 위치 단서다(회수 경로 전용 프롬프트).
           const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 480, undefined, "bmp");
           const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
           try {
@@ -3140,6 +3160,15 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
       const rejected: number[] = [];
       for (const [checkIndex, time] of verified.slice(1).entries()) {
         setText("busy-message", `하단 띠 검사 ${checkIndex + 1}/${verified.length - 1}…`);
+        // §145 — 비전 ON에서는 회수·되짚기가 추가한 경계만 검사한다. 본선 후보는 이미 비전
+        // 4프로브 검증을 통과했으므로 무료 luma 휴리스틱이 그 판정을 뒤집으면 안 된다
+        // (2/19 560 실측: 검증을 통과한 진짜 앵커를 띠 필터가 지워 FN — 데스크 잡동사니가
+        // 첫 줄로 흡수돼 글리프·줄수 어느 기하로도 오판하는 프레임). 비전 OFF에서는 검증이
+        // 없으므로 기존대로 전 후보를 검사한다(무료 경로의 발언 샷 FP 방어 유지).
+        if (visionEnabled && !rescueAddedTimes.has(time)) {
+          kept.push(time);
+          continue;
+        }
         // 프로브가 후보와 같은 샷일 때만 그 판정을 믿는다(§135) — 앵커 리드가 4초보다 짧으면
         // +2s·+4s가 **다음 꼭지**에 떨어져 그 화면의 잔글씨를 인용 띠로 오인한다. 1/28 687이
         // 그렇게 지워졌다(성금 카드 계좌번호를 이름표 띠로 판정, 격자 거리 0.38 — 진짜 앵커는 0.06 이하).

@@ -624,3 +624,32 @@ describe("detectSubjectTimeline", () => {
   });
 });
 
+describe("classifyAnchorShots — §139 위치 단서 계약", () => {
+  const frame = (n: number) => ({ bytes: Uint8Array.from({ length: n }, (_v, i) => i % 251) });
+  const capture = () => {
+    let captured: any = null;
+    const fetcher = (async (_url: unknown, init: any) => {
+      captured = JSON.parse(String(init?.body ?? "{}"));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ output_text: JSON.stringify({ frames: [{ index: 0, isAnchor: true, confidence: 0.99 }] }) }),
+      } as Response;
+    }) as typeof fetch;
+    return { fetcher, instruction: () => String(captured?.input?.[0]?.content?.[0]?.text ?? captured?.instructions ?? JSON.stringify(captured)) };
+  };
+
+  it("기본(검증 경로) 호출에는 위치 단서 문장이 없다 — §92 오배제 0 보호", async () => {
+    const { fetcher, instruction } = capture();
+    await client(fetcher).classifyAnchorShots([frame(10)]);
+    assert.equal(instruction().includes("LEFT side of the frame"), false);
+  });
+
+  it("anchorLeftDesk(회수 경로)면 위치 단서 문장이 들어간다", async () => {
+    const { fetcher, instruction } = capture();
+    await client(fetcher).classifyAnchorShots([frame(10)], [], {}, { anchorLeftDesk: true });
+    assert.equal(instruction().includes("LEFT side of the frame"), true);
+    assert.equal(instruction().includes("CENTER or RIGHT of the frame"), true);
+  });
+});
+
