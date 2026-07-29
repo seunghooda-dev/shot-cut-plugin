@@ -300,6 +300,42 @@ describe("하단 자막 띠(인용·이름표) 감지", () => {
     assert.equal(isQuoteBandStats(makeRows(() => null), 270), false);
   });
 
+  // §141 줄 수 규칙 — 앵커 헤드라인 띠는 텍스트 1줄, 인터뷰·발언 인용 띠는 2줄(사용자 제공).
+  it("2줄(12+11행)인 띠는 글자가 커도 인용띠다 — 대담 샷 FP 계열", async () => {
+    const { quoteBandFromStats, isQuoteBandStats } = await import("../src/news-visual-cut");
+    const rows = makeRows((y) => {
+      if (y < 205 || y > 250) return null;
+      const inLine = (y >= 210 && y <= 221) || (y >= 227 && y <= 237);
+      return inLine ? { dark: 30, mean: 150 } : { dark: 6, mean: 235 };
+    });
+    const result = quoteBandFromStats(rows, 270);
+    assert.equal(result.textLines, 2);
+    assert.equal(result.maxGlyph >= 12, true); // 글리프 규칙만으로는 헤드라인으로 봤을 크기
+    assert.equal(isQuoteBandStats(rows, 270), true);
+  });
+
+  it("2런이어도 헤드라인급(25행) 런이 있으면 헤드라인이다 — 인서트 잡음 보호(1/28 580)", async () => {
+    const { quoteBandFromStats, isQuoteBandStats } = await import("../src/news-visual-cut");
+    const rows = makeRows((y) => {
+      if (y < 200 || y > 255) return null;
+      const inLine = (y >= 203 && y <= 214) || (y >= 220 && y <= 244);
+      return inLine ? { dark: 30, mean: 150 } : { dark: 6, mean: 235 };
+    });
+    const result = quoteBandFromStats(rows, 270);
+    assert.equal(result.textLines, 2);
+    assert.equal(isQuoteBandStats(rows, 270), false);
+  });
+
+  it("1줄 헤드라인(22행)은 여전히 헤드라인이다", async () => {
+    const { quoteBandFromStats, isQuoteBandStats } = await import("../src/news-visual-cut");
+    const rows = makeRows((y) => {
+      if (y < 208 || y > 250) return null;
+      return y >= 214 && y <= 235 ? { dark: 35, mean: 145 } : { dark: 6, mean: 238 };
+    });
+    assert.equal(quoteBandFromStats(rows, 270).textLines, 1);
+    assert.equal(isQuoteBandStats(rows, 270), false);
+  });
+
   // §135 — 앵커 리드가 4초보다 짧으면 +2s·+4s 프로브가 다음 꼭지에 떨어져 그 화면을 판정한다.
   // 1/28 687(성금 카드 계좌번호를 이름표 띠로 오인)이 그렇게 지워졌다.
   it("같은 샷이면 true — 진짜 앵커의 프로브 거리(≤0.06)", async () => {
@@ -395,6 +431,14 @@ describe("planRescueProbes — 학습 범위 밖 회수 훑기 계획(§101)", (
     assert.equal(plan.times[0], 30);
     assert.ok((plan.times.at(-1) ?? 0) > 170);
     assert.ok((plan.times.at(-1) ?? Infinity) <= 180);
+  });
+
+  // §142 — 다음 경계 앞 8~20초의 짧은 아이템(성금 캠페인 뒤 복귀 등)이 프로브 사각이었다.
+  // 1/14 716.4(구간 592→732)가 기본 20s 완충 탓에 발견 기회조차 없던 상수 FN.
+  it("기본 뒤 여유는 8초다 — 다음 경계 앞 8~20초의 짧은 아이템이 프로브를 받는다(§142)", () => {
+    const plan = planRescueProbes([592], 732, { stepSeconds: 4 });
+    assert.ok(plan.times.includes(718), `718 프로브가 있어야 한다: …${plan.times.slice(-4).join(" ")}`);
+    assert.ok((plan.times.at(-1) ?? 0) <= 724);
   });
 
   it("maxProbes로 상한을 둔다 — 아주 긴 구간에서 비용이 폭주하지 않게", () => {

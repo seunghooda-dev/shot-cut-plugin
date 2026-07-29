@@ -149,11 +149,13 @@ export function planRescueProbes(
   // 판정은 옳았지만 아이템 경계가 아니다. 리드가 20초를 넘는 특집·일요일 유형을 덮으려면
   // 구간 앞 여유가 30초여야 한다. 길이 임계는 쓰지 않는다(진짜 16~21s 아이템이 코퍼스에 15개).
   //
-  // 뒤 여유는 20s 유지(§104-b 실측): 뒤쪽에서 난 FP는 관측 0인데, 뒤를 30으로 늘리면 아웃트로
-  // 직전 마지막 단신(6/28 841~872 = 31s)의 리드가 프로브 격자에서 통째로 잘린다 — edge 30 일괄
-  // 적용 실행에서 마지막 프로브가 838로 끊겨 명백한 앵커 리드(841~848)를 못 물었다(배치 구성
-  // 효과로 오인했으나 A/B 진단으로 기각 — footage 위주 배치에서도 842는 3회 전부 anchor 0.99).
-  { maxSpan = 100, stepSeconds = 4, edgeSeconds = 30, tailEdgeSeconds = 20, maxProbes = 250 } = {},
+  // 뒤 여유 8s(§142, 구 20s): 다음 경계 앞 8~20초 구간이 프로브 사각이라 그 자리의 짧은
+  // 아이템이 **발견될 기회조차 없었다** — 1/14 716.4(구간 592→732, 프로브가 712에서 멈춤)가
+  // 상수 FN이었다. 20s 완충의 실질 역할은 "다음 앵커 리드를 잘못 물어 중복 경계를 만드는 것"의
+  // 방지였는데, 그 방지는 이제 §138 중간점 병합이 맡는다 — 다음 경계와 8초 안이면 같은 경계로
+  // 접히고, 8~20초면 중간점이 같은 샷일 때(리드 연장) 폐기된다. 비용 +15%(경고 회차 한정).
+  // §104-b의 교훈(뒤 여유를 늘리면 마지막 단신 리드가 잘린다)과 방향이 같다 — 줄이는 쪽이 안전.
+  { maxSpan = 100, stepSeconds = 4, edgeSeconds = 30, tailEdgeSeconds = 8, maxProbes = 250 } = {},
 ): RescueProbePlan {
   const times: number[] = [];
   const spans: Array<{ from: number; to: number }> = [];
@@ -489,6 +491,8 @@ export interface QuoteBandResult {
   band: boolean;
   height: number;
   maxGlyph: number;
+  /** 띠 안 텍스트 줄 수 — 어두운 행 런(8행 이상) 개수. 앵커 헤드라인 1줄, 인용 2줄(§141). */
+  textLines: number;
 }
 
 /** 하단 분석 영역 시작(프레임 높이 비율) — 270px 기준 y=195부터. */
@@ -502,8 +506,15 @@ export const QUOTE_BAND_MEAN_MIN = 115;
 export const QUOTE_BAND_TEXT_DARK_MIN = 15;
 /** 270px 프레임 기준 띠 최소 두께(행) — 얇은 스트립(오프닝·무헤드라인 앵커, 6~10행)을 띠로 안 본다. */
 export const QUOTE_BAND_MIN_ROWS_AT_270 = 14;
-/** 270px 프레임 기준 "큰 헤드라인 글자" 최소 세로(행) — 이 미만이면 인용·이름표 띠로 판정. */
-export const QUOTE_BAND_MIN_GLYPH_AT_270 = 12;
+/** 텍스트 "줄"로 인정하는 어두운 행 런 최소 높이(270px 기준) — 이보다 얇으면 잡음. */
+export const QUOTE_BAND_LINE_MIN_ROWS_AT_270 = 8;
+/**
+ * 2줄 규칙(§141)의 최대 글리프(270px 기준) — 앵커 헤드라인 띠는 텍스트 **1줄**(글리프 22~26행),
+ * 인터뷰·발언 인용 띠는 **2줄**(줄당 11~17행)이다(사용자 제공 규칙, 2026-07-29 실측).
+ * 줄이 2개여도 이 값 이상의 큰 런이 있으면 헤드라인으로 본다 — 앵커샷의 인서트 영상 잡음이
+ * 얇은 런을 하나 더 만들 수 있기 때문(1/28 580 실측: 12+25행, 25행 런이 앵커를 보호).
+ */
+export const QUOTE_BAND_TWO_LINE_MAX_GLYPH_AT_270 = 20;
 
 /** 프레임 하단 영역의 행별 (dark%, mean) 통계를 계산한다 — 오프라인 캐시와 같은 형식. */
 export function lowerThirdRowStats(frame: BmpFrame): LowerThirdRowStat[] {
@@ -542,14 +553,22 @@ export function quoteBandFromStats(rows: readonly LowerThirdRowStat[], frameHeig
       runStart = -1;
     }
   }
-  if (!best || best.len < minBandRows) return { band: false, height: 0, maxGlyph: 0 };
+  if (!best || best.len < minBandRows) return { band: false, height: 0, maxGlyph: 0, textLines: 0 };
+  const minLineRows = Math.max(3, Math.round((QUOTE_BAND_LINE_MIN_ROWS_AT_270 * frameHeight) / 270));
   let maxGlyph = 0;
   let current = 0;
-  for (let index = best.start; index < best.start + best.len; index += 1) {
-    current = rows[index]!.dark > QUOTE_BAND_TEXT_DARK_MIN ? current + 1 : 0;
+  let textLines = 0;
+  const closeRun = () => {
+    if (current >= minLineRows) textLines += 1;
     if (current > maxGlyph) maxGlyph = current;
+    current = 0;
+  };
+  for (let index = best.start; index < best.start + best.len; index += 1) {
+    if (rows[index]!.dark > QUOTE_BAND_TEXT_DARK_MIN) current += 1;
+    else closeRun();
   }
-  return { band: true, height: best.len, maxGlyph };
+  closeRun();
+  return { band: true, height: best.len, maxGlyph, textLines };
 }
 
 /**
@@ -571,9 +590,21 @@ export function isSameShotGrid(a: Float64Array | null, b: Float64Array | null): 
   return sum / a.length / 255 < QUOTE_BAND_SAME_SHOT_MAX;
 }
 
-/** 인용·이름표 띠 판정 — 흰 띠는 있는데 큰 헤드라인 글자가 없다. */
+/**
+ * 인용·이름표 띠 판정(§141-b) — **텍스트가 2줄 이상**이면서 헤드라인급(20행+) 런이 없다.
+ *
+ * 주판별자는 줄 수다(사용자 제공 규칙: 앵커 헤드라인 띠는 1줄, 인터뷰 인용 띠는 2줄 —
+ * 인터뷰 샷은 이름표 + 인용문이 겹쳐 실측 전부 2런 이상이었다: 11+11 · 12+11 · 17+11 ·
+ * 17+12+11). 20행 상한은 앵커샷 인서트 영상의 얇은 잡음 런을 보호한다(1/28 580: 12+25).
+ *
+ * 구 규칙(절대 글리프 < 12행 = 인용)은 대체됐다 — 회차 간 폰트 크기 변동을 못 버틴다.
+ * 2/11은 헤드라인 글리프가 계통적으로 10~14행이라 **진짜 앵커**(1004.4 · 781.6)가 구 규칙에
+ * 걸렸다. 라벨된 진짜 앵커 시작 315건 전수에서 줄 수 규칙의 비첫아이템 오판 0건, 구 글리프
+ * 규칙은 3건(2/25 602.7 · 2/11 781.6 · 2/11 1004 후보 1008) — 2026-07-29 실측.
+ */
 export function isQuoteBandStats(rows: readonly LowerThirdRowStat[], frameHeight: number): boolean {
   const result = quoteBandFromStats(rows, frameHeight);
-  const minGlyph = Math.max(3, Math.round((QUOTE_BAND_MIN_GLYPH_AT_270 * frameHeight) / 270));
-  return result.band && result.maxGlyph < minGlyph;
+  if (!result.band) return false;
+  const twoLineMax = Math.max(4, Math.round((QUOTE_BAND_TWO_LINE_MAX_GLYPH_AT_270 * frameHeight) / 270));
+  return result.textLines >= 2 && result.maxGlyph < twoLineMax;
 }
