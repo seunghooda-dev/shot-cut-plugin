@@ -74,7 +74,14 @@ import { AutomationController } from "./src/automation-controller";
 import { BrandKitController } from "./src/brand-kit-controller";
 import { AIQueueController } from "./src/ai-queue-controller";
 import { deterministicHash } from "./src/job-queue";
-import { SpeechApiClient, isSttTimeoutError } from "./src/speech";
+import { SpeechApiClient, isSttTimeoutError, type TranscriptSegment } from "./src/speech";
+import {
+  findSignoffs,
+  planSignoffWindows,
+  signoffProbeTimes,
+  sliceWavWindow,
+  type SignoffHit,
+} from "./src/audio-signoff";
 import {
   renderSafeZoneGuideBmp,
   safeZoneGuideLabel,
@@ -2810,11 +2817,53 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           }
         }
         const bandProbeCount = plan.times.length - gridProbeCount;
+        // 오디오 사인오프 회수(§152) — 리포터 클로징 "KBC ◯◯◯입니다"는 리포트가 끝났다는
+        // 결정론적 신호다(5회차 20건 실측: 오검출 0·경계 30% 커버). 화면 신호와 달리 실행마다
+        // 흔들리지 않아 §126 변동에 대한 보험이 된다. 창은 이미 뽑아 둔 프로브 지점 직전만 보고,
+        // 후보는 회수 프로브 목록에 합류시켜 기존 비전 판정·병합·재스냅을 그대로 통과시킨다.
+        const signoffProbeCount = await (async (): Promise<number> => {
+          if (plan.times.length === 0) return 0;
+          const windows = planSignoffWindows(plan.times, verified, tailStart ?? duration);
+          if (windows.length === 0) return 0;
+          let audio: { bytes: Uint8Array; name: string };
+          try {
+            audio = await busy.during("오디오 단서 · 시퀀스 오디오 추출 중…", () => exportActiveSequenceAudio());
+          } catch (error) {
+            activity.add("warning", `오디오 단서 · 오디오 추출 실패로 건너뜁니다: ${error instanceof Error ? error.message : String(error)}`);
+            return 0;
+          }
+          const hits: SignoffHit[] = [];
+          let sttStopped = false;
+          for (const [windowIndex, window] of windows.entries()) {
+            if (sttStopped) break;
+            setText("busy-message", `오디오 단서 ${windowIndex + 1}/${windows.length}…`);
+            try {
+              const clip = sliceWavWindow(audio.bytes, window.begin, window.end);
+              const result = await runSignoffStt(clip, window.begin);
+              hits.push(...findSignoffs(result, window.begin));
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              // 한도·인증 실패는 남은 창도 같은 결과이므로 멈춘다 — 한도 기각을 유실로 위장하지 않는다(§110-c).
+              if (/한도|초과|인증|API 키/u.test(message)) {
+                activity.add("warning", `오디오 단서 · ${windowIndex}/${windows.length}창에서 중단(${message}) — 남은 창은 건너뜁니다.`);
+                sttStopped = true;
+              }
+            }
+          }
+          if (hits.length === 0) {
+            activity.add("info", `오디오 단서 · 창 ${windows.length}곳에서 사인오프 없음`);
+            return 0;
+          }
+          const times = signoffProbeTimes(hits, verified).filter((time) => plan.times.every((existing) => Math.abs(existing - time) > 1.5));
+          activity.add("info", `오디오 단서 · 사인오프 ${hits.length}건 → 회수 후보 ${times.length}개: ${times.map((time) => time.toFixed(1)).join(" ")}`);
+          plan.times.push(...times);
+          return times.length;
+        })();
         for (const rejectedTime of visionRejectedTimes) {
           if (plan.times.every((existing) => Math.abs(existing - rejectedTime) > 2)) plan.times.push(rejectedTime + 1.2);
         }
         if (plan.times.length > 0) {
-          activity.add("info", `놓친 경계 회수 시작 — 격자 ${gridProbeCount}·띠 이벤트 ${bandProbeCount}·재심 ${plan.times.length - gridProbeCount - bandProbeCount} = ${plan.times.length}프레임을 훑습니다(유료).`);
+          activity.add("info", `놓친 경계 회수 시작 — 격자 ${gridProbeCount}·띠 이벤트 ${bandProbeCount}·오디오 ${signoffProbeCount}·재심 ${plan.times.length - gridProbeCount - bandProbeCount - signoffProbeCount} = ${plan.times.length}프레임을 훑습니다(유료).`);
           // 실기 사후 판독용(§110-b) — 어떤 시각을 훑었는지 없으면 회수 실패를 진단할 수 없다.
           activity.add("info", `회수 프로브 시각: ${plan.times.slice(0, 60).map((time) => time.toFixed(1)).join(" ")}${plan.times.length > 60 ? " …" : ""}`);
           const probes: Array<{ time: number; bytes: Uint8Array }> = [];
@@ -3571,6 +3620,31 @@ async function exportActiveSequenceAudio(): Promise<{ bytes: Uint8Array; name: s
     throw new Error("내보낸 시퀀스 오디오를 읽지 못했습니다.");
   }
   return { bytes: bytes.slice(), name };
+}
+
+/**
+ * 오디오 사인오프 창 하나를 STT한다(§152) — `whisper-1`만 쓴다.
+ *
+ * 세그먼트 타임스탬프가 필요하고(verbose_json), 창이 12초뿐이라 diarize 계열의 이점이 없다.
+ * 신규 네트워크 코드를 만들지 않고 기존 SpeechApiClient·secureStorage 경로를 그대로 쓴다.
+ */
+async function runSignoffStt(clip: Uint8Array, windowBegin: number): Promise<TranscriptSegment[]> {
+  const client = new SpeechApiClient({ endpoint: settings.aiEndpoint });
+  const request = {
+    bytes: clip,
+    filename: `signoff_${Math.round(windowBegin)}.wav`,
+    mimeType: "audio/wav",
+    model: "whisper-1" as const,
+    language: "ko",
+  };
+  const result = aiQueueController
+    ? await aiQueueController.run("stt", {
+      model: request.model,
+      window: Math.round(windowBegin),
+      bytes: clip.byteLength,
+    }, () => client.transcribe(request), { estimateUnits: 1, cacheTtlMs: 0 })
+    : await client.transcribe(request);
+  return result.segments;
 }
 
 async function transcribeActiveSequence(): Promise<void> {

@@ -785,3 +785,31 @@ describe("internal beta packaging contract", () => {
     assert.match(verifyRelease, /source map을 포함하지 않습니다/);
   });
 });
+
+// §152 오디오 사인오프 회수 — 위계·경로 계약. 이 세 가지가 깨지면 §149(무료 신호가 비전
+// 판정을 뒤집지 않는다)와 §99(유료 동의 게이트) 원칙이 조용히 무너진다.
+describe("audio signoff cue contract (§152)", () => {
+  const indexSource = readFileSync(path.join(ROOT, "index.ts"), "utf8");
+
+  it("오디오 단서는 비전 ON 블록 안에서만 동작한다 — 유료 동의 게이트(§99) 재사용", () => {
+    const visionBlock = indexSource.slice(indexSource.indexOf("if (visionEnabled) {"));
+    const cueAt = visionBlock.indexOf("오디오 사인오프 회수");
+    assert.ok(cueAt > 0, "사인오프 회수는 visionEnabled 블록 안에 있어야 한다");
+    // 회수 블록이 끝나기 전에 나와야 한다 — 띠 필터(§149)보다 앞.
+    assert.ok(cueAt < visionBlock.indexOf("하단 띠 검사"), "사인오프 회수는 회수 단계 안이어야 한다");
+  });
+
+  it("사인오프 후보는 회수 프로브 목록에만 합류한다 — 경계를 직접 확정하지 않는다(§149 위계)", () => {
+    assert.match(indexSource, /plan\.times\.push\(\.\.\.times\)/u);
+    // verified를 직접 손대면 비전 판정을 건너뛰게 된다 — 그 형태가 없어야 한다.
+    assert.ok(
+      !/verified\.push\(\.\.\.signoff/u.test(indexSource),
+      "사인오프가 verified를 직접 늘리면 비전 판정을 건너뛴다",
+    );
+  });
+
+  it("창 STT는 whisper-1로만 부른다 — 세그먼트 타임스탬프가 필요하다", () => {
+    const fn = indexSource.slice(indexSource.indexOf("async function runSignoffStt"));
+    assert.match(fn.slice(0, 900), /model:\s*"whisper-1"\s*as const/u);
+  });
+});
