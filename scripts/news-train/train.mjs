@@ -53,19 +53,43 @@ const holdEpisodes = [];
 for (const meta of holdMeta) holdEpisodes.push(await loadEpisode(meta.name, meta.corrected));
 console.log(`샘플 ${rows.length} (양성 ${rows.filter((row) => row.label === 1).length})`);
 
+/**
+ * 회차별 하락 상한(§153) — 합계 F1만 보는 게이트는 **한 포맷의 붕괴를 가린다.**
+ *
+ * 2026-07-30 실측: 합계 F1 83.5 → 84.1(+0.6)로 통과할 후보가 6/28(일)을 53.3 → 16.7(−36.6)로
+ * 무너뜨렸다. 합계는 TP/FP/FN을 풀링해 계산하므로 아이템이 많은 회차가 지배하고, 주말처럼
+ * 표본이 적은 포맷은 통째로 희생돼도 눈에 안 띈다. 회차 단위 회귀를 별도 게이트로 세운다.
+ */
+const MAX_EPISODE_DROP = 5;
+
 const evaluate = (model) => {
   let totals = { tp: 0, fp: 0, fn: 0 };
   const per = [];
+  const byEpisode = new Map();
   for (const episode of holdEpisodes) {
     const { starts } = predictItemStarts(episode, routeMatcher(episode, banks), model);
     const metrics = boundaryF1(starts, episode.truth.map((item) => item.start));
     totals.tp += metrics.tp; totals.fp += metrics.fp; totals.fn += metrics.fn;
     per.push(`${episode.name.replace("Train_KBC_", "")} ${formatMetrics(metrics)}`);
+    byEpisode.set(episode.name, metrics.f1 * 100);
   }
   const precision = totals.tp / (totals.tp + totals.fp || 1);
   const recall = totals.tp / (totals.tp + totals.fn || 1);
   const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
-  return { f1, summary: formatMetrics({ precision, recall, f1 }), per };
+  return { f1, summary: formatMetrics({ precision, recall, f1 }), per, byEpisode };
+};
+
+/** 베이스라인 대비 회차별 하락 목록 — 상한을 넘는 것이 하나라도 있으면 반영을 막는다. */
+const episodeRegressions = (baselineScores, candidateScores) => {
+  const drops = [];
+  for (const [name, before] of baselineScores) {
+    const after = candidateScores.get(name);
+    if (after === undefined) continue;
+    if (before - after > MAX_EPISODE_DROP) {
+      drops.push({ name: name.replace("Train_KBC_", ""), before, after, drop: before - after });
+    }
+  }
+  return drops.sort((left, right) => right.drop - left.drop);
 };
 
 const baseline = evaluate(await loadCurrentModel());
@@ -83,6 +107,16 @@ for (const config of SWEEP) {
 }
 
 console.log(`\n최고 후보: ${best.tag} → ${best.summary} vs 베이스라인 ${baseline.summary}`);
+// 회차 단위 회귀 게이트(§153) — 합계가 올라도 한 포맷이 무너지면 반영하지 않는다.
+const drops = episodeRegressions(baseline.byEpisode, best.byEpisode);
+if (drops.length > 0) {
+  console.log(`회차 회귀 ${drops.length}건(상한 ${MAX_EPISODE_DROP}점):`);
+  for (const drop of drops) {
+    console.log(`  ${drop.name} ${drop.before.toFixed(1)} → ${drop.after.toFixed(1)} (−${drop.drop.toFixed(1)})`);
+  }
+  console.log("결론: 합계는 올랐지만 회차 회귀가 상한을 넘음 — 반영 안 함(모델 파일 미변경).");
+  process.exit(0);
+}
 if (best.f1 <= baseline.f1) {
   console.log("결론: 커밋 모델을 이기지 못함 — 반영 안 함(모델 파일 미변경).");
   process.exit(0);
