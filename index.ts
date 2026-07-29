@@ -2995,7 +2995,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             .filter((time) => time > 0
               && time < (tailStart ?? duration) - 5
               && verified.every((existing) => Math.abs(existing - time) > 8)
-              && plan.times.every((existing) => Math.abs(existing - time) > 2));
+              // 중복 판정 방지 문턱은 1.5로(§144-b, 구 2) — 띠 이벤트는 plan.times에 합류하므로
+              // (§110 회수 구성) −2 후보가 자기 이벤트와 정확히 2.0초 거리라 `> 2`의 경계값에서
+              // **전부** 걸러졌다(체인14 실측: 1/14·1/15·2/19 세 회차 모두 −2가 목록에 0개).
+              // 2초 스캔 격자에서 2초 떨어진 프레임은 다른 프레임이다 — 1.5면 재심 오프셋
+              // (+1.2)과의 우발 중복만 걸러진다.
+              && plan.times.every((existing) => Math.abs(existing - time) > 1.5));
           if (!rescueBudgetStopped && backoffTimes.length > 0) {
             activity.add("info", `회수 되짚기 — 1차 실패한 띠 지점의 6·2초 앞 ${backoffTimes.length}곳을 재훑기합니다(유료): ${backoffTimes.slice(0, 20).map((time) => time.toFixed(0)).join(" ")}`);
             const backVerdicts: string[] = [];
