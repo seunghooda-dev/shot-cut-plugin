@@ -2792,11 +2792,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     //  ②띠 이벤트: 전 회차. "새 헤드라인 등장" 사전 신호가 있는 지점만이라(회차당 20~30곳)
     //    §107의 실패 요인이 없고, 격자 사정권 밖(75s 구간·짧은 리드)의 FN도 닿는다(§109 실측 96%).
     //  ③배제 재심: 검증이 배제한 후보(§101-c) — 오배제 자기치유.
-    // 회수·되짚기가 추가한 경계(§145) — 띠 필터는 이들에게만 적용한다. 비전 4프로브 검증을
-    // 통과한 본선 후보를 무료 luma 휴리스틱이 뒤집는 것은 위계가 거꾸로다(2/19 560 실측:
-    // 검증 배제 2/4표로 생존한 진짜 앵커를 띠 필터가 지웠다 — 데스크 잡동사니가 첫 줄로
-    // 흡수돼 글리프·줄수 어느 기하로도 오판하는 프레임이었다).
-    const rescueAddedTimes = new Set<number>();
     if (visionEnabled) {
       try {
         const plan = bankFit > BANK_FIT_WARN_DISTANCE
@@ -3128,7 +3123,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           if (merged.length > verified.length) {
             activity.add("info", `학습 범위 밖 회수 · 경계 ${merged.length - verified.length}개 추가 → 앵커 ${merged.length}개`);
             activity.add("info", `회수 시각: ${merged.filter((time) => !verified.includes(time)).map((time) => time.toFixed(1)).join(" ")}`);
-            for (const time of merged) if (!verified.includes(time)) rescueAddedTimes.add(time);
             verified = merged;
           } else {
             activity.add("info", "학습 범위 밖 회수 · 추가 경계 없음");
@@ -3141,7 +3135,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     // 하단 띠 검사(무료) — 인용·이름표 띠(흰 띠는 있는데 큰 헤드라인 글자 없음)가 +2s·+4s
     // 양쪽에서 감지되면 발언·회견 샷 오검출로 배제한다(anchor-lowerthird-band.plan.md).
     // 오프닝 직후는 띠가 늦게 떠서 첫 후보는 면제. 프레임 확보 실패 후보는 그대로 통과.
-    if (verified.length > 1) {
+    //
+    // §149 — **비전 ON에서는 통째로 끈다.** 이 필터가 비전 경로에서 진짜 앵커를 지운 실측이
+    // 3건(1/28 687 · 2/19 560 · 1/06 796 — 짧은 리드 프로브 이탈·데스크 잡동사니 가짜 2줄
+    // 등 띠 기하의 원리적 한계)이고, 옳게 지우던 발언·대담 FP는 이제 §139 위치 단서가 회수
+    // 판정 단계에서 잡는다(체인14 실증: 4/09·3/18 FP 전멸). 비전 OFF(무료 경로)에서는 검증이
+    // 없으므로 이 필터가 여전히 발언 샷 FP의 유일한 방어라 유지한다.
+    if (verified.length > 1 && !visionEnabled) {
       const probeQuoteBand = async (time: number): Promise<boolean | null> => {
         try {
           // 480px 유지 — 960px 실험(§141-c)은 기각됐다: 밀집 인용문은 540p에서도 한 덩어리
@@ -3165,15 +3165,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
       const rejected: number[] = [];
       for (const [checkIndex, time] of verified.slice(1).entries()) {
         setText("busy-message", `하단 띠 검사 ${checkIndex + 1}/${verified.length - 1}…`);
-        // §145 — 비전 ON에서는 회수·되짚기가 추가한 경계만 검사한다. 본선 후보는 이미 비전
-        // 4프로브 검증을 통과했으므로 무료 luma 휴리스틱이 그 판정을 뒤집으면 안 된다
-        // (2/19 560 실측: 검증을 통과한 진짜 앵커를 띠 필터가 지워 FN — 데스크 잡동사니가
-        // 첫 줄로 흡수돼 글리프·줄수 어느 기하로도 오판하는 프레임). 비전 OFF에서는 검증이
-        // 없으므로 기존대로 전 후보를 검사한다(무료 경로의 발언 샷 FP 방어 유지).
-        if (visionEnabled && !rescueAddedTimes.has(time)) {
-          kept.push(time);
-          continue;
-        }
         // 프로브가 후보와 같은 샷일 때만 그 판정을 믿는다(§135) — 앵커 리드가 4초보다 짧으면
         // +2s·+4s가 **다음 꼭지**에 떨어져 그 화면의 잔글씨를 인용 띠로 오인한다. 1/28 687이
         // 그렇게 지워졌다(성금 카드 계좌번호를 이름표 띠로 판정, 격자 거리 0.38 — 진짜 앵커는 0.06 이하).
