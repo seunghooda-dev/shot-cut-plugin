@@ -65,9 +65,9 @@ describe("sliceWavWindow — 창을 샘플 오프셋으로 자른다", () => {
 });
 
 describe("planSignoffWindows — 볼 창만 고른다", () => {
-  it("후보 직전 12초 창을 만든다", () => {
+  it("후보 지점 +2초까지 닿는 16초 창을 만든다 — 경계 ±1초 사인오프를 자르지 않게(§155)", () => {
     const windows = planSignoffWindows([200], [], 900);
-    assert.deepEqual(windows, [{ begin: 186, end: 198 }]);
+    assert.deepEqual(windows, [{ begin: 186, end: 202 }]);
   });
 
   it("확정 경계가 창 안에 있으면 건너뛴다 — 그 경계가 이미 리포트 끝을 표시한다", () => {
@@ -77,7 +77,7 @@ describe("planSignoffWindows — 볼 창만 고른다", () => {
   it("겹치는 창은 하나로 접는다", () => {
     const windows = planSignoffWindows([200, 204, 208], [], 900);
     assert.equal(windows.length, 1);
-    assert.deepEqual(windows[0], { begin: 186, end: 198 });
+    assert.deepEqual(windows[0], { begin: 186, end: 202 });
   });
 
   it("소스 범위를 벗어난 창은 만들지 않는다", () => {
@@ -86,7 +86,7 @@ describe("planSignoffWindows — 볼 창만 고른다", () => {
   });
 
   it("소스 끝에 닿는 창은 만든다 — 마지막 리포트의 사인오프를 놓치지 않게", () => {
-    assert.deepEqual(planSignoffWindows([895], [], 900), [{ begin: 881, end: 893 }]);
+    assert.deepEqual(planSignoffWindows([895], [], 900), [{ begin: 881, end: 897 }]);
   });
 
   it("상한을 넘지 않는다 — 비용 상한", () => {

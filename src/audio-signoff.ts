@@ -10,9 +10,14 @@ import { parseWavPcm } from "./wav-pcm";
  */
 export const SIGNOFF_PATTERN = /KBC\s*(?:뉴스\s*)?[가-힣]{2,4}\s*입니다/u;
 
-/** 후보 지점 직전에 볼 창 — 사인오프는 다음 경계 1~3초 앞에 있다(§152 실측). */
+/**
+ * 후보 지점 직전에 볼 창 — 사인오프는 대개 경계 1~3초 앞에서 끝나지만 **경계 ±1초에 끝나는
+ * 것도 실재한다**(§155 실측: 3/24 193.1 Δ−1.0 · 580.2 Δ+1.0, J-컷 겹침 포함). 창이 경계에
+ * 닿지 않으면 마지막 문장이 잘려 신호가 있어도 못 본다(§152 1차의 11.7초 창이 0/10) —
+ * 그래서 창 끝을 후보 지점 +2초까지 연장한다([t−14, t+2], 창당 STT 4초 증가).
+ */
 export const SIGNOFF_WINDOW_LEAD = 14;
-export const SIGNOFF_WINDOW_LENGTH = 12;
+export const SIGNOFF_WINDOW_LENGTH = 16;
 /** 회차당 창 상한 — 비용 상한(창당 12초 오디오). */
 export const SIGNOFF_MAX_WINDOWS = 24;
 /** 이미 확정된 경계와 이만큼 안이면 새 후보로 보지 않는다 — F1 허용오차와 같은 값. */
