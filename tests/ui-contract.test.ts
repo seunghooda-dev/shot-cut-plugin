@@ -812,4 +812,14 @@ describe("audio signoff cue contract (§152)", () => {
     const fn = indexSource.slice(indexSource.indexOf("async function runSignoffStt"));
     assert.match(fn.slice(0, 900), /model:\s*"whisper-1"\s*as const/u);
   });
+
+  it("내보낸 시퀀스 WAV는 읽은 뒤 지운다 — 안 지우면 회차마다 ~30MB가 영구 누적된다(§167)", () => {
+    const fn = indexSource.slice(indexSource.indexOf("async function exportActiveSequenceAudio"));
+    const body = fn.slice(0, fn.indexOf("\n}\n") + 3);
+    assert.match(body, /fileEntry\.delete\(\)/u, "임시 WAV 삭제가 없다");
+    // 읽기 실패 경로에서도 남기지 않아야 한다 — finally 안에서 지워야 한다.
+    const deleteAt = body.indexOf("fileEntry.delete()");
+    const finallyAt = body.indexOf("} finally {");
+    assert.ok(finallyAt > 0 && deleteAt > finallyAt, "삭제는 finally 안에 있어야 읽기 실패에도 정리된다");
+  });
 });

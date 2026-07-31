@@ -3610,7 +3610,15 @@ async function exportActiveSequenceAudio(): Promise<{ bytes: Uint8Array; name: s
   });
   const name = String(outputPath).split(/[\\/]/u).pop() || "sequence-audio";
   const fileEntry = await dataFolder.getEntry(name);
-  const data = await fileEntry.read({ format: formats?.binary });
+  let data: unknown;
+  try {
+    data = await fileEntry.read({ format: formats?.binary });
+  } finally {
+    // 내보낸 WAV는 메모리로 읽고 나면 쓸모가 없다 — 지우지 않으면 회차마다 ~30MB가
+    // 플러그인 데이터 폴더에 영구 누적된다(§167 실측: 하루 배치로 2.8GB). 읽기 실패
+    // 경로에서도 남기지 않도록 finally에서 지운다. 삭제 실패는 무시(다음 실행에 재시도).
+    try { await fileEntry.delete(); } catch { /* 임시 파일 삭제 실패는 무시 */ }
+  }
   const bytes = data instanceof ArrayBuffer
     ? new Uint8Array(data)
     : ArrayBuffer.isView(data)
