@@ -830,4 +830,24 @@ describe("audio signoff cue contract (§152)", () => {
     const finallyAt = body.indexOf("} finally {");
     assert.ok(finallyAt > 0 && deleteAt > finallyAt, "삭제는 finally 안에 있어야 읽기 실패에도 정리된다");
   });
+
+  it("칼럼 시작 판정은 참조 프레임 없이 나눠 보낸다 — 합계 상한에 걸려 호출이 통째로 실패했다(§170)", () => {
+    const block = indexSource.slice(indexSource.indexOf("standingPresenterOnly: true"));
+    const call = indexSource.slice(indexSource.lastIndexOf("classifyAnchorShots", indexSource.indexOf("standingPresenterOnly: true")));
+    // 참조 배열이 빈 리터럴이어야 한다 — rescueRefs를 실으면 1.2MB 상한을 넘긴다.
+    assert.match(call.slice(0, 400), /\[\],\s*\{\},\s*\{ standingPresenterOnly: true \}/u, "칼럼 판정에 참조 프레임을 실으면 안 된다");
+    assert.ok(block.length > 0);
+    // 4장씩 나눠 보내는 청크 루프가 있어야 한다.
+    const chunkArea = indexSource.slice(indexSource.indexOf("const standingHits"), indexSource.indexOf("standingPresenterOnly: true"));
+    assert.match(chunkArea, /offset \+= 4/u, "칼럼 판정은 청크로 나눠 보내야 한다");
+  });
+
+  it("칼럼 시작을 확정하면 그 블록 안의 회수분을 버린다 — 칼럼은 통째로 하나(§170-d)", () => {
+    const area = indexSource.slice(indexSource.indexOf("const dropped: number[] = []"));
+    const body = area.slice(0, area.indexOf("verified = [...verified.filter"));
+    // 다음 "검증 통과" 경계까지가 칼럼 구간이다 — 회수 병합 전 목록이 기준이어야 한다.
+    assert.match(body, /verifiedBeforeRescue\.filter\(\(time\) => time > start\)/u, "구간 끝은 검증 통과 경계로 잡아야 한다");
+    // 검증을 통과한 경계는 절대 버리지 않는다 — 진짜 아이템 경계를 지우면 안 된다.
+    assert.match(body, /if \(verifiedBeforeRescue\.includes\(time\)\) continue;/u, "검증 통과 경계는 폐기 대상에서 빠져야 한다");
+  });
 });
