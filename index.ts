@@ -1143,6 +1143,13 @@ async function readExportedFrameBytes(dataFolder: any, formats: any, filename: s
       bytes = null;
     }
   }
+  // 읽고 나면 파일은 쓸모가 없다 — 여기서 지운다(§167-b). 호출자 5곳(1160·1205·1222·1278·1329)이
+  // 정리를 빠뜨리고 있었는데, 개별 호출부마다 붙이는 대신 헬퍼 한 곳에서 끝낸다. 이미 호출부에서
+  // 지우는 경로들은 없는 파일을 지우려다 catch로 흡수되므로 무해하다.
+  try {
+    const entry = await dataFolder.getEntry(filename);
+    await entry.delete();
+  } catch { /* 임시 파일 삭제 실패는 무시 — 다음 실행이 같은 이름으로 덮어쓴다 */ }
   return bytes && looksCompleteImage(bytes, kind) ? bytes.slice() : null;
 }
 

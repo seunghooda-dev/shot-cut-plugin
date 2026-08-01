@@ -813,6 +813,14 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(fn.slice(0, 900), /model:\s*"whisper-1"\s*as const/u);
   });
 
+  it("내보낸 프레임은 읽은 뒤 지운다 — 헬퍼가 정리해 호출부 누락을 원천 차단한다(§167-b)", () => {
+    const fn = indexSource.slice(indexSource.indexOf("async function readExportedFrameBytes"));
+    const body = fn.slice(0, fn.indexOf("\n}\n") + 3);
+    assert.match(body, /entry\.delete\(\)/u, "프레임 임시 파일 삭제가 없다");
+    // 재시도 루프 안에서 지우면 다음 시도가 읽을 파일이 사라진다 — 루프 뒤여야 한다.
+    assert.ok(body.indexOf("entry.delete()") > body.lastIndexOf("attempt += 1"), "삭제는 재시도 루프 뒤여야 한다");
+  });
+
   it("내보낸 시퀀스 WAV는 읽은 뒤 지운다 — 안 지우면 회차마다 ~30MB가 영구 누적된다(§167)", () => {
     const fn = indexSource.slice(indexSource.indexOf("async function exportActiveSequenceAudio"));
     const body = fn.slice(0, fn.indexOf("\n}\n") + 3);
