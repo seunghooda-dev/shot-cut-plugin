@@ -3192,6 +3192,70 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           } else {
             activity.add("info", "학습 범위 밖 회수 · 추가 경계 없음");
           }
+
+          // §168-c 칼럼 시작점 회수 — §168-b가 "서 있는 진행자"를 일괄 배제하면서 데스크 칼럼의
+          // FP는 사라졌지만 **시작점도 함께 잃었다**(7/29 294.3). 배제된 후보에만 세 번째 질문
+          // ("스튜디오 안에서 서서 진행하는가")을 던져, 한 블록의 **첫 등장만** 되살린다.
+          // 두 번째 이후는 같은 칼럼의 연속이므로 살리지 않는다 — 그게 FP의 원인이었다.
+          if (visionRejectedTimes.length > 0) {
+            try {
+              const grabStanding = async (time: number): Promise<Uint8Array | null> => {
+                const { filename } = await exportFrameToFolder(Math.max(0, time), String(dataFolder.nativePath), 480);
+                return readExportedFrameBytes(dataFolder, api.formats, filename);
+              };
+              const standingProbes: Array<{ time: number; bytes: Uint8Array }> = [];
+              for (const time of visionRejectedTimes) {
+                if (verified.some((start) => Math.abs(start - time) <= 8)) continue;
+                setText("busy-message", `칼럼 시작 확인 ${standingProbes.length + 1}/${visionRejectedTimes.length}…`);
+                const bytes = await grabStanding(time + 1.2);
+                if (bytes) standingProbes.push({ time, bytes });
+              }
+              if (standingProbes.length > 0) {
+                // 참조 프레임은 보내지 않는다 — 질문이 "앵커인가"가 아니라 "서서 진행하는가"라
+                // 앵커 예시가 판단에 도움이 안 되고, 합계 1.2MB 상한만 밀어 올려 호출이 통째로
+                // 실패했다(§168-c 1차 실측: "프레임 합계가 너무 큽니다"로 경로 미실행).
+                // 같은 이유로 4장씩 나눠 보낸다.
+                const standingHits: Array<{ probeIndex: number; isAnchor: boolean; confidence: number }> = [];
+                for (let offset = 0; offset < standingProbes.length; offset += 4) {
+                  const chunk = standingProbes.slice(offset, offset + 4);
+                  const chunkResults = await busy.during(
+                    `칼럼 시작 확인 ${offset + 1}~${offset + chunk.length}/${standingProbes.length}(유료)…`,
+                    () => rescueClient.classifyAnchorShots(
+                      chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
+                      [],
+                      {},
+                      { standingPresenterOnly: true },
+                    ),
+                  );
+                  for (const result of chunkResults) {
+                    standingHits.push({ probeIndex: offset + result.index, isAnchor: result.isAnchor, confidence: result.confidence });
+                  }
+                }
+                const results = standingHits.map((hit) => ({ index: hit.probeIndex, isAnchor: hit.isAnchor, confidence: hit.confidence }));
+                const standingStarts: number[] = [];
+                for (const result of results) {
+                  const probe = standingProbes[result.index];
+                  if (!probe || !result.isAnchor || result.confidence < RESCUE_ANCHOR_MIN_CONFIDENCE) continue;
+                  // 블록의 첫 등장만 — 이미 채택한 칼럼 시작과 60초 안이면 같은 칼럼의 연속이다.
+                  // 앞선 확정 경계와의 거리로는 거르지 않는다(§168-c 2차 실측): 칼럼 시작은 직전
+                  // 아이템 경계 60초 안에 올 수 있어, 그 규칙이 표적 296.0을 죽이고 대신 연속 지점
+                  // 334.0을 통과시켜 F1을 96.0 → 92.3으로 떨어뜨렸다. 확정 경계와의 ±8초 중복은
+                  // 프레임 수집 단계에서 이미 걸러진다.
+                  const nearStanding = standingStarts.some((start) => probe.time - start <= 60 && probe.time > start);
+                  if (nearStanding) continue;
+                  standingStarts.push(probe.time);
+                }
+                if (standingStarts.length > 0) {
+                  activity.add("info", `칼럼 시작 회수 · ${standingStarts.length}건: ${standingStarts.map((time) => time.toFixed(1)).join(" ")}`);
+                  verified = [...verified, ...standingStarts].sort((a, b) => a - b);
+                } else {
+                  activity.add("info", `칼럼 시작 확인 · ${standingProbes.length}곳 모두 해당 없음`);
+                }
+              }
+            } catch (error) {
+              activity.add("warning", `칼럼 시작 확인 실패 — 건너뜁니다: ${error instanceof Error ? error.message : String(error)}`);
+            }
+          }
         }
       } catch (error) {
         activity.add("warning", `학습 범위 밖 회수 실패 — 기존 결과로 진행: ${error instanceof Error ? error.message : String(error)}`);
