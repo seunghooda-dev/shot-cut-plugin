@@ -651,5 +651,18 @@ describe("classifyAnchorShots — §139 위치 단서 계약", () => {
     assert.equal(instruction().includes("LEFT side of the frame"), true);
     assert.equal(instruction().includes("CENTER or RIGHT of the frame"), true);
   });
+
+  it("기본(검증 경로) 호출에는 착석 단서 문장이 없다 — §92 오배제 0 보호(§168)", async () => {
+    const { fetcher, instruction } = capture();
+    await client(fetcher).classifyAnchorShots([frame(10)]);
+    assert.equal(instruction().includes("always SEATED"), false);
+  });
+
+  it("seatedAtDesk(회수 경로)면 착석 단서 문장이 들어간다 — 서 있는 칼럼 진행자 배제(§168)", async () => {
+    const { fetcher, instruction } = capture();
+    await client(fetcher).classifyAnchorShots([frame(10)], [], {}, { seatedAtDesk: true });
+    assert.equal(instruction().includes("always SEATED"), true);
+    assert.equal(instruction().includes("STANDING"), true);
+  });
 });
 

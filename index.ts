@@ -2964,7 +2964,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                     chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
                     rescueRefs,
                     {},
-                    { anchorLeftDesk: true },
+                    { anchorLeftDesk: true, seatedAtDesk: true },
                   ),
                 );
                 const received = new Set<number>();
@@ -3090,7 +3090,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                       chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
                       rescueRefs,
                       {},
-                      { anchorLeftDesk: true },
+                      { anchorLeftDesk: true, seatedAtDesk: true },
                     ),
                   );
                   for (const result of results) {
