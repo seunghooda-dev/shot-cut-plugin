@@ -3162,6 +3162,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             activity.add("info", `회수 되짚기 · 앵커 ${[...backHits.values()].filter(Boolean).length}건 중 연속성 통과 ${backAccepted.length}건`);
           }
           // 훑기 격자(10s)라 경계보다 최대 그만큼 뒤다. 재스냅이 뒤로 36초를 훑으므로 그대로 넘긴다.
+          // 병합 전 목록 — §170-d에서 "검증을 통과한 경계"와 "회수로 들어온 경계"를 가르는 기준이 된다.
+          const verifiedBeforeRescue = [...verified];
           const merged = [...verified];
           for (const time of [...found, ...backAccepted].sort((a, b) => a - b)) {
             let nearest: number | null = null;
@@ -3247,7 +3249,24 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 }
                 if (standingStarts.length > 0) {
                   activity.add("info", `칼럼 시작 회수 · ${standingStarts.length}건: ${standingStarts.map((time) => time.toFixed(1)).join(" ")}`);
-                  verified = [...verified, ...standingStarts].sort((a, b) => a - b);
+                  // §170-d 칼럼은 통째로 하나(사용자 확정 규칙) — 칼럼 시작부터 다음 **검증 통과**
+                  // 경계까지 사이에 회수로 들어온 경계가 있으면 칼럼 중간이므로 버린다. 검증을
+                  // 통과한 경계는 건드리지 않는다. 실측 근거(7/29 8실행 중 1회): 되짚기가 칼럼
+                  // 중간 438.0을 프로브로 삼았고, §168-b 착석 규칙이 켜져 있는데도 비전이 앵커로
+                  // 오판해 FP가 됐다. 판정 요동은 막을 수 없으니 구조로 막는다.
+                  const dropped: number[] = [];
+                  for (const start of standingStarts) {
+                    const nextVerified = verifiedBeforeRescue.filter((time) => time > start).sort((a, b) => a - b)[0] ?? Infinity;
+                    for (const time of verified) {
+                      if (time <= start || time >= nextVerified) continue;
+                      if (verifiedBeforeRescue.includes(time)) continue;
+                      dropped.push(time);
+                    }
+                  }
+                  if (dropped.length > 0) {
+                    activity.add("info", `칼럼 중간 회수 폐기 · ${dropped.length}건: ${dropped.map((time) => time.toFixed(1)).join(" ")}`);
+                  }
+                  verified = [...verified.filter((time) => !dropped.includes(time)), ...standingStarts].sort((a, b) => a - b);
                 } else {
                   activity.add("info", `칼럼 시작 확인 · ${standingProbes.length}곳 모두 해당 없음`);
                 }
