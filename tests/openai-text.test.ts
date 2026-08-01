@@ -664,5 +664,20 @@ describe("classifyAnchorShots — §139 위치 단서 계약", () => {
     assert.equal(instruction().includes("always SEATED"), true);
     assert.equal(instruction().includes("STANDING"), true);
   });
+
+  it("standingPresenterOnly면 서 있는 진행자만 묻는 별도 지시로 바뀐다(§168-c)", async () => {
+    const { fetcher, instruction } = capture();
+    await client(fetcher).classifyAnchorShots([frame(10)], [], {}, { standingPresenterOnly: true });
+    assert.equal(instruction().includes("STANDING IN-STUDIO PRESENTER"), true);
+    assert.equal(instruction().includes("always SEATED"), false);
+  });
+
+  it("standingPresenterOnly 지시에 발언자 구별 단서 2종이 있다 — 2/19 오검출 시정(§170-c)", async () => {
+    const { fetcher, instruction } = capture();
+    await client(fetcher).classifyAnchorShots([frame(10)], [], {}, { standingPresenterOnly: true });
+    // 인용 띠 2줄 = 발언자, 단색 배경막 = 행사장. 둘 다 스튜디오 칼럼이 아니다.
+    assert.equal(instruction().includes("TWO-LINE QUOTATION"), true);
+    assert.equal(instruction().includes("plain single-colour backdrop"), true);
+  });
 });
 
