@@ -115,6 +115,26 @@ Checkpoint commits require a passing `npm run check` first — never commit a re
 
 If porting ideas from older Adobe CEP-based plugins: don't reintroduce QE DOM dependency, filename-only project-item lookup, or single-point track search with `overwriteClip`. This project identifies media by file path, checks the full insertion range for conflicts, checks locked tracks, and rolls back on failure (see `src/recovery.ts`, `src/premiere.ts`).
 
+## 장시간 자율 배치 규약 (2026-08-01 사용자 지시 — 모든 배치에 적용)
+
+사용자가 장시간(수 시간~하루) 자율 작업을 맡길 때 아래를 **기본값으로** 따른다. 매번 다시
+확인하지 않는다.
+
+1. **멈추지 않는다.** 한 작업이 끝나면 그 턴 안에서 다음 작업을 시작하거나, 시작할 수 없으면
+   **깨우기를 반드시 건다**(`ScheduleWakeup` 또는 `CronCreate`). "다음에 하겠다"로 턴을 끝내는 것이
+   가장 흔한 실패다 — 실제로 2026-08-01에 "바로 구현에 들어갑니다"라고 하고 착수하지 않은 사고가 있었다.
+2. **정기 보고 스케줄을 건다.** 2시간마다 ①지금 하는 일 ②직전 완료분과 수치 ③다음 할 일
+   ④막힌 것을 보고하고, 보고 후 대기하지 말고 이어서 진행한다. 공백 2시간 초과 금지.
+3. **5시간마다 새 Premiere 프로젝트로 전환한다.** 과부하 예방이 목적이다. 전환은 **회차 경계에서만**
+   한다(실행 중간 전환은 §40-d 단일 세션 원칙을 깨고 그 회차를 무효로 만든다).
+   도구는 scratchpad `run-rotating.sh`(자동) · `cdt-rotate-project.mjs`(수동).
+4. **승인이 필요한 지점에서는 권장안으로 진행한다.** 묻고 기다리지 않는다. 다만 되돌릴 수 없는
+   작업(파일 영구 삭제, 원격 푸시 외의 외부 발신)은 예외이며, 판단 근거를 보고에 남긴다.
+5. **서브에이전트를 적극 쓴다.** 프레임 판독·대량 탐색·보고서 작성처럼 실기(단일 CDP 세션)와
+   자원이 겹치지 않는 일은 병렬로 돌린다.
+6. **실기 검증은 표적+대조 소수로만 한다.** 전량(41회차) 재검증은 하지 않는다 — 무료 오프라인
+   전량 실측은 무방하다.
+
 ## 공통 지침
 
 행동 지침·모델 선택·문맥/토큰 효율은 전역 `~/.claude/CLAUDE.md`로 이동했다(모든 세션 공통 적용).
