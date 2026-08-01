@@ -2666,6 +2666,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 () => client.classifyAnchorShots(
                   chunk.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" as const })),
                   references,
+                  {},
+                  // §168-b — 검증(배제) 경로에도 착석 단서를 켠다. §92 오배제 0을 위협하는
+                  // 방향이지만 이 단서만은 예외다: **진짜 앵커는 언제나 앉아 있으므로**
+                  // "서 있으면 앵커가 아니다"가 진짜 앵커를 지울 수 없다. 회수 경로만 켰을
+                  // 때(§168) 남은 결손이 전부 이 경로에서 나왔다 — 7/29 334를 수락해 FP,
+                  // 296은 배제해 FN. 대조 회차로 오배제 0을 확인하고 반영한다.
+                  { seatedAtDesk: true },
                 ),
               );
               const received = new Set<number>();
@@ -2746,6 +2753,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 () => client.classifyAnchorShots(
                   candidateFrames.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" as const })),
                   references,
+                  {},
+                  { seatedAtDesk: true }, // §168-b — 재투표도 같은 정의로 판단해야 일관된다.
                 ),
               );
               let revotes = 0;
