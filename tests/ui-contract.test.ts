@@ -855,13 +855,15 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(confirmArea.slice(0, 3000), /if \(!confirmed\) \{/u, "미확인 기각 분기가 없다");
   });
 
-  it("스윕 미달 앵커 판정(0.75~)은 2표 구제를 태우고, 칼럼 시작 채택 전 중간점을 확인한다(§172)", () => {
+  it("스윕 미달 앵커 판정(0.75~)은 2표 구제를 태우고, 칼럼 시작 채택 전 직전 경계 시작부를 확인한다(§172)", () => {
     // §172-b — 7/13 실측: 188→앵커(0.81)를 임계에서 버려 189.8이 FN이 됐다.
     assert.match(indexSource, /wideGapTimes\.has\(probe\.time\) && result\.confidence >= 0\.75/u, "미달 구제 수집이 없다");
     assert.match(indexSource, /const weakRescueCandidates = wideGapWeakHits\.filter/u, "구제 후보가 2표 절차에 합류해야 한다");
-    // §172-a — 6/29 실측: 칼럼 중간 820을 새 시작으로 오인, §170-d 연쇄로 진짜 866.8 폐기.
-    const midArea = indexSource.slice(indexSource.indexOf("§172-a 중간점 확인"));
-    assert.match(midArea.slice(0, 1600), /midStanding !== false/u, "중간점 판정 불가는 보수적으로 기각해야 한다");
+    // §172-a — 6/29 실측: 칼럼 중간 820을 새 시작으로 오인. 판별점은 중간점이 아니라 직전 경계
+    // +2초여야 한다(중간점은 칼럼의 자료 화면 삽입에 속는다 — 2차 실측).
+    const openArea = indexSource.slice(indexSource.indexOf("§172-a 직전 경계 시작부 확인"));
+    assert.match(openArea.slice(0, 2000), /previousBoundary \+ 2\.0/u, "판별점은 직전 경계 +2초여야 한다");
+    assert.match(openArea.slice(0, 2000), /openingStanding !== false/u, "시작부 판정 불가는 보수적으로 기각해야 한다");
   });
 
   it("칼럼 시작을 확정하면 그 블록 안의 회수분을 버린다 — 칼럼은 통째로 하나(§170-d)", () => {
