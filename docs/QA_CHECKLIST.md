@@ -10,11 +10,11 @@
 - **M — mock/순수 테스트**: Premiere/UXP 어댑터를 가짜 객체로 검증한 결과
 - **H — host 테스트**: 실제 Premiere Pro/UXP/Media Encoder/파일 시스템에서 사람이 확인한 결과
 
-**2026-07-16 상태 갱신** — 최신 게이트는 `npm run check` 1792/1792 테스트 통과, 실기 스모크 6/6이다(런북 §54). 아래 문단은 2026-07-12 시점 기록이다.
+**2026-07-16 상태 갱신** — 최신 게이트는 `npm run check` 전체 테스트 통과(개수는 게이트 출력이 기준 — 2026-08-02 기준 1889개), 실기 스모크 11/11이다(`host:smoke:full`, 목록은 BETA_RELEASE_CHECKLIST 2절). 아래 문단은 2026-07-12 시점 기록이다.
 
-범위 재정의 전 기준선은 `npm test` 864/864 통과입니다. 2026-07-12 현재 변경을 포함한 `npm run check`는 `typecheck`, `lint`, `build`, dist 검증과 전체 1017/1017 테스트를 통과했습니다. 검증 증거와 CCX/SHA-256은 검증된 체크포인트를 먼저 커밋하고 작업 트리가 clean인 상태에서 `npm run beta:evidence:verified`를 실행해 새로 생성해야 하며, 더티 작업 트리에서 만든 산출물은 최종 증거로 사용하지 않습니다. 실제 Premiere/UXP smoke에서는 패널 로드, bootstrap, UDT watch/reload 가능 상태, 빈 프로젝트·활성 시퀀스 없음 상태 안내, QC 정상 실패 처리, 테스트 MP4 import, 활성 시퀀스 생성, 테스트 클립 삽입, 기본 QC, 최신 dist 탭 전환과 마커 탭 표시를 확인했습니다. 이후 실제 Host에서 `1080×1920`, 길이 약 `00:04`, 비디오 트랙 3개, 오디오 트랙 4개 QC를 재확인했고, 상태 UI에서 플레이헤드와 In/Out 범위도 읽었습니다. 최종 QC 실제 Host 실행 결과는 `PASS 16 · WARNING 4 · ERROR 4`이며, frame size·aspect ratio·guide overlay·output path 네 항목이 현재 fixture의 차단 오류로 남아 있어 내부 베타 승인을 뜻하지 않습니다. 진단은 Premiere 26.3.0과 UXP `uxp-9.3.0-local`에서 `compatible: true`를 확인했습니다. 캡션 트랙 없음 경고는 SRT 삽입 전 정상 경고로 기록합니다. Premiere `sequence.getSelection().getTrackItems()`가 비어도 개별 TrackItem `getIsSelected()`가 true를 반환하는 Host 차이를 발견해 트랙 스캔 fallback을 구현했고, 관련 Premiere mock 테스트와 실제 Host 패널 UI `타임라인 4개 선택 · 00:06` 표시를 확인했습니다. 자동 컷은 SRT fallback dry-run, 추천 마커, 원본 보존 복제 시퀀스 적용을 실제 Host에서 확인했습니다. 무음 간격 fixture로 CUT 2개·ZOOM 2개가 분석되고 복제본에 `SF CUT 01/02`·`SF ZOOM` 마커가 배치됨을 확인했으며, 복제 준비 실패 정리와 클립 경계 펀치인 키프레임은 회귀 테스트로 보강했습니다. 이 결과는 4주차 최종 승인 게이트를 대신하지 않으며 TTS live/API 삽입은 최종 승인 전 Host에서 다시 확인합니다. Premiere Pro 26.3 UXP Canvas는 현재 썸네일 PNG/JPG export에 필요한 `drawImage`/text/export 기능이 부족하므로 코드가 PNG/JPG 내보내기 UI를 비활성화하고 이미지 data URL을 내장하는 SVG fallback 저장 버튼을 제공합니다. Safe Zone 오버레이는 Canvas 없이 BMP로 생성되며 실제 Host에서 ShortFlow 가이드 에셋 import와 프로그램 모니터 표시까지 확인했습니다. SRT 파일 import는 실제 파일 선택창으로 자막 편집기에 2개 cue가 로드됨을 확인했고, 음악/SFX는 실제 폴더 동기화, WAV A1 타임라인 삽입, Premiere 소스 모니터 미리듣기·자동 재생을 확인했습니다. 공개 UXP API에는 caption track item 생성 API가 없어 SRT는 파일 저장·프로젝트 가져오기까지를 보장합니다.
+범위 재정의 전 기준선은 `npm test` 864/864 통과입니다. 2026-07-12 현재 변경을 포함한 `npm run check`는 `typecheck`, `lint`, `build`, dist 검증과 전체 전체 통과(게이트 출력 기준) 테스트를 통과했습니다. 검증 증거와 CCX/SHA-256은 검증된 체크포인트를 먼저 커밋하고 작업 트리가 clean인 상태에서 `npm run beta:evidence:verified`를 실행해 새로 생성해야 하며, 더티 작업 트리에서 만든 산출물은 최종 증거로 사용하지 않습니다. 실제 Premiere/UXP smoke에서는 패널 로드, bootstrap, UDT watch/reload 가능 상태, 빈 프로젝트·활성 시퀀스 없음 상태 안내, QC 정상 실패 처리, 테스트 MP4 import, 활성 시퀀스 생성, 테스트 클립 삽입, 기본 QC, 최신 dist 탭 전환과 마커 탭 표시를 확인했습니다. 이후 실제 Host에서 `1080×1920`, 길이 약 `00:04`, 비디오 트랙 3개, 오디오 트랙 4개 QC를 재확인했고, 상태 UI에서 플레이헤드와 In/Out 범위도 읽었습니다. 최종 QC 실제 Host 실행 결과는 `PASS 16 · WARNING 4 · ERROR 4`이며, frame size·aspect ratio·guide overlay·output path 네 항목이 현재 fixture의 차단 오류로 남아 있어 내부 베타 승인을 뜻하지 않습니다. 진단은 Premiere 26.3.0과 UXP `uxp-9.3.0-local`에서 `compatible: true`를 확인했습니다. 캡션 트랙 없음 경고는 SRT 삽입 전 정상 경고로 기록합니다. Premiere `sequence.getSelection().getTrackItems()`가 비어도 개별 TrackItem `getIsSelected()`가 true를 반환하는 Host 차이를 발견해 트랙 스캔 fallback을 구현했고, 관련 Premiere mock 테스트와 실제 Host 패널 UI `타임라인 4개 선택 · 00:06` 표시를 확인했습니다. 자동 컷은 SRT fallback dry-run, 추천 마커, 원본 보존 복제 시퀀스 적용을 실제 Host에서 확인했습니다. 무음 간격 fixture로 CUT 2개·ZOOM 2개가 분석되고 복제본에 `SF CUT 01/02`·`SF ZOOM` 마커가 배치됨을 확인했으며, 복제 준비 실패 정리와 클립 경계 펀치인 키프레임은 회귀 테스트로 보강했습니다. 이 결과는 4주차 최종 승인 게이트를 대신하지 않으며 TTS live/API 삽입은 최종 승인 전 Host에서 다시 확인합니다. Premiere Pro 26.3 UXP Canvas는 현재 썸네일 PNG/JPG export에 필요한 `drawImage`/text/export 기능이 부족하므로 코드가 PNG/JPG 내보내기 UI를 비활성화하고 이미지 data URL을 내장하는 SVG fallback 저장 버튼을 제공합니다. Safe Zone 오버레이는 Canvas 없이 BMP로 생성되며 실제 Host에서 ShortFlow 가이드 에셋 import와 프로그램 모니터 표시까지 확인했습니다. SRT 파일 import는 실제 파일 선택창으로 자막 편집기에 2개 cue가 로드됨을 확인했고, 음악/SFX는 실제 폴더 동기화, WAV A1 타임라인 삽입, Premiere 소스 모니터 미리듣기·자동 재생을 확인했습니다. 공개 UXP API에는 caption track item 생성 API가 없어 SRT는 파일 저장·프로젝트 가져오기까지를 보장합니다.
 
-후속 dirty 후보에는 폴더용 빈 확장자 `""`과 `media-picker` fallback, 썸네일 출력 폴더 persistent token, 파괴적 복구 fail-closed가 구현됐습니다. 관련 asset-library·thumbnail-controller·recovery 테스트는 test compile 후 88/88 통과했습니다. 아래에서 해당 항목의 자동/mock 구현과 실제 Host pending을 분리합니다. 이 변경은 위 1017/1017 체크포인트 이후이므로 최신 전체 `npm run check`와 Premiere 26.3 reload 전에는 Host 또는 릴리스 통과로 표시하지 않습니다.
+후속 dirty 후보에는 폴더용 빈 확장자 `""`과 `media-picker` fallback, 썸네일 출력 폴더 persistent token, 파괴적 복구 fail-closed가 구현됐습니다. 관련 asset-library·thumbnail-controller·recovery 테스트는 test compile 후 88/88 통과했습니다. 아래에서 해당 항목의 자동/mock 구현과 실제 Host pending을 분리합니다. 이 변경은 위 전체 통과(게이트 출력 기준) 체크포인트 이후이므로 최신 전체 `npm run check`와 Premiere 26.3 reload 전에는 Host 또는 릴리스 통과로 표시하지 않습니다.
 
 ## 내부 베타 범위 게이트
 
@@ -29,13 +29,13 @@
 - [x] Safe Zone overlay·기본 정렬 변경의 mock 통합 검증
 - [x] 발화 보호 자동 컷 마커와 기본 펀치인 mock 경계
 - [x] 설정·자동저장·복구·사용자 실행 로컬 진단의 내부 베타 통합 검토
-- [x] 마지막 검증된 체크포인트의 `typecheck`, `lint`, `test`, `build`와 dist 최종 검증. 전체 1017/1017 통과
+- [x] 마지막 검증된 체크포인트의 `typecheck`, `lint`, `test`, `build`와 dist 최종 검증. 전체 테스트 통과(게이트 출력 기준)
 - [x] 후속 dirty 후보의 asset-library·thumbnail-controller·recovery 관련 테스트가 test compile 후 88/88 통과
 - [ ] 폴더 열기·썸네일 출력 token·복구 fail-closed 후속 dirty 변경을 포함한 전체 `npm run check` 재실행
 - [ ] 남은 Host gate 통과와 자동 게이트 성공 후 검증된 체크포인트 커밋 생성
 - [ ] clean committed worktree에서 `npm run beta:evidence:verified`를 실행해 CCX·SHA-256·증거를 새로 생성
 
-다음은 현재 게이트에서 제외합니다: 결제/라이선스, SaaS 계정·서버, 자동 텔레메트리 서버, AI 이미지·영상 생성 전체 파이프라인, 썸네일 AI 대화·A/B 판단, 고급 비트 매칭·자동 덕킹, 다국어, 스마트 리프레임, 업로드 패키지 자동화.
+다음은 현재 게이트에서 제외합니다: 결제/라이선스, SaaS 계정·서버, 자동 텔레메트리 서버, AI 이미지·영상 생성 전체 파이프라인, 썸네일 AI 대화·A/B 판단, 고급 비트 매칭·자동 덕킹, 다국어 TTS 더빙(영구 제외), 썸네일 A/B 자동 판단.
 
 아래 세부 체크리스트 중 내부 베타 범위를 벗어난 항목은 기존 회귀 참고 또는 후속 배포 준비용이며 현재 완료를 막지 않습니다.
 
@@ -58,9 +58,10 @@
 - [ ] 새 릴리스 소스에서 Node.js 20.19+ `npm install`이 성공합니다.
 - [x] `npm run typecheck`가 성공합니다(2026-07-11 현재 작업 트리).
 - [x] 1주차 Mock 기준선에서 `npm run lint`가 성공했습니다. 최종 소스에서 다시 실행합니다.
-- [x] 마지막 검증된 체크포인트의 `npm test`가 1017/1017로 통과했고 테스트 수 감소가 없습니다.
+- [x] 마지막 검증된 체크포인트의 `npm test`가 전체 통과(게이트 출력 기준)로 통과했고 테스트 수 감소가 없습니다.
 - [x] 1주차 Mock 기준선에서 `npm run build`와 dist 검증이 성공했습니다. 최종 소스에서 다시 실행합니다.
-- [x] 마지막 검증된 체크포인트의 `npm run check`가 1017/1017로 성공했습니다. 후속 dirty 후보는 재실행 전입니다.
+- [x] 마지막 검증된 체크포인트의 `npm run check`가 전체 통과(게이트 출력 기준)로 성공했습니다. 후속 dirty 후보는 재실행 전입니다.
+- [x] 뉴스 분할 로직(src/news-visual-cut.ts·news-cut.ts·참조 뱅크·모델)을 수정한 릴리스는 `npm run check:news`(고정 회차 경계 F1 스냅샷)를 통과했습니다 — 스캔 캐시가 필요해 메인 check에는 미포함.
 - [x] `npm run beta:evidence`가 최신 Host gate 체크리스트 기준의 증거 템플릿을 생성하는 경로를 제공합니다.
 - [x] `npm run beta:evidence:verified`는 clean committed worktree를 요구하고 Git commit/tree를 기록하도록 보강했습니다.
 - [ ] 남은 Host gate와 자동 게이트를 통과한 체크포인트를 커밋한 뒤, clean worktree에서 `npm run beta:evidence:verified`를 실행해 최종 증거를 생성합니다.
@@ -104,9 +105,9 @@
 
 M 통과만으로 실제 UXP method 이름, Premiere 프로젝트 mutation, 코덱, Canvas 구현과 OS 권한을 보증하지 않습니다.
 
-## H — Premiere 설치 직후 필수 smoke 12개
+## H — Premiere 설치 직후 필수 smoke
 
-상세 절차와 차단 조건은 [실제 Host Smoke Runbook](HOST_BETA_RUNBOOK.md)을 따릅니다.
+상세 절차와 차단 조건은 [실제 Host Smoke Runbook](HOST_BETA_RUNBOOK_ARCHIVE.md)을 따릅니다.
 
 - [x] UXP 패널 Add/Load/Reload/닫기·재열기 제한 확인
 - [x] Mock Host와 실제 Host adapter 전환 안전성 제한 확인
@@ -153,7 +154,7 @@ M 통과만으로 실제 UXP method 이름, Premiere 프로젝트 mutation, 코�
 
 ## 6. H — 자산·레퍼런스·썸네일
 
-- [x] 자산 루트 선택 시 Music/SFX/References/Images/References/Videos/Thumbnails/Exports 구조를 준비합니다.
+- [x] 자산 루트 선택 시 Music/SFX/References/Images/Videos/Thumbnails/Exports 구조를 준비합니다.
 - [ ] 앱 재시작 후 persistent token을 복구하며 만료 시 재선택을 요구합니다.
 - [ ] 깊이 5/최대 5,000 항목, 검색/종류/정렬과 중복 경로 제거가 UI와 일치합니다.
 - [ ] 시스템 폴더 열기 — manifest의 폴더용 `""`, 명시적 `allowFolderLaunch`, `system-folder`/allowlisted audio `media-picker` fallback은 구현됐습니다. Premiere 26.3에서 동의창·Explorer/Finder 열기와 fallback 시작 위치·선택·취소를 실제 확인해야 합니다.

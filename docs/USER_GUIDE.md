@@ -1,6 +1,6 @@
 # ShortFlow Studio 내부 베타 사용 가이드
 
-- 기준일: 2026-07-16 · 패키지: `release/ShortFlow-Studio-1.0.0.ccx` (SHA-256 `fef9093cae3618f37163616f4eec0acba38ad61c9ef8036a9307d99895cb3ec7`, 난독화·시리얼 키 적용판)
+- 기준일: 2026-08-02 · 패키지: `release/ShortFlow-Studio-1.0.0.ccx` — SHA-256은 문서에 박아 두지 않습니다. 패키지와 함께 배포되는 `release/ShortFlow-Studio-1.0.0.ccx.sha256.txt`가 유일한 기준이며, 재패키징 때마다 갱신됩니다(문서에 적힌 옛 해시로 검증하면 정상 패키지도 실패로 오인합니다).
 - 대상: Premiere Pro 내부 베타 참가자. 이 플러그인은 로컬 도구이며 판매·서버 운영 기능이 없습니다.
 
 ## 설치

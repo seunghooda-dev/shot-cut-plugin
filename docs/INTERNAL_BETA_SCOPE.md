@@ -56,7 +56,7 @@
 - 썸네일 AI 대화 수정·A/B 자동 판단
 - 다국어 TTS 더빙 — **영구 제외**(2026-07-16 사용자 지시. 번역 SRT v1은 출시됨)
 
-다음 항목은 원래 후순위였으나 2026-07-13~15 사용자 지시로 당겨져 **출시 완료**됐다(상세는 런북 §29~§53).
+다음 항목은 원래 후순위였으나 2026-07-13~15 사용자 지시로 당겨져 **출시 완료**됐다(상세는 아카이브 런북(HOST_BETA_RUNBOOK_ARCHIVE.md) §29~§53).
 
 - AI 이미지·영상 생성 파이프라인(레퍼런스 이미지 생성·영상 생성, 4K 업스케일 제외)
 - BGM 비트 스냅·자동 덕킹
@@ -76,7 +76,7 @@
 
 ## Premiere 설치 후 실제 Host 승인 조건
 
-Mock Host 통과는 실제 Premiere 동작을 보증하지 않습니다. 설치 후 [실제 Host Smoke Runbook](HOST_BETA_RUNBOOK.md)의 12개 필수 항목과 다음 환경 경계를 별도로 확인해야 합니다.
+Mock Host 통과는 실제 Premiere 동작을 보증하지 않습니다. 설치 후 [실제 Host Smoke Runbook](HOST_BETA_RUNBOOK_ARCHIVE.md)의 필수 스모크 항목(현행 자동 11개는 BETA_RELEASE_CHECKLIST 2절·`host:smoke:full` 기준)과 다음 환경 경계를 별도로 확인해야 합니다.
 
 - 패널 로드·재로드·닫기와 listener/timer 수명주기
 - 프로젝트·시퀀스 전환과 프로젝트별 autosave

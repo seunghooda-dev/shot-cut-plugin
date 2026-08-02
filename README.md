@@ -6,20 +6,19 @@ ShortFlow Studio는 Adobe Premiere Pro용 UXP 숏폼 제작 패널입니다. 현
 
 현재는 Mock Host와 실제 Premiere 개발 로드 확인을 분리해 검증하고 있습니다. Premiere/UXP 기본 로드, 패널 표시, 테스트 MP4 프로젝트 import, 활성 시퀀스 생성, 기본 QC, Safe Zone BMP overlay, SRT 파일 import, 음악/SFX 폴더 동기화와 WAV A1 삽입, 타임라인 TrackItem 선택 감지, 자동 컷 dry-run과 추천 마커 추가를 실제 Host smoke로 확인했습니다. 추가로 무음 간격 SRT를 사용해 원본 시퀀스를 보존하고 새 복제 시퀀스에 `SF CUT 01/02`와 `SF ZOOM` 마커를 적용하는 기본 자동 컷·펀치인 Host 경로도 통과했습니다. TTS live/API 삽입은 내부 베타 최종 승인 전 별도 Host gate로 수행합니다.
 
-- 범위 재정의 직전 Node 기반 정적/mock 기준선: **864개 통과**
-- 현재 Mock 기준선: **전체 1437/1437 통과** (2026-07-13 도메인별 hardening으로 +374개 확충, 테스트가 없던 final-qc·brand-kit·ai-queue controller 신규 커버)
-- 현재 TypeScript, 전체 ESLint, Vite build, `dist` 구조 검증 통과
+- 자동 게이트: `npm run check`(typecheck·lint·build·test — 테스트 개수는 계속 늘어나므로 숫자는 게이트 출력이 기준이다. 2026-08-02 기준 1889개 통과)
+- 분할 로직 회귀 게이트: `npm run check:news`(고정 회차 경계 F1 스냅샷 — 분할 관련 수정 후 필수)
 - CCX/SHA-256 증거는 검증된 체크포인트 커밋 후 clean 작업 트리에서 `npm run beta:evidence:verified`로 새로 생성합니다. dirty worktree에서 생성된 임시 SHA는 최종 후보로 기록하지 않습니다.
-- Premiere Pro/UXP Developer Tool 실제 실행: **기본 로드, UDT watch/reload, 패널 표시, 테스트 MP4 import, 활성 시퀀스 기본 QC, Safe Zone overlay, SRT import, 음악/SFX WAV 삽입·소스 모니터 미리듣기, TrackItem 선택 감지, 자동 컷·펀치인 복제 적용 확인**
-- TTS live/API 삽입, Media Encoder, Windows/macOS CCX 설치, Adobe 서명, Marketplace 심사: **아직 완료하지 않음**
+- Premiere 실기 검증: `npm run host:smoke:full` 11개 체크(패널 부팅·13탭·컨텍스트·UI 계약·SRT 라운드트립·트랜스크립트 첨부·한글 경로·리스너 수명주기·원본 보존·시퀀스 전환 복귀·상태 표시 일치) + 뉴스 분할 실기 블라인드 41회차 중 40회차 F1 100
+- Media Encoder 연동은 내보내기 탭에서 동작합니다(AME 있으면 대기열, 없으면 Premiere 직접 렌더). Adobe 서명·Marketplace 심사는 **하지 않음**(내부 베타 범위 밖)
 
-자동 테스트는 순수 로직과 어댑터 경계를 검증하지만 Premiere 프로젝트 변경, UXP 버전 차이, 파일 권한, Media Encoder 연동과 실제 렌더 결과를 보증하지 않습니다. 현재 포함·제외 기준은 [내부 베타 범위](docs/INTERNAL_BETA_SCOPE.md), 4주 진행 순서는 [로드맵](docs/ROADMAP.md), 설치 후 검증은 [실제 Host smoke runbook](docs/HOST_BETA_RUNBOOK.md), 전체 검증은 [QA 체크리스트](docs/QA_CHECKLIST.md)와 [요구사항 추적표](docs/REQUIREMENTS_MATRIX.md), 최종 커밋 직전 판단은 [내부 베타 체크포인트 체크리스트](docs/BETA_RELEASE_CHECKLIST.md)를 확인해 주세요.
+자동 테스트는 순수 로직과 어댑터 경계를 검증하지만 UXP 버전 차이와 실제 렌더 결과 전부를 보증하지는 않습니다. 현재 포함·제외 기준은 [내부 베타 범위](docs/INTERNAL_BETA_SCOPE.md), 진행 순서는 [로드맵](docs/ROADMAP.md), 설치 후 검증 절차는 [베타 체크리스트](docs/BETA_RELEASE_CHECKLIST.md) 2절(자동 항목은 `host:smoke:full`로 갈음), 전체 검증은 [QA 체크리스트](docs/QA_CHECKLIST.md)와 [요구사항 추적표](docs/REQUIREMENTS_MATRIX.md)를 확인해 주세요. [HOST_BETA_RUNBOOK.md](docs/HOST_BETA_RUNBOOK.md)는 뉴스 분할 연구 로그(§133~)이고, 그 이전 절차·기록은 [아카이브](docs/HOST_BETA_RUNBOOK_ARCHIVE.md)에 있습니다.
 
 ## 내부 베타 범위 요약
 
-내부 베타에는 자막/STT/SRT, 단어 타임스탬프 편집, 기본 TTS, 음악/SFX 폴더와 삽입, 수동 썸네일, Safe Zone, 기본 자동 컷/펀치인, 로컬 설정·복구·진단, 에셋 권리 관리와 자동 품질 게이트를 포함합니다.
+내부 베타에는 **뉴스 분할(첫 번째 탭 — 원클릭 화면 분석·선택적 AI 비전 검증)**, 자막/STT/SRT, 단어 타임스탬프 편집, 기본 TTS, 음악/SFX 폴더와 삽입, 썸네일(변형 3종·AI 보정 활성), Safe Zone, 자동 컷/펀치인(AI 하이라이트 후보 스캔·인물 추적 리프레임 포함), AI 이미지·영상 생성(4K 업스케일 제외), BGM 비트 스냅·자동 덕킹, 다국어 SRT 내보내기, 업로드 패키지, 로컬 설정·복구·진단, 에셋 권리 관리와 자동 품질 게이트를 포함합니다. 상세와 편입 시점은 [내부 베타 범위](docs/INTERNAL_BETA_SCOPE.md)가 기준입니다.
 
-결제·라이선스·SaaS 서버, 자동 텔레메트리 서버, AI 이미지·영상 생성 전체 파이프라인, 썸네일 AI 대화/A-B 판단, 고급 비트 매칭·자동 덕킹, 다국어·스마트 리프레임·업로드 패키지는 후순위입니다. 기존 코드가 있더라도 현재 추가 확장하지 않습니다.
+결제·라이선스 플랜·SaaS 서버, 자동 텔레메트리 서버, 썸네일 A/B 자동 판단은 후순위입니다. 다국어 TTS 더빙은 영구 제외입니다.
 
 ## 요구 사항
 
@@ -61,7 +60,7 @@ ShortFlow Studio는 Adobe Premiere Pro용 UXP 숏폼 제작 패널입니다. 현
 - 입력 이미지는 최대 4개, 각 10MB 이하의 PNG/JPEG/WebP입니다.
 - 패널의 이미지·음성·텍스트 AI 요청은 `https://api.openai.com/v1` 공식 API로만 전송합니다. 저장된 레거시 endpoint/provider 값도 실행 전에 공식 origin으로 정규화합니다.
 - manifest 네트워크 허용 대상은 `https://api.openai.com`뿐이며 패널에서 custom endpoint/provider를 지원하지 않습니다.
-- 이미지 편집 코드는 회귀 보호를 위해 유지하지만, 내부 베타 UI에서는 썸네일 AI 보정을 숨김·비활성 상태로 둡니다. 내부 베타의 AI 이미지·영상 범위는 레퍼런스 보드와 외부 파일 정리입니다.
+- 썸네일 AI 보정(자연어 대화형 수정)은 2026-07-13 사용자 지시로 내부 베타 UI에서 활성 상태입니다. A/B 자동 판단만 후순위로 남습니다. 내부 베타의 AI 이미지·영상 범위는 [내부 베타 범위](docs/INTERNAL_BETA_SCOPE.md)의 "AI 이미지·영상 허용 범위"가 기준입니다.
 
 ### TTS
 
@@ -118,8 +117,10 @@ npm run check
 - `npm run verify:speech:live`: `OPENAI_API_KEY` 환경변수로 실제 OpenAI TTS→STT smoke 검증 실행
 - `npm run verify:speech:local`: 로컬 `openai-whisper` 패키지로 한국어 테스트 WAV를 전사하고 TXT/SRT/단어 타임스탬프 JSON 검증
 - `npm run host:smoke`: 실행 중인 Premiere 실기에서 비파괴 회귀 스모크(부팅·13탭·호스트 컨텍스트·UI 계약) 실행 — UDT 서비스 필요
-- `npm run host:smoke:full`: 위에 자체 정리 E2E(자막 SRT 라운드트립·트랜스크립트 첨부)까지 추가 실행
+- `npm run host:smoke:full`: 위에 full 티어 7개(자막 SRT 라운드트립·트랜스크립트 첨부·한글 경로 왕복·리스너 수명주기·원본 보존·시퀀스 전환 복귀·상태 표시 일치)를 추가해 총 11개 체크 실행
 - `npm run check`: typecheck, lint, test, build 전체 게이트
+- `npm run check:news`: 뉴스 분할 오프라인 회귀 게이트(분할 로직 수정 후 필수, 스캔 캐시 필요)
+- `npm run clean:previews`: 배치가 만든 Premiere 오디오 프리뷰 캐시 회수(기본 드라이런, `-- --apply`로 삭제)
 - `npm run package:ccx`: CCX 후보와 SHA-256 생성 후 릴리스 산출물 검증
 - `npm run package:ccx:force`: 같은 버전의 서로 다른 기존 CCX를 명시적으로 교체 후 릴리스 산출물 검증
 - `npm run clean`: build/test/release 산출물 정리
@@ -204,8 +205,8 @@ npm run package:ccx
 
 ## 공개 API와 제품 제약
 
-- Premiere 내장 Auto Reframe 명령을 직접 호출하지 않습니다. 현재 리프레임은 공개 API로 가능한 스케일·위치 계산이며 얼굴/피사체 추적이 아닙니다.
-- AI가 영상 내용을 판단해 하이라이트를 고르는 기능은 없습니다. 자동 편집은 STT 시간 구간, 무음과 명시적 키워드/구두점 규칙을 사용한 검토 가능한 계획입니다.
+- Premiere 내장 Auto Reframe 명령을 직접 호출하지 않습니다. 리프레임은 공개 API로 가능한 스케일·위치 계산이며, 샷 단위 인물 위치를 OpenAI 비전으로 감지해 프레이밍에 반영합니다(내장 얼굴 추적 API를 쓰는 것은 아닙니다).
+- AI 자동 컷은 하이라이트 후보를 AI 분석으로 스캔해 제안하고, 사용자가 선택한 구간만 생성합니다 — 자동 판단이 아니라 검토 가능한 제안입니다.
 - OpenAI STT로 SRT/텍스트를 생성할 수 있지만 Premiere의 내장 음성 분석/캡션 생성 명령을 호출하는 것은 아닙니다. 공개 UXP API에는 caption track item 생성 API가 없어 현재는 SRT 파일 저장·프로젝트 가져오기까지를 보장하고, 실제 캡션 트랙 배치는 Host gate에서 별도 검증합니다.
 - recovery, final QC와 diagnostics UI는 패널 작업 흐름에 연결됐지만 실제 시퀀스 mutation 결과는 최종 Host gate에서 다시 검증해야 합니다.
 - 로컬 mock 성공은 운영체제 코덱, 폰트, MOGRT, Media Encoder 프리셋과 실 렌더 품질을 보증하지 않습니다.
@@ -225,10 +226,10 @@ npm run package:ccx
 
 ## 13단계 이후 후속 기능
 
-다음 기능은 로드맵에 기록되어 있지만 13단계 이후에만 구현을 시작합니다.
+원래 13단계 이후로 계획했던 항목 대부분이 2026-07-13~15 사용자 지시로 당겨져 **출시 완료**됐습니다(상세는 [내부 베타 범위](docs/INTERNAL_BETA_SCOPE.md)와 [아카이브 런북](docs/HOST_BETA_RUNBOOK_ARCHIVE.md)).
 
-- 스마트 리프레임·피사체 추적
-- 다국어 패키지 생성
-- 썸네일 3종 변형 생성·내보내기
-- 타임코드 검토·수정 요청·버전 스냅샷
-- 플랫폼별 업로드 패키지 생성
+- ~~스마트 리프레임·피사체 추적~~ — 출시 완료
+- ~~다국어 패키지 생성~~ — 다국어 SRT 6개 언어 일괄 번역으로 출시 완료(TTS 더빙은 영구 제외)
+- ~~썸네일 3종 변형 생성·내보내기~~ — 출시 완료(A/B 자동 판단만 후순위)
+- ~~플랫폼별 업로드 패키지 생성~~ — 출시 완료
+- 타임코드 검토·수정 요청·버전 스냅샷 — **유일한 미착수 항목**
