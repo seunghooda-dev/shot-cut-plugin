@@ -855,15 +855,10 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(confirmArea.slice(0, 3000), /if \(!confirmed\) \{/u, "미확인 기각 분기가 없다");
   });
 
-  it("스윕 미달 앵커 판정(0.75~)은 2표 구제를 태우고, 칼럼 시작 채택 전 직전 경계 시작부를 확인한다(§172)", () => {
+  it("스윕 미달 앵커 판정(0.75~)은 2표 구제를 태운다(§172-b)", () => {
     // §172-b — 7/13 실측: 188→앵커(0.81)를 임계에서 버려 189.8이 FN이 됐다.
     assert.match(indexSource, /wideGapTimes\.has\(probe\.time\) && result\.confidence >= 0\.75/u, "미달 구제 수집이 없다");
     assert.match(indexSource, /const weakRescueCandidates = wideGapWeakHits\.filter/u, "구제 후보가 2표 절차에 합류해야 한다");
-    // §172-a — 6/29 실측 3회의 결론: 판별은 "서 있는가"가 아니라 **동일 코너 비교**여야 한다
-    // (중간점은 자료 화면 삽입에, 시작부 단독 판정은 타이트 샷에 속는다).
-    const openArea = indexSource.slice(indexSource.indexOf("§172-a 4차"));
-    assert.match(openArea.slice(0, 1600), /judgeSameSegment\(openingTime, probe\.time \+ 1\.2\)/u, "판별은 동일 코너 비교여야 한다");
-    assert.match(openArea.slice(0, 1600), /sameSegment !== false/u, "비교 불가는 보수적으로 기각해야 한다");
   });
 
   it("칼럼 시작을 확정하면 그 블록 안의 회수분을 버린다 — 칼럼은 통째로 하나(§170-d)", () => {

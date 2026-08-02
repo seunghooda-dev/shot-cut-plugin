@@ -3276,26 +3276,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 }
                 return bytes;
               };
-              // §172-a 동일 코너 비교 헬퍼 — 두 프레임이 같은 스튜디오 진행자 코너인지 묻는다.
-              // "서 있는가" 단독 판정은 타이트 샷(가슴 위)에서 실행마다 요동했다(6/29 실측).
-              const judgeSameSegment = async (timeA: number, timeB: number): Promise<boolean | null> => {
-                const bytesA = await grabStanding(timeA);
-                const bytesB = await grabStanding(timeB);
-                if (!bytesA || !bytesB) return null;
-                const votes = await rescueClient.classifyAnchorShots(
-                  [
-                    { bytes: bytesA, mimeType: "image/png" as const },
-                    { bytes: bytesB, mimeType: "image/png" as const },
-                  ],
-                  [],
-                  {},
-                  { sameStudioSegment: true },
-                );
-                const vote = votes[0];
-                if (!vote) return null;
-                return vote.isAnchor && vote.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE;
-              };
-              const standingProbes: Array<{ time: number; bytes: Uint8Array }> = [];
+             const standingProbes: Array<{ time: number; bytes: Uint8Array }> = [];
               for (const time of visionRejectedTimes) {
                 if (verified.some((start) => Math.abs(start - time) <= 8)) continue;
                 setText("busy-message", `칼럼 시작 확인 ${standingProbes.length + 1}/${visionRejectedTimes.length}…`);
@@ -3344,25 +3325,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                   // 7/29의 진짜 시작(296)은 직전 경계(237.5)+2초가 착석 앵커 리드라 통과한다.
                   // 판정 실패(내보내기·응답 유실)는 보수적으로 기각 — 회수는 추가라 불확실하면
                   // 안 늘린다(§121-c 원칙).
-                  const previousBoundary = [...verified].filter((time) => time < probe.time).sort((a, b) => b - a)[0];
-                  if (previousBoundary !== undefined && probe.time - previousBoundary > 16) {
-                    // §172-a 4차 — 직전 경계 시작부(+5초)와 후보 프레임을 **동일 코너 비교**로 묻는다.
-                    // "서 있는가" 단독 판정은 시작부의 타이트 샷에서 판별 불가라 실행마다 갈렸다
-                    // (2차 +2초 한 점·3차 +2/+5 두 점 모두 6/29에서 요동). 같은 진행자·같은 무대인지의
-                    // 비교는 프레이밍에 강건하고, 띠 문구가 달라도 코너 연속임을 프롬프트에 명시한다.
-                    // 판정 불가·유실은 보수 기각(§121-c) — 회수는 추가라 불확실하면 안 늘린다.
-                    const openingTime = Math.round((previousBoundary + 5.0) * 10) / 10;
-                    let sameSegment: boolean | null = null;
-                    try {
-                      sameSegment = await judgeSameSegment(openingTime, probe.time + 1.2);
-                    } catch {
-                      sameSegment = null;
-                    }
-                    if (sameSegment !== false) {
-                      activity.add("info", `칼럼 연속 기각 ${probe.time.toFixed(1)} — 직전 경계 시작부 ${openingTime.toFixed(1)}와 ${sameSegment === true ? "같은 코너(칼럼 이미 시작)" : "비교 불가(보수 기각)"}`);
-                      continue;
-                    }
-                  }
                   standingStarts.push(probe.time);
                 }
                 if (standingStarts.length > 0) {
