@@ -67,6 +67,7 @@
 - [ ] [수동] `release/ShortFlow-Studio-*.ccx`가 최신 소스에서 생성됐습니다. — `npm run beta:evidence:verified`가 게이트→빌드→패키징→검증을 한 번에 수행하나, "최신 소스인지"는 실행 시점 판단이 필요
 - [ ] [자동] `.sha256.txt` 값이 실제 CCX와 일치합니다. — `verify:release`가 대조
 - [ ] [자동] CCX 안에 `src/`, `tests/`, `node_modules/`, `.git/`, `.env`, source map, credential 파일이 없습니다. — `verify:release`의 FORBIDDEN/SENSITIVE 경로·`.map` 검사
+- [ ] [수동] 배포판 시리얼 키 게이트를 확인했습니다 — 새 CCX 설치본 첫 실행에 `SFS1.` 키 입력 화면이 뜨고, 유효 키로 통과·만료 키 거부·시계 역행 잠금이 동작합니다(`src/license.ts` Ed25519 오프라인 검증, 발급은 `scripts/license-issue.mjs`). 개발 로드(dist 직접)는 키 없이 동작하는 것이 정상입니다.
 - [ ] `beta-evidence/` 증거 파일에 최신 commit, git status, manifest, CCX SHA-256이 기록됐습니다.
 - [ ] README, ROADMAP, REQUIREMENTS_MATRIX, QA_CHECKLIST의 제한사항과 실제 상태가 서로 모순되지 않습니다.
 - [ ] 체크포인트 커밋 메시지는 내부 베타 검증 범위와 남은 Host 제한을 함께 설명합니다.
