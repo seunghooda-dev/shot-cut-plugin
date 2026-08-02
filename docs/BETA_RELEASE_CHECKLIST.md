@@ -56,7 +56,7 @@
 
 ## 4. 민감정보와 로컬 파일 경로
 
-- [ ] 진단 JSON에는 API key, Authorization header, access/refresh token, 원고, prompt, 로컬 경로, 미디어명이 남지 않습니다.
+- [ ] [자동] 진단 JSON에는 API key, Authorization header, access/refresh token, 원고, prompt, 로컬 경로, 미디어명이 남지 않습니다. — `tests/diagnostics.test.ts`·`diagnostics-panel.test.ts`가 민감정보 제거를 단위 검증(매 `npm test`)
 - [ ] 최종 QC와 권리 리포트는 로컬 내부용 산출물로 취급하며 외부 공유 전 sequence name, output name, asset name, attribution, asset id를 검토합니다.
 - [ ] 복구 저널 UI에는 테스트 프로젝트명과 테스트 미디어명만 표시됩니다.
 - [ ] 자동 텔레메트리 서버 전송은 기본 꺼짐이며 내부 베타에서는 사용하지 않습니다.
@@ -64,9 +64,9 @@
 
 ## 5. 산출물 고정
 
-- [ ] `release/ShortFlow-Studio-*.ccx`가 최신 소스에서 생성됐습니다.
-- [ ] `.sha256.txt` 값이 실제 CCX와 일치합니다.
-- [ ] CCX 안에 `src/`, `tests/`, `node_modules/`, `.git/`, `.env`, source map, credential 파일이 없습니다.
+- [ ] [수동] `release/ShortFlow-Studio-*.ccx`가 최신 소스에서 생성됐습니다. — `npm run beta:evidence:verified`가 게이트→빌드→패키징→검증을 한 번에 수행하나, "최신 소스인지"는 실행 시점 판단이 필요
+- [ ] [자동] `.sha256.txt` 값이 실제 CCX와 일치합니다. — `verify:release`가 대조
+- [ ] [자동] CCX 안에 `src/`, `tests/`, `node_modules/`, `.git/`, `.env`, source map, credential 파일이 없습니다. — `verify:release`의 FORBIDDEN/SENSITIVE 경로·`.map` 검사
 - [ ] `beta-evidence/` 증거 파일에 최신 commit, git status, manifest, CCX SHA-256이 기록됐습니다.
 - [ ] README, ROADMAP, REQUIREMENTS_MATRIX, QA_CHECKLIST의 제한사항과 실제 상태가 서로 모순되지 않습니다.
 - [ ] 체크포인트 커밋 메시지는 내부 베타 검증 범위와 남은 Host 제한을 함께 설명합니다.
