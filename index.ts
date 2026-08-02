@@ -3341,15 +3341,25 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                   // 안 늘린다(§121-c 원칙).
                   const previousBoundary = [...verified].filter((time) => time < probe.time).sort((a, b) => b - a)[0];
                   if (previousBoundary !== undefined && probe.time - previousBoundary > 16) {
-                    const openingTime = Math.round((previousBoundary + 2.0) * 10) / 10;
+                    // 시작부는 +2초와 +5초 두 점을 본다(§172-a 3차) — +2초 한 점은 경계 직후의
+                    // 전환(디졸브·그래픽) 프레임에 떨어질 수 있어 실행마다 판정이 갈렸다(6/29
+                    // 실측: 같은 빌드 2실행이 FP 819 유/무로 갈림). 어느 한 점이라도 서 있는
+                    // 진행자면 칼럼이 이미 시작된 것이다. 두 점 모두 판정 불가면 보수 기각.
                     let openingStanding: boolean | null = null;
-                    try {
-                      openingStanding = await judgeStanding(openingTime);
-                    } catch {
-                      openingStanding = null;
+                    let judgedAt = previousBoundary + 2.0;
+                    for (const offset of [2.0, 5.0]) {
+                      const openingTime = Math.round((previousBoundary + offset) * 10) / 10;
+                      let vote: boolean | null = null;
+                      try {
+                        vote = await judgeStanding(openingTime);
+                      } catch {
+                        vote = null;
+                      }
+                      if (vote === true) { openingStanding = true; judgedAt = openingTime; break; }
+                      if (vote === false) { openingStanding = false; judgedAt = openingTime; }
                     }
                     if (openingStanding !== false) {
-                      activity.add("info", `칼럼 연속 기각 ${probe.time.toFixed(1)} — 직전 경계 시작부 ${openingTime.toFixed(1)} ${openingStanding === true ? "서 있는 진행자(칼럼 이미 시작)" : "판정 불가(보수 기각)"}`);
+                      activity.add("info", `칼럼 연속 기각 ${probe.time.toFixed(1)} — 직전 경계 시작부 ${judgedAt.toFixed(1)} ${openingStanding === true ? "서 있는 진행자(칼럼 이미 시작)" : "판정 불가(보수 기각)"}`);
                       continue;
                     }
                   }
