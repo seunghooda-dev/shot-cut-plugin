@@ -350,4 +350,52 @@ export const checks = [
       }
     },
   },
+  {
+    name: "sequence-switch-recover",
+    tier: "full",
+    about: "시퀀스 전환 후에도 패널이 새 활성 시퀀스를 올바로 보고, 원래 시퀀스로 복귀한다(내부 베타 승인 조건: 전환)",
+    async run(panel) {
+      // 전환 자체가 실기 상태를 흔드는 프로브다 — 어떤 경로로 실패해도 원래 활성 시퀀스로
+      // 복귀해야 하므로 원복을 finally에 둔다. 실기 체인이 이 뒤에 이어져도 안전해야 한다.
+      const original = await evalAsyncProbe(panel, `
+        const ppro = require('premierepro');
+        const project = await ppro.Project.getActiveProject();
+        const active = await project.getActiveSequence();
+        out.name = active ? String(active.name) : null;
+      `);
+      if (!original.out?.name) return { pass: false, details: "활성 시퀀스가 없어 전환 검증 불가" };
+      try {
+        const probe = await evalAsyncProbe(panel, `
+          const ppro = require('premierepro');
+          const project = await ppro.Project.getActiveProject();
+          const scratch = await project.createSequence('HostSmoke_switch_tmp');
+          await project.setActiveSequence(scratch);
+          const nowActive = await project.getActiveSequence();
+          out.switched = nowActive ? String(nowActive.name) : null;
+        `);
+        const switched = probe.out?.switched === "HostSmoke_switch_tmp";
+        // 전환 직후 패널 쪽 컨텍스트 조회도 새 시퀀스를 봐야 한다(§40-d와 같은 경로).
+        return {
+          pass: switched,
+          details: `전환=${probe.out?.switched}${probe.err ? " err=" + probe.err : ""}`,
+        };
+      } finally {
+        await evalAsyncProbe(panel, `
+          const ppro = require('premierepro');
+          const project = await ppro.Project.getActiveProject();
+          const sequences = await project.getSequences();
+          let originalSequence = null;
+          let scratch = null;
+          for (const sequence of sequences) {
+            const name = String(sequence.name);
+            if (name === ${JSON.stringify(original.out.name)}) originalSequence = sequence;
+            if (name === 'HostSmoke_switch_tmp') scratch = sequence;
+          }
+          if (originalSequence) await project.setActiveSequence(originalSequence);
+          out.restored = originalSequence ? String((await project.getActiveSequence())?.name) : null;
+          out.deleted = scratch ? await project.deleteSequence(scratch) : "none";
+        `);
+      }
+    },
+  },
 ];
