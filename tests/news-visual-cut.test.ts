@@ -8,6 +8,7 @@ import {
   buildAnchorMatcher,
   buildItemsFromStarts,
   collectAnchorCandidates,
+  columnMidRescueDrops,
   selectAnchorMatcher,
   detectBandEvents,
   detectMismatchBorder,
@@ -233,6 +234,44 @@ describe("buildItemsFromStarts", () => {
   it("15초 미만 조각은 다음 아이템과 병합된다", () => {
     const items = buildItemsFromStarts([58, 60, 208], 400);
     assert.deepEqual(items.map((item) => [item.start, item.end]), [[58, 208], [208, 400]]);
+  });
+});
+
+describe("columnMidRescueDrops (§170-d)", () => {
+  // 7/29 실측 시나리오 — 칼럼 시작 296, 다음 검증 통과 경계 524.8, 되짚기 회수가 438을 추가.
+  const verifiedBefore = [58.5, 198.5, 237.5, 524.8, 572.5];
+
+  it("칼럼 시작~다음 검증 경계 사이의 회수분을 버린다 (7/29 FP 438 실측)", () => {
+    const merged = [...verifiedBefore, 438.0];
+    assert.deepEqual(columnMidRescueDrops([296.0], verifiedBefore, merged), [438.0]);
+  });
+
+  it("검증 경계가 칼럼 구간의 끝이 된다 — 그 앞의 회수분만 버리고 검증 경계 자신과 그 뒤는 남긴다", () => {
+    // 칼럼 시작 200 → 다음 검증 경계는 237.5. 그 사이의 회수분 220만 폐기 대상이고,
+    // 237.5(검증 통과)와 438(구간 밖)은 건드리지 않는다.
+    const merged = [...verifiedBefore, 220.0, 438.0];
+    const dropped = columnMidRescueDrops([200.0], verifiedBefore, merged);
+    assert.deepEqual(dropped, [220.0]);
+  });
+
+  it("다음 검증 경계 밖의 회수분은 남긴다", () => {
+    const merged = [...verifiedBefore, 550.0];
+    assert.deepEqual(columnMidRescueDrops([296.0], verifiedBefore, merged), []);
+  });
+
+  it("뒤에 검증 경계가 없으면 칼럼 시작 이후 회수분 전부가 폐기 대상이다", () => {
+    const dropped = columnMidRescueDrops([600.0], verifiedBefore, [...verifiedBefore, 640.0, 700.0]);
+    assert.deepEqual(dropped, [640.0, 700.0]);
+  });
+
+  it("칼럼 시작이 여러 개여도 중복 없이 모은다", () => {
+    const merged = [...verifiedBefore, 310.0, 438.0];
+    const dropped = columnMidRescueDrops([296.0, 300.0], verifiedBefore, merged);
+    assert.deepEqual(dropped, [310.0, 438.0]);
+  });
+
+  it("칼럼이 없으면 아무것도 버리지 않는다", () => {
+    assert.deepEqual(columnMidRescueDrops([], verifiedBefore, [...verifiedBefore, 438.0]), []);
   });
 });
 

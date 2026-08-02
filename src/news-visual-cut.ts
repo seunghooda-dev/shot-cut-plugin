@@ -416,6 +416,30 @@ export function buildItemsFromStarts(starts: readonly number[], endTime: number)
   return mergeShortItemsForward(items, 12).slice(0, MAX_NEWS_ITEMS);
 }
 
+/**
+ * §170-d 칼럼 중간 회수 폐기 — 칼럼 시작(standingStarts)부터 다음 **검증 통과** 경계까지
+ * 사이에 회수로 들어온 경계를 골라낸다. 칼럼은 통째로 하나(사용자 확정 규칙)인데, 되짚기
+ * 프로브가 칼럼 중간을 앵커로 오판하는 요동(7/29 8실행 중 1회, FP 438.0)은 프롬프트로 못
+ * 막으므로 구조로 막는다. 검증을 통과한 경계(verifiedBeforeRescue)는 절대 버리지 않는다.
+ */
+export function columnMidRescueDrops(
+  standingStarts: readonly number[],
+  verifiedBeforeRescue: readonly number[],
+  merged: readonly number[],
+): number[] {
+  const dropped: number[] = [];
+  for (const start of standingStarts) {
+    const nextVerified = verifiedBeforeRescue.filter((time) => time > start).sort((a, b) => a - b)[0] ?? Infinity;
+    for (const time of merged) {
+      if (time <= start || time >= nextVerified) continue;
+      if (verifiedBeforeRescue.includes(time)) continue;
+      if (dropped.includes(time)) continue;
+      dropped.push(time);
+    }
+  }
+  return dropped;
+}
+
 export interface RefineOptions {
   /** 정착 프레임과 "실질 동일"로 보는 휘도차 — 전환(디졸브) 종료 판정(§59). */
   sameThreshold?: number;

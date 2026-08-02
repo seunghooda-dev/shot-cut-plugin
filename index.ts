@@ -140,6 +140,7 @@ import {
   detectModelStarts,
   detectStaticTailStart,
   hybridAnchorTimes,
+  columnMidRescueDrops,
   isQuoteBandStats,
   isSameShotGrid,
   lowerThirdRowStats,
@@ -3249,20 +3250,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 }
                 if (standingStarts.length > 0) {
                   activity.add("info", `칼럼 시작 회수 · ${standingStarts.length}건: ${standingStarts.map((time) => time.toFixed(1)).join(" ")}`);
-                  // §170-d 칼럼은 통째로 하나(사용자 확정 규칙) — 칼럼 시작부터 다음 **검증 통과**
-                  // 경계까지 사이에 회수로 들어온 경계가 있으면 칼럼 중간이므로 버린다. 검증을
-                  // 통과한 경계는 건드리지 않는다. 실측 근거(7/29 8실행 중 1회): 되짚기가 칼럼
-                  // 중간 438.0을 프로브로 삼았고, §168-b 착석 규칙이 켜져 있는데도 비전이 앵커로
-                  // 오판해 FP가 됐다. 판정 요동은 막을 수 없으니 구조로 막는다.
-                  const dropped: number[] = [];
-                  for (const start of standingStarts) {
-                    const nextVerified = verifiedBeforeRescue.filter((time) => time > start).sort((a, b) => a - b)[0] ?? Infinity;
-                    for (const time of verified) {
-                      if (time <= start || time >= nextVerified) continue;
-                      if (verifiedBeforeRescue.includes(time)) continue;
-                      dropped.push(time);
-                    }
-                  }
+                  // §170-d 칼럼은 통째로 하나 — 판정·근거는 columnMidRescueDrops 주석 참조.
+                  const dropped = columnMidRescueDrops(standingStarts, verifiedBeforeRescue, verified);
                   if (dropped.length > 0) {
                     activity.add("info", `칼럼 중간 회수 폐기 · ${dropped.length}건: ${dropped.map((time) => time.toFixed(1)).join(" ")}`);
                   }

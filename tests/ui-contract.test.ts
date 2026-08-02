@@ -843,11 +843,10 @@ describe("audio signoff cue contract (§152)", () => {
   });
 
   it("칼럼 시작을 확정하면 그 블록 안의 회수분을 버린다 — 칼럼은 통째로 하나(§170-d)", () => {
-    const area = indexSource.slice(indexSource.indexOf("const dropped: number[] = []"));
-    const body = area.slice(0, area.indexOf("verified = [...verified.filter"));
-    // 다음 "검증 통과" 경계까지가 칼럼 구간이다 — 회수 병합 전 목록이 기준이어야 한다.
-    assert.match(body, /verifiedBeforeRescue\.filter\(\(time\) => time > start\)/u, "구간 끝은 검증 통과 경계로 잡아야 한다");
-    // 검증을 통과한 경계는 절대 버리지 않는다 — 진짜 아이템 경계를 지우면 안 된다.
-    assert.match(body, /if \(verifiedBeforeRescue\.includes\(time\)\) continue;/u, "검증 통과 경계는 폐기 대상에서 빠져야 한다");
+    // 판정 자체는 news-visual-cut의 columnMidRescueDrops(단위 테스트 별도)로 추출됐다.
+    // 여기서는 배선만 확인한다 — 인라인 재구현으로 되돌아가면 단위 테스트가 무력화된다.
+    const area = indexSource.slice(indexSource.indexOf("칼럼 시작 회수 · "));
+    const body = area.slice(0, area.indexOf("standingStarts]"));
+    assert.match(body, /columnMidRescueDrops\(standingStarts, verifiedBeforeRescue, verified\)/u, "폐기 판정은 추출 함수를 거쳐야 한다");
   });
 });
