@@ -27,6 +27,7 @@
     "build:release": "vite build --mode release",
     "package:ccx": "npm run build:release && node scripts/package-ccx.mjs && npm run verify:release",
     "package:ccx:force": "npm run build:release && node scripts/package-ccx.mjs --force && npm run verify:release",
+    "clean:previews": "node scripts/host-smoke/clean-previews.mjs",
     "host:smoke": "node scripts/host-smoke/run.mjs",
     "host:smoke:full": "node scripts/host-smoke/run.mjs --full",
     "check:news": "node scripts/news-train/regression.mjs"

@@ -38,7 +38,8 @@ export async function warnIfAudioPreviewCacheLarge(thresholdGb = 10) {
   const gb = totalBytes / 1024 ** 3;
   if (gb >= thresholdGb) {
     console.warn(`[host-smoke] ⚠️ Premiere 오디오 캐시가 ${gb.toFixed(1)}GB입니다(임계 ${thresholdGb}GB).`);
-    console.warn(`[host-smoke]    Premiere를 끄고 이 폴더를 비우면 안전하게 재확보됩니다: ${cacheDir}`);
+    console.warn("[host-smoke]    배치 산물만 지우려면: npm run clean:previews -- --apply (활성 프로젝트는 잠겨서 자동으로 남습니다)");
+    console.warn(`[host-smoke]    전부 비우려면 Premiere를 끄고 이 폴더를 비웁니다: ${cacheDir}`);
   }
   return gb;
 }
