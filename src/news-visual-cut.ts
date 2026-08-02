@@ -417,6 +417,34 @@ export function buildItemsFromStarts(starts: readonly number[], endTime: number)
 }
 
 /**
+ * 비전 배치 청킹(안정화 감사 구조 항목) — 장수와 바이트 합계(참조 포함 1.1MB)로 나눈다.
+ * 검증·회수·되짚기 세 경로에 같은 로직이 3벌 복사돼 있었고, 한쪽만 고치는 분기(§121-b의
+ * "장수로만 나눔" 실패가 되짚기에서 재발하는 식)가 실제로 났다. 순수 함수로 한 벌만 둔다.
+ */
+export function chunkVisionProbes<T extends { bytes: Uint8Array }>(
+  probes: readonly T[],
+  referenceBytes: number,
+  maxPerBatch: number,
+  maxTotalBytes = 1_100_000,
+): T[][] {
+  const chunks: T[][] = [];
+  let current: T[] = [];
+  let currentBytes = 0;
+  for (const probe of probes) {
+    const overBytes = currentBytes + probe.bytes.byteLength + referenceBytes > maxTotalBytes;
+    if (current.length > 0 && (overBytes || current.length >= maxPerBatch)) {
+      chunks.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(probe);
+    currentBytes += probe.bytes.byteLength;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
+/**
  * §170-d 칼럼 중간 회수 폐기 — 칼럼 시작(standingStarts)부터 다음 **검증 통과** 경계까지
  * 사이에 회수로 들어온 경계를 골라낸다. 칼럼은 통째로 하나(사용자 확정 규칙)인데, 되짚기
  * 프로브가 칼럼 중간을 앵커로 오판하는 요동(7/29 8실행 중 1회, FP 438.0)은 프롬프트로 못

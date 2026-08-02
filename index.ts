@@ -140,6 +140,7 @@ import {
   detectModelStarts,
   detectStaticTailStart,
   hybridAnchorTimes,
+  chunkVisionProbes,
   columnMidRescueDrops,
   isQuoteBandStats,
   isSameShotGrid,
@@ -2638,20 +2639,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         let budgetStopped = false;
         const lossCauses = new Map<string, number>();
         for (let round = 0; round < 2 && pending.length > 0; round += 1) {
-          const chunks: Array<typeof frames> = [];
-          let currentChunk: typeof frames = [];
-          let currentBytes = 0;
-          for (const frame of pending) {
-            const overBytes = currentBytes + frame.bytes.byteLength + referenceBytes > 1_100_000;
-            if (currentChunk.length > 0 && (overBytes || currentChunk.length >= maxFramesPerBatch)) {
-              chunks.push(currentChunk);
-              currentChunk = [];
-              currentBytes = 0;
-            }
-            currentChunk.push(frame);
-            currentBytes += frame.bytes.byteLength;
-          }
-          if (currentChunk.length > 0) chunks.push(currentChunk);
+          const chunks = chunkVisionProbes(pending, referenceBytes, maxFramesPerBatch);
           const missed: typeof frames = [];
           // 유실 원인 내역(§111-c) — 마지막 라운드 기준(= 최종 미판정분의 원인)만 남긴다.
           lossCauses.clear();
@@ -2984,20 +2972,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           const rescueNearMisses: string[] = [];
           const rescueVerdicts: string[] = [];
           for (let rescueRound = 0; rescueRound < 2 && rescuePending.length > 0; rescueRound += 1) {
-            const rescueChunks: Array<typeof probes> = [];
-            let rescueChunk: typeof probes = [];
-            let rescueChunkBytes = 0;
-            for (const probe of rescuePending) {
-              const overBytes = rescueChunkBytes + probe.bytes.byteLength + rescueRefBytes > 1_100_000;
-              if (rescueChunk.length > 0 && (overBytes || rescueChunk.length >= rescuePerBatch)) {
-                rescueChunks.push(rescueChunk);
-                rescueChunk = [];
-                rescueChunkBytes = 0;
-              }
-              rescueChunk.push(probe);
-              rescueChunkBytes += probe.bytes.byteLength;
-            }
-            if (rescueChunk.length > 0) rescueChunks.push(rescueChunk);
+            const rescueChunks = chunkVisionProbes(rescuePending, rescueRefBytes, rescuePerBatch);
             const rescueMissed: typeof probes = [];
             // 유실 원인 내역(§111-c) — 마지막 라운드 기준(= 최종 미판정분의 원인)만 남긴다.
             rescueLossCauses.clear();
@@ -3175,20 +3150,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
               const out = new Map<number, boolean>();
               // 장수뿐 아니라 바이트 합계로도 나눈다 — 장수로만 나눴다가 어댑터 상한에 배치가 통째로
               // 걸려 되짚기가 0건으로 끝났다(§121-b 실기: "프레임 합계가 너무 큽니다" 2회).
-              const chunks: Array<typeof probes> = [];
-              let current: typeof probes = [];
-              let bytes = 0;
-              for (const probe of probes) {
-                const over = bytes + probe.bytes.byteLength + rescueRefBytes > 1_100_000;
-                if (current.length > 0 && (over || current.length >= rescuePerBatch)) {
-                  chunks.push(current);
-                  current = [];
-                  bytes = 0;
-                }
-                current.push(probe);
-                bytes += probe.bytes.byteLength;
-              }
-              if (current.length > 0) chunks.push(current);
+              const chunks = chunkVisionProbes(probes, rescueRefBytes, rescuePerBatch);
               for (const chunk of chunks) {
                 try {
                   const results = await runVisionBatch(

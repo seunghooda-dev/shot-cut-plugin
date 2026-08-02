@@ -7,6 +7,7 @@ import {
   planRescueProbes,
   buildAnchorMatcher,
   buildItemsFromStarts,
+  chunkVisionProbes,
   collectAnchorCandidates,
   columnMidRescueDrops,
   selectAnchorMatcher,
@@ -234,6 +235,30 @@ describe("buildItemsFromStarts", () => {
   it("15초 미만 조각은 다음 아이템과 병합된다", () => {
     const items = buildItemsFromStarts([58, 60, 208], 400);
     assert.deepEqual(items.map((item) => [item.start, item.end]), [[58, 208], [208, 400]]);
+  });
+});
+
+describe("chunkVisionProbes — 검증·회수·되짚기 공용 청킹", () => {
+  const probe = (size: number) => ({ bytes: new Uint8Array(size) });
+
+  it("바이트 합계(참조 포함)가 상한을 넘기 전에 청크를 끊는다", () => {
+    // 참조 300KB + 프레임 300KB×3 → 두 장째에 1.1MB 초과 → [2,1]로 갈라져야 한다.
+    const chunks = chunkVisionProbes([probe(300_000), probe(300_000), probe(300_000)], 300_000, 12);
+    assert.deepEqual(chunks.map((chunk) => chunk.length), [2, 1]);
+  });
+
+  it("장수 상한도 지킨다", () => {
+    const chunks = chunkVisionProbes(Array.from({ length: 7 }, () => probe(10)), 0, 3);
+    assert.deepEqual(chunks.map((chunk) => chunk.length), [3, 3, 1]);
+  });
+
+  it("단일 프레임이 상한을 넘어도 혼자 한 청크로 보낸다 — 버리면 그 지점 판정이 사라진다", () => {
+    const chunks = chunkVisionProbes([probe(2_000_000), probe(10)], 0, 12);
+    assert.deepEqual(chunks.map((chunk) => chunk.length), [1, 1]);
+  });
+
+  it("빈 입력은 빈 배열", () => {
+    assert.deepEqual(chunkVisionProbes([], 0, 12), []);
   });
 });
 
