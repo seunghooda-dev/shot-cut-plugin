@@ -27,12 +27,13 @@
 | subtitle-roundtrip · transcript-attach | SRT 가져오기·트랜스크립트 첨부 E2E |
 | hangul-path-io | 한글·공백 경로 파일 왕복 |
 | source-untouched | 작업이 다른 시퀀스의 트랙을 건드리지 않음(원본 보존) |
+| status-truth | 패널 상태 표시(시퀀스 이름·플레이헤드) = Host 실제 값 |
 
 - [ ] [수동] 최신 `dist/manifest.json`을 UXP Developer Tool에서 다시 로드했습니다.
 - [ ] [수동] Premiere 메뉴에서 `ShortFlow Studio` 패널을 열고 닫은 뒤 다시 열 수 있습니다.
 - [ ] [수동] 테스트 전용 프로젝트와 테스트 전용 시퀀스만 사용했습니다.
 - [ ] [수동] 프로젝트 없음, 활성 시퀀스 없음, 활성 시퀀스 있음 상태가 모두 안전하게 표시됩니다.
-- [ ] [수동] 플레이헤드, In/Out, 선택 TrackItem 상태가 패널 표시와 일치합니다.
+- [ ] [자동·부분] 플레이헤드, In/Out, 선택 TrackItem 상태가 패널 표시와 일치합니다. — `status-truth`가 시퀀스 이름·플레이헤드 표시를 Host 값과 대조한다. In/Out·선택 TrackItem은 수동 유지
 - [ ] [자동] SRT 파일 가져오기와 자막 편집기 표시가 동작합니다. — `subtitle-roundtrip`
 - [ ] [수동] TTS 오디오 파일 저장, 프로젝트 가져오기, 지정 오디오 트랙 삽입을 확인했습니다.
 - [ ] [수동] 음악/SFX 폴더 동기화, 미리듣기, 순서 이동, 타임라인 삽입을 확인했습니다.

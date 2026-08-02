@@ -398,4 +398,39 @@ export const checks = [
       }
     },
   },
+  {
+    name: "status-truth",
+    tier: "full",
+    about: "패널 상태 표시(시퀀스 이름·플레이헤드)가 Host 실제 값과 일치한다(체크리스트: 상태 일치)",
+    async run(panel) {
+      // Host에서 직접 읽은 값과 패널 DOM 표시를 대조한다. 새로고침 버튼을 눌러 최신화한 뒤 비교.
+      await panel.evalJs(`(() => { document.getElementById('refresh-btn')?.click(); return true; })()`);
+      await sleep(2000);
+      const host = await evalAsyncProbe(panel, `
+        const ppro = require('premierepro');
+        const project = await ppro.Project.getActiveProject();
+        const active = await project.getActiveSequence();
+        out.name = active ? String(active.name) : null;
+        const position = active ? await active.getPlayerPosition() : null;
+        out.playhead = position ? Number(position.seconds) : null;
+      `);
+      const shown = await panel.evalJs(`(() => ({
+        name: document.getElementById('status-sequence')?.textContent ?? null,
+        playhead: document.getElementById('status-playhead')?.textContent ?? null,
+      }))()`);
+      if (!host.out?.name) return { pass: false, details: "활성 시퀀스 없음 — 대조 불가" };
+      const nameMatch = shown?.name === host.out.name;
+      // 표시 형식은 mm:ss(1시간 이상이면 h:mm:ss, 소수 절사) — core.ts formatDuration과 동일 규칙.
+      const seconds = Math.floor(Math.max(0, host.out.playhead ?? 0));
+      const hh = Math.floor(seconds / 3600);
+      const mm = String(Math.floor((seconds % 3600) / 60)).padStart(2, "0");
+      const ss = String(seconds % 60).padStart(2, "0");
+      const expected = hh > 0 ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`;
+      const playheadMatch = shown?.playhead === expected;
+      return {
+        pass: nameMatch && playheadMatch,
+        details: `이름 ${nameMatch ? "일치" : `불일치(${shown?.name} ≠ ${host.out.name})`} · 플레이헤드 ${playheadMatch ? "일치" : `불일치(${shown?.playhead} ≠ ${expected})`}`,
+      };
+    },
+  },
 ];
