@@ -2413,15 +2413,31 @@ export function ameInstalled(): boolean {
 async function awaitStableExportOutput(
   outputFolder: { getEntry?: (name: string) => Promise<any> },
   filename: string,
+  options: { startedAt?: number; cancel?: { cancelled: boolean } } = {},
 ): Promise<true> {
+  // startedAt(안정화 감사 #7) — 파일명에 타임스탬프가 없는 직접 렌더는 같은 폴더의 **이전
+  // 실행 완성본**이 "크기 안정" 조건을 즉시 만족시켜, 렌더 시작 ~6초 만에 가짜 성공이 날 수
+  // 있다. 렌더 시작 이후에 수정된 파일만 완료로 인정한다(수정 시각을 못 읽는 Host에서는
+  // 종전 동작 유지 — 강화만 하고 강등은 없다).
+  // cancel(안정화 감사 #8) — race에서 진 폴러가 최대 30분 돌던 잔존을 호출부가 끊는다.
   let previousSize = -1;
   for (let attempt = 0; attempt < 600; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 3000));
+    if (options.cancel?.cancelled) return true;
     try {
       const entry = await outputFolder.getEntry?.(filename);
       if (!entry) continue;
       const metadata = await entry.getMetadata?.();
       const size = Number(metadata?.size ?? 0);
+      if (options.startedAt !== undefined) {
+        const modified = metadata?.dateModified instanceof Date
+          ? metadata.dateModified.getTime()
+          : Number(metadata?.dateModified ?? Number.NaN);
+        if (Number.isFinite(modified) && modified < options.startedAt) {
+          previousSize = -1;
+          continue;
+        }
+      }
       if (size > 0 && size === previousSize) return true;
       previousSize = size;
     } catch {
@@ -2469,6 +2485,7 @@ export async function renderSequenceExportsByName(
       const filename = sanitizeFileName(`${name}.${extension}`);
       const outputPath = joinNativePath(String(outputFolder.nativePath), filename);
       // 아이템 트림은 시퀀스 인/아웃으로 표현된다 — 전체(true)로 내보내면 원본 길이가 통째로 렌더된다.
+      const renderStartedAt = Date.now();
       const exportPromise: Promise<unknown> = Promise.resolve(manager.exportSequence(
         sequence,
         ppro.Constants.ExportType.IMMEDIATELY,
@@ -2476,7 +2493,12 @@ export async function renderSequenceExportsByName(
         presetPath,
         false,
       ));
-      const success = await Promise.race([exportPromise, awaitStableExportOutput(outputFolder, filename)]);
+      const pollCancel = { cancelled: false };
+      const success = await Promise.race([
+        exportPromise,
+        awaitStableExportOutput(outputFolder, filename, { startedAt: renderStartedAt, cancel: pollCancel }),
+      ]);
+      pollCancel.cancelled = true;
       if (!success) throw new ShortFlowError("EXPORT_FAILED", "렌더 요청이 거부되었습니다.");
       queued.push(name);
     } catch (error) {
@@ -3391,7 +3413,12 @@ export async function exportVideo(options: ExportVideoOptions): Promise<string> 
   if (exportType === ppro.Constants.ExportType.IMMEDIATELY) {
     // Host 실측(runbook 40): 장시간 즉시 렌더에서 promise가 해소되지 않을 수 있어
     // 출력 파일 크기 안정화 폴링과 race한다. 짧은 렌더는 promise가 먼저 이겨 기존과 동일.
-    success = await Promise.race([exportPromise, awaitStableExportOutput(options.outputFolder, filename)]);
+    const singleCancel = { cancelled: false };
+    success = await Promise.race([
+      exportPromise,
+      awaitStableExportOutput(options.outputFolder, filename, { startedAt: Date.now(), cancel: singleCancel }),
+    ]);
+    singleCancel.cancelled = true;
     // promise가 이겼는데 실패(false)면 그대로 실패 처리, 폴링이 이기면 true.
   } else {
     success = await exportPromise;
