@@ -108,6 +108,10 @@ M 통과만으로 실제 UXP method 이름, Premiere 프로젝트 mutation, 코�
 ## H — Premiere 설치 직후 필수 smoke
 
 상세 절차와 차단 조건은 [실제 Host Smoke Runbook](HOST_BETA_RUNBOOK_ARCHIVE.md)을 따릅니다.
+아래 [x]는 2026-07-12 수동 확인의 역사 기록이다. 이 중 패널 로드·컨텍스트 감지·플레이헤드
+표시·SRT 가져오기·원본 보존·파일 권한은 이제 `npm run host:smoke:full`(11개 체크)이 상시
+재검증하므로, 재설치 후에는 수동 반복 대신 스모크 통과 기록으로 갈음한다(대응표는
+[BETA_RELEASE_CHECKLIST](BETA_RELEASE_CHECKLIST.md) 2절).
 
 - [x] UXP 패널 Add/Load/Reload/닫기·재열기 제한 확인
 - [x] Mock Host와 실제 Host adapter 전환 안전성 제한 확인
