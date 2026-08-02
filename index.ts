@@ -3330,24 +3330,26 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                   // 프레임 수집 단계에서 이미 걸러진다.
                   const nearStanding = standingStarts.some((start) => probe.time - start <= 60 && probe.time > start);
                   if (nearStanding) continue;
-                  // §172-a 중간점 확인 — 칼럼이 **직전 확정 경계에서 이미 시작**된 경우, 그 중간의
-                  // 서 있는 진행자는 연속이지 새 시작이 아니다(6/29 실측: 칼럼 579~866.8의 중간
-                  // 820을 새 시작으로 오인 → FP 819 + §170-d 연쇄로 진짜 866.8까지 폐기).
-                  // 직전 확정 경계와 후보의 중간점도 서 있는 진행자면 기각한다. 7/29의 진짜 시작
-                  // (296)은 중간점(직전 경계 237.5와의 사이)이 이전 아이템 b-roll이라 통과한다.
-                  // 중간점 판정 실패(내보내기·응답 유실)는 보수적으로 기각 — 회수는 추가라
-                  // 불확실하면 안 늘린다(§121-c 원칙).
+                  // §172-a 직전 경계 시작부 확인 — 칼럼이 **직전 확정 경계에서 이미 시작**된 경우,
+                  // 그 중간의 서 있는 진행자는 연속이지 새 시작이 아니다(6/29 실측: 칼럼 579~866.8의
+                  // 중간 820을 새 시작으로 오인 → FP 819). 판별점은 직전 확정 경계의 +2초다 —
+                  // 칼럼이 거기서 시작했다면 그 프레임은 정의상 서 있는 진행자다. 1차에 중간점을
+                  // 봤다가 실패했다(6/29 실측: 칼럼은 중간에 자료 화면을 끼워 넣으므로 단일 중간점
+                  // 표본이 자료 화면에 떨어지면 "연속 아님"으로 오판). 시작부는 그 우연이 없다.
+                  // 7/29의 진짜 시작(296)은 직전 경계(237.5)+2초가 착석 앵커 리드라 통과한다.
+                  // 판정 실패(내보내기·응답 유실)는 보수적으로 기각 — 회수는 추가라 불확실하면
+                  // 안 늘린다(§121-c 원칙).
                   const previousBoundary = [...verified].filter((time) => time < probe.time).sort((a, b) => b - a)[0];
                   if (previousBoundary !== undefined && probe.time - previousBoundary > 16) {
-                    const midTime = Math.round(((previousBoundary + probe.time) / 2) * 10) / 10;
-                    let midStanding: boolean | null = null;
+                    const openingTime = Math.round((previousBoundary + 2.0) * 10) / 10;
+                    let openingStanding: boolean | null = null;
                     try {
-                      midStanding = await judgeStanding(midTime);
+                      openingStanding = await judgeStanding(openingTime);
                     } catch {
-                      midStanding = null;
+                      openingStanding = null;
                     }
-                    if (midStanding !== false) {
-                      activity.add("info", `칼럼 연속 기각 ${probe.time.toFixed(1)} — 중간점 ${midTime.toFixed(1)} ${midStanding === true ? "서 있는 진행자(연속)" : "판정 불가(보수 기각)"}`);
+                    if (openingStanding !== false) {
+                      activity.add("info", `칼럼 연속 기각 ${probe.time.toFixed(1)} — 직전 경계 시작부 ${openingTime.toFixed(1)} ${openingStanding === true ? "서 있는 진행자(칼럼 이미 시작)" : "판정 불가(보수 기각)"}`);
                       continue;
                     }
                   }
