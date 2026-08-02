@@ -270,4 +270,84 @@ export const checks = [
       };
     },
   },
+  {
+    name: "source-untouched",
+    tier: "full",
+    about: "자막·트랜스크립트 작업이 다른 시퀀스의 트랙을 건드리지 않는다(내부 베타 완료 조건: 원본 보존)",
+    async run(panel) {
+      // 지문 = 트랙 수 + 트랙별 아이템 수. 작업 대상이 아닌 시퀀스에서 이 값이 바뀌면
+      // 원본 손상이다 — 스코프 문서가 자동 테스트로 차단하라고 못박은 실패 유형이다.
+      //
+      // guard는 **클립이 실제로 들어 있는 기존 시퀀스**를 쓴다. 빈 스크래치를 guard로 삼으면
+      // 지문이 전부 0이라 "변할 게 없어서 안 변한 것"과 구별되지 않는다(1차 실측이 그랬다).
+      // 읽기만 하므로 사용자 시퀀스를 건드리지 않는다.
+      const fingerprint = `
+        const ppro = require('premierepro');
+        const project = await ppro.Project.getActiveProject();
+        const sequences = await project.getSequences();
+        let target = null;
+        for (const sequence of sequences) {
+          const name = String(sequence.name);
+          if (name.startsWith('HostSmoke_')) continue;
+          const videoCount = Number(await sequence.getVideoTrackCount()) || 0;
+          let items = 0;
+          for (let i = 0; i < videoCount; i += 1) {
+            const track = await sequence.getVideoTrack(i);
+            items += (await track.getTrackItems(1, false)).length;
+          }
+          if (items > 0) { target = sequence; out.guardName = name; break; }
+        }
+        if (!target) { out.missing = true; } else {
+          const videoCount = Number(await target.getVideoTrackCount()) || 0;
+          const audioCount = Number(await target.getAudioTrackCount()) || 0;
+          const counts = [];
+          for (let i = 0; i < videoCount; i += 1) {
+            const track = await target.getVideoTrack(i);
+            counts.push('v' + i + ':' + (await track.getTrackItems(1, false)).length);
+          }
+          for (let i = 0; i < audioCount; i += 1) {
+            const track = await target.getAudioTrack(i);
+            counts.push('a' + i + ':' + (await track.getTrackItems(2, false)).length);
+          }
+          out.print = videoCount + '/' + audioCount + '|' + counts.join(',');
+        }
+      `;
+      try {
+        const created = await evalAsyncProbe(panel, `
+          const ppro = require('premierepro');
+          const project = await ppro.Project.getActiveProject();
+          const scratch = await project.createSequence('HostSmoke_src_work');
+          await project.setActiveSequence(scratch);
+          out.ok = Boolean(scratch);
+        `);
+        if (created.err) return { pass: false, details: "스크래치 생성 실패: " + created.err };
+        const before = await evalAsyncProbe(panel, fingerprint);
+        if (before.out?.missing) return { pass: false, details: "클립이 든 guard 시퀀스를 찾지 못했습니다 — 검증 불가" };
+        // 활성은 work 시퀀스다 — 여기서 자막을 불러오고 트랜스크립트를 붙인다.
+        await importSampleSrt(panel);
+        await panel.evalJs(`(() => { document.getElementById('subtitle-attach-transcript-btn')?.click(); return true; })()`);
+        await sleep(4000);
+        const after = await evalAsyncProbe(panel, fingerprint);
+        const same = before.out?.print && before.out.print === after.out?.print;
+        return {
+          pass: Boolean(same),
+          details: `guard 지문 ${before.out?.print} → ${after.out?.print}${same ? " (불변)" : " (변경됨)"}`,
+        };
+      } finally {
+        await cleanupSampleSrt(panel);
+        await evalAsyncProbe(panel, `
+          const ppro = require('premierepro');
+          const project = await ppro.Project.getActiveProject();
+          const sequences = await project.getSequences();
+          out.deleted = [];
+          for (const sequence of sequences) {
+            const name = String(sequence.name);
+            if (name === 'HostSmoke_src_work') {
+              out.deleted.push(await project.deleteSequence(sequence));
+            }
+          }
+        `);
+      }
+    },
+  },
 ];
