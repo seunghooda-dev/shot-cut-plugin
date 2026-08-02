@@ -237,6 +237,26 @@ describe("buildItemsFromStarts", () => {
   });
 });
 
+describe("planRescueProbes 긴 공백 스윕 파라미터 (§171)", () => {
+  // 4/07 실기 최종 시작 목록 그대로 — 표적 220.8은 178→313.3 공백(135.3s) 안에 있다.
+  const starts407 = [43.0, 178.0, 313.3, 356.8, 392.3, 497.0, 590.8, 712.8, 743.5, 774.8, 802.3, 841.3, 879.0];
+
+  it("비경고 파라미터(120s·8s)가 4/07의 표적 공백에 닿는다 — 220.8 ±8초 안에 프로브가 있다", () => {
+    const plan = planRescueProbes(starts407, 920, { maxSpan: 120, stepSeconds: 8 });
+    const nearTarget = plan.times.filter((time) => Math.abs(time - 220.8) <= 8);
+    assert.ok(nearTarget.length >= 1, `표적 근처 프로브가 없다: ${plan.times.join(" ")}`);
+    // 비용 상한 — 이 회차에서 40장을 넘으면 파라미터가 잘못된 것이다(실측 37장).
+    assert.ok(plan.times.length <= 40, `프로브가 너무 많다: ${plan.times.length}`);
+  });
+
+  it("120초 미만 공백(정상 리포트 길이)은 스윕하지 않는다", () => {
+    // 104.7s 공백(392.3→497.0)은 §107-b가 경고한 정상 리포트 구간이다 — 대상에서 빠져야 한다.
+    const plan = planRescueProbes(starts407, 920, { maxSpan: 120, stepSeconds: 8 });
+    const inNormalReport = plan.times.filter((time) => time > 392.3 + 20 && time < 497.0 - 8);
+    assert.deepEqual(inNormalReport, []);
+  });
+});
+
 describe("columnMidRescueDrops (§170-d)", () => {
   // 7/29 실측 시나리오 — 칼럼 시작 296, 다음 검증 통과 경계 524.8, 되짚기 회수가 438을 추가.
   const verifiedBefore = [58.5, 198.5, 237.5, 524.8, 572.5];

@@ -2818,9 +2818,16 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     //  ③배제 재심: 검증이 배제한 후보(§101-c) — 오배제 자기치유.
     if (visionEnabled) {
       try {
-        const plan = bankFit > BANK_FIT_WARN_DISTANCE
+        // §171 비경고 회차 긴 공백 스윕 — §107 전면 발동은 산발 오판 FP 3건으로 원복됐지만(§107-b),
+        // §170-b가 "후보가 어느 목록에도 안 오르는 FN"(4/07 220.8, 135초 공백)을 규명해 재개한다.
+        // §107과의 차이 두 가지로 실패 원인을 막는다. ①공백 120초 이상·8초 간격만(§107은 100초·4초
+        // 전면) — 정상 리포트(105~152초)의 대부분이 스윕 대상에서 빠진다. ②스윕 발견은 2표 합의
+        // (§107-c 처방)를 요구한다 — 산발 오판은 단일 프레임 사건이므로 +2초 프레임 재판정으로 거른다.
+        const warnEpisode = bankFit > BANK_FIT_WARN_DISTANCE;
+        const plan = warnEpisode
           ? planRescueProbes(verified, tailStart ?? duration)
-          : { times: [] as number[], spans: [] as Array<{ from: number; to: number }> };
+          : planRescueProbes(verified, tailStart ?? duration, { maxSpan: 120, stepSeconds: 8 });
+        const wideGapTimes = new Set(warnEpisode ? [] : plan.times);
         const gridProbeCount = plan.times.length;
         // 띠 이벤트 시각은 "띠가 바뀐 직후 표본"이라 보통은 새 아이템 리드 안 — 그대로 프로브로 쓴다.
         // 그 전제가 깨지는 경우(짧은 앵커 블록 + 늦은 배너)는 되짚기 2차 라운드가 맡는다(§123).
@@ -3033,6 +3040,45 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           }
           if (rescueNearMisses.length > 0) {
             activity.add("info", `회수 · 임계(0.9) 미달 판정 ${rescueNearMisses.length}건: ${rescueNearMisses.slice(0, 8).join(" ")}`);
+          }
+          // §171 긴 공백 스윕 발견은 2표 합의를 거친다 — §107-b의 FP 3건은 진단에서 재현되지 않는
+          // 단일 프레임 산발 오판이었다(§107-c). +2초 프레임이 독립 표본이 되어 오판 확률을 제곱으로
+          // 떨어뜨린다. 두 번째 프레임의 판정 유실은 보수적으로 기각한다(회수는 추가라 불확실하면
+          // 안 늘리는 쪽이 맞다 — §121-c와 같은 원칙).
+          const wideGapHits = found.filter((time) => wideGapTimes.has(time));
+          if (wideGapHits.length > 0) {
+            activity.add("info", `긴 공백 스윕 발견 ${wideGapHits.length}건 — 2표 합의 확인: ${wideGapHits.map((time) => time.toFixed(1)).join(" ")}`);
+            for (const hitTime of wideGapHits) {
+              let confirmed = false;
+              try {
+                let secondBytes: Uint8Array | null = null;
+                for (let attempt = 0; attempt < 2 && !secondBytes; attempt += 1) {
+                  const { filename } = await exportFrameToFolder(Math.max(0, hitTime + 2.0), String(dataFolder.nativePath), 480);
+                  secondBytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+                }
+                if (secondBytes) {
+                  const votes = await runVisionBatch(
+                    `rescue-confirm:${hitTime}`,
+                    1,
+                    () => rescueClient.classifyAnchorShots(
+                      [{ bytes: secondBytes!, mimeType: "image/png" as const }],
+                      rescueRefs,
+                      {},
+                      { anchorLeftDesk: true, seatedAtDesk: true },
+                    ),
+                  );
+                  const vote = votes[0];
+                  confirmed = Boolean(vote && vote.isAnchor && vote.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE);
+                  activity.add("info", `2표 합의 ${hitTime.toFixed(1)}: +2초 프레임 ${vote ? `${vote.isAnchor ? "앵커" : "비앵커"}(${vote.confidence.toFixed(2)})` : "판정 유실"} → ${confirmed ? "채택" : "기각"}`);
+                }
+              } catch (error) {
+                activity.add("warning", `2표 합의 ${hitTime.toFixed(1)} 확인 실패(${error instanceof Error ? error.message : String(error)}) — 보수적으로 기각합니다.`);
+              }
+              if (!confirmed) {
+                const foundIndex = found.indexOf(hitTime);
+                if (foundIndex >= 0) found.splice(foundIndex, 1);
+              }
+            }
           }
           // 되짚기 2차 라운드(§123) — 띠 이벤트는 "배너가 뜨고 띠가 안정된 표본"이라 짧은 앵커
           // 블록에서는 리드인의 **끝 이후**를 가리킨다(3/24 920 실측: 블록 920~927에 배너가 923에

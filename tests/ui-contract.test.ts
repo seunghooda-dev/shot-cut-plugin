@@ -842,6 +842,19 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(chunkArea, /offset \+= 4/u, "칼럼 판정은 청크로 나눠 보내야 한다");
   });
 
+  it("비경고 회차도 긴 공백(120s·8s)을 스윕하고, 스윕 발견은 2표 합의를 거친다(§171)", () => {
+    // §107 전면 발동(100s·4s)은 산발 오판 FP로 원복됐다 — 비경고 회차는 더 넓은 공백만,
+    // 그리고 발견은 +2초 프레임 재판정(2표 합의)을 통과해야 채택된다(§107-c 처방).
+    const area = indexSource.slice(indexSource.indexOf("const warnEpisode = bankFit >"));
+    const head = area.slice(0, 700);
+    assert.match(head, /planRescueProbes\(verified, tailStart \?\? duration, \{ maxSpan: 120, stepSeconds: 8 \}\)/u, "비경고 회차 스윕 파라미터가 다르다");
+    assert.match(head, /const wideGapTimes = new Set\(warnEpisode \? \[\] : plan\.times\)/u, "스윕 프로브 식별이 없다");
+    const confirmArea = indexSource.slice(indexSource.indexOf("2표 합의 확인"));
+    assert.match(confirmArea.slice(0, 2200), /vote\.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE/u, "2표 합의가 회수 임계를 써야 한다");
+    // 두 번째 프레임 판정 유실·실패는 기각이어야 한다 — 회수는 추가라 불확실하면 안 늘린다.
+    assert.match(confirmArea.slice(0, 2600), /if \(!confirmed\) \{/u, "미확인 기각 분기가 없다");
+  });
+
   it("칼럼 시작을 확정하면 그 블록 안의 회수분을 버린다 — 칼럼은 통째로 하나(§170-d)", () => {
     // 판정 자체는 news-visual-cut의 columnMidRescueDrops(단위 테스트 별도)로 추출됐다.
     // 여기서는 배선만 확인한다 — 인라인 재구현으로 되돌아가면 단위 테스트가 무력화된다.
