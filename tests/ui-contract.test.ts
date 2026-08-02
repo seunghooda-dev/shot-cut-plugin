@@ -861,6 +861,17 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(indexSource, /const weakRescueCandidates = wideGapWeakHits\.filter/u, "구제 후보가 2표 절차에 합류해야 한다");
   });
 
+  it("되짚기 연속성 기각 지점은 3형 카드 확인을 거친다 — 앵커 단신이 카드로 끝나는 경계(§173)", () => {
+    // 6/23 실측: 되짚기 -6/-2 지점 앵커(0.99) + 중간점도 앵커 → 연속성 기각 → FN 202.0.
+    // 그 조합은 §125 3형(앵커 단신 → 전면 인용 카드 직행)의 서명이므로, 띠 이벤트 원 지점이
+    // 인용 카드인지 확인해 경계로 채택한다. 성금 카드는 프롬프트가 false로 가른다.
+    const area = indexSource.slice(indexSource.indexOf("§173 3형 카드 확인"));
+    assert.match(area.slice(0, 2400), /quoteCardOnly: true/u, "카드 판정 프롬프트가 배선돼야 한다");
+    assert.match(area.slice(0, 2400), /cardVote\.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE/u, "회수 임계를 써야 한다");
+    // 연속성 통과(중간점 비앵커) 분기와 배타적이어야 한다 — 같은 지점을 이중 채택하면 안 된다.
+    assert.match(area.slice(0, 600), /else if \(midHits\.get\(mid\) === true\)/u, "기각 분기에서만 발동해야 한다");
+  });
+
   it("칼럼 시작을 확정하면 그 블록 안의 회수분을 버린다 — 칼럼은 통째로 하나(§170-d)", () => {
     // 판정 자체는 news-visual-cut의 columnMidRescueDrops(단위 테스트 별도)로 추출됐다.
     // 여기서는 배선만 확인한다 — 인라인 재구현으로 되돌아가면 단위 테스트가 무력화된다.

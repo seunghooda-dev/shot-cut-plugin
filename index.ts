@@ -3253,6 +3253,34 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 // 중간점 판정을 못 받았으면(내보내기·응답 유실) 보수적으로 버린다 — 되짚기 FP가
                 // §121-c의 실패 모드였으므로 불확실할 때는 추가하지 않는 쪽이 맞다.
                 if (midHits.get(mid) === false) backAccepted.push(owner);
+                // §173 3형 카드 확인 — 연속성 기각(중간점도 앵커 = 같은 앵커 블록)은 §125 3형의
+                // 서명이기도 하다: 앵커 단신이 흘러가다 **전면 인용 카드에서 끝나는** 경우, 되짚기
+                // -6/-2초 지점은 앵커·중간점도 앵커라 기각되지만 진짜 경계는 띠 이벤트 원 지점
+                // (카드 시작)이다. 6/23 실측: 196·200 앵커(0.99) → 연속성 기각 → FN 202.0.
+                // 원 지점(owner+6 ≈ 띠 이벤트)이 "전면 인용 카드"면 3형 규칙(카드 직행은 별도
+                // 아이템)대로 그 지점을 경계로 채택한다. 성금·캠페인 카드(명단)는 프롬프트가
+                // false로 갈라 §138의 성금 구조를 침범하지 않는다. 판정 실패는 보수 기각.
+                else if (midHits.get(mid) === true) {
+                  const cardTime = Math.round((owner + 6.0) * 10) / 10;
+                  try {
+                    const cardBytes = await grab(cardTime + 0.8);
+                    if (cardBytes) {
+                      const cardVotes = await rescueClient.classifyAnchorShots(
+                        [{ bytes: cardBytes, mimeType: "image/png" as const }],
+                        [],
+                        {},
+                        { quoteCardOnly: true },
+                      );
+                      const cardVote = cardVotes[0];
+                      if (cardVote && cardVote.isAnchor && cardVote.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE) {
+                        activity.add("info", `3형 카드 경계 채택 ${cardTime.toFixed(1)} — 앵커 단신이 전면 인용 카드로 끝남(§173)`);
+                        backAccepted.push(cardTime);
+                      }
+                    }
+                  } catch {
+                    // 카드 확인 실패는 기각 유지 — 회수는 추가라 불확실하면 안 늘린다(§121-c).
+                  }
+                }
               }
             }
             if (backVerdicts.length > 0) {
