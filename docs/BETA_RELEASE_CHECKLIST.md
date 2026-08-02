@@ -16,19 +16,31 @@
 
 ## 2. 실제 Premiere Host 필수 확인
 
-- [ ] 최신 `dist/manifest.json`을 UXP Developer Tool에서 다시 로드했습니다.
-- [ ] Premiere 메뉴에서 `ShortFlow Studio` 패널을 열고 닫은 뒤 다시 열 수 있습니다.
-- [ ] 테스트 전용 프로젝트와 테스트 전용 시퀀스만 사용했습니다.
-- [ ] 프로젝트 없음, 활성 시퀀스 없음, 활성 시퀀스 있음 상태가 모두 안전하게 표시됩니다.
-- [ ] 플레이헤드, In/Out, 선택 TrackItem 상태가 패널 표시와 일치합니다.
-- [ ] SRT 파일 가져오기와 자막 편집기 표시가 동작합니다.
-- [ ] TTS 오디오 파일 저장, 프로젝트 가져오기, 지정 오디오 트랙 삽입을 확인했습니다.
-- [ ] 음악/SFX 폴더 동기화, 미리듣기, 순서 이동, 타임라인 삽입을 확인했습니다.
-- [ ] 자동 컷·펀치인은 원본을 보존하고 복제 시퀀스에서만 marker/keyframe을 적용합니다.
-- [ ] Safe Zone BMP overlay는 export 전에 제거 경고 또는 차단으로 잡힙니다.
-- [ ] 썸네일은 Host Canvas 제한을 고려해 PNG/JPG 또는 SVG fallback 저장 경로를 확인했습니다.
-- [ ] 복구 저널 영속성, 진단 JSON, 최종 QC JSON/Markdown 저장을 실제 UXP 파일 권한으로 확인했습니다.
-- [ ] 복제본 제거 rollback은 폐기 가능한 프로젝트에서 명시적 확인 후 별도 검증했습니다.
+`npm run host:smoke:full`(UDT 서비스 14001 필요)이 아래 표의 [자동] 항목을 실기에서 검증한다.
+자동 항목은 스모크 10/10 통과 기록으로 갈음하고, [수동] 항목만 직접 확인하면 된다.
+
+| 스모크 체크 | 덮는 항목 |
+|---|---|
+| panel-boot · listener-lifecycle | 패널 부팅·재로드 수명주기(리스너/타이머 누적 0) |
+| tab-sweep · ui-contract-live | 13개 탭 전환·핵심 UI 존재 |
+| host-context · sequence-switch-recover | 프로젝트/시퀀스 컨텍스트·전환·복귀 |
+| subtitle-roundtrip · transcript-attach | SRT 가져오기·트랜스크립트 첨부 E2E |
+| hangul-path-io | 한글·공백 경로 파일 왕복 |
+| source-untouched | 작업이 다른 시퀀스의 트랙을 건드리지 않음(원본 보존) |
+
+- [ ] [수동] 최신 `dist/manifest.json`을 UXP Developer Tool에서 다시 로드했습니다.
+- [ ] [수동] Premiere 메뉴에서 `ShortFlow Studio` 패널을 열고 닫은 뒤 다시 열 수 있습니다.
+- [ ] [수동] 테스트 전용 프로젝트와 테스트 전용 시퀀스만 사용했습니다.
+- [ ] [수동] 프로젝트 없음, 활성 시퀀스 없음, 활성 시퀀스 있음 상태가 모두 안전하게 표시됩니다.
+- [ ] [수동] 플레이헤드, In/Out, 선택 TrackItem 상태가 패널 표시와 일치합니다.
+- [ ] [자동] SRT 파일 가져오기와 자막 편집기 표시가 동작합니다. — `subtitle-roundtrip`
+- [ ] [수동] TTS 오디오 파일 저장, 프로젝트 가져오기, 지정 오디오 트랙 삽입을 확인했습니다.
+- [ ] [수동] 음악/SFX 폴더 동기화, 미리듣기, 순서 이동, 타임라인 삽입을 확인했습니다.
+- [ ] [자동·부분] 자동 컷·펀치인은 원본을 보존하고 복제 시퀀스에서만 marker/keyframe을 적용합니다. — `source-untouched`가 자막·트랜스크립트 경로의 원본 보존을 덮는다. 자동 컷 경로는 수동 확인 유지
+- [ ] [수동] Safe Zone BMP overlay는 export 전에 제거 경고 또는 차단으로 잡힙니다.
+- [ ] [수동] 썸네일은 Host Canvas 제한을 고려해 PNG/JPG 또는 SVG fallback 저장 경로를 확인했습니다.
+- [ ] [자동·부분] 복구 저널 영속성, 진단 JSON, 최종 QC JSON/Markdown 저장을 실제 UXP 파일 권한으로 확인했습니다. — `hangul-path-io`가 데이터 폴더 쓰기 권한·한글 경로를 덮는다. 각 저장 경로별 확인은 수동 유지
+- [ ] [수동] 복제본 제거 rollback은 폐기 가능한 프로젝트에서 명시적 확인 후 별도 검증했습니다.
 
 ## 3. 최종 QC와 권리 관리
 
