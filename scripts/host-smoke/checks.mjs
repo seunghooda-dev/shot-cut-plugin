@@ -197,4 +197,77 @@ export const checks = [
       }
     },
   },
+  {
+    name: "hangul-path-io",
+    tier: "full",
+    about: "한글·공백·괄호가 든 파일명으로 데이터 폴더 쓰기→읽기→삭제 왕복(내부 베타 승인 조건: 한글/공백 경로)",
+    async run(panel) {
+      // 사용자 환경이 한글 Windows다. 경로 인코딩이 깨지면 자막·프레임·WAV 임시 파일이
+      // 전부 실패하므로, 실기에서 왕복이 되는지 직접 확인한다.
+      const probe = await evalAsyncProbe(panel, `
+        const uxp = require('uxp');
+        const folder = await uxp.storage.localFileSystem.getDataFolder();
+        const name = '스모크 테스트 (한글) ' + Date.now() + '.txt';
+        const payload = '가나다 ABC 123 · 특수문자 —';
+        const file = await folder.createFile(name, { overwrite: true });
+        await file.write(payload);
+        const entry = await folder.getEntry(name);
+        out.roundtrip = (await entry.read()) === payload;
+        out.nameKept = String(entry.name) === name;
+        await entry.delete();
+        let gone = false;
+        try { await folder.getEntry(name); } catch { gone = true; }
+        out.deleted = gone;
+      `);
+      const ok = probe.out?.roundtrip === true && probe.out?.nameKept === true && probe.out?.deleted === true;
+      return {
+        pass: ok,
+        details: `왕복=${probe.out?.roundtrip} 이름보존=${probe.out?.nameKept} 삭제=${probe.out?.deleted}${probe.err ? " err=" + probe.err : ""}`,
+      };
+    },
+  },
+  {
+    name: "listener-lifecycle",
+    tier: "full",
+    about: "패널 재로드를 반복해도 타이머·리스너가 누적되지 않는다(내부 베타 승인 조건: 수명주기)",
+    async run(panel) {
+      // 누수는 직접 셀 수 없으므로 계측을 심는다 — setInterval/addEventListener를 감싸 세고,
+      // 재로드 뒤 같은 계측으로 다시 세어 증가분을 본다. 재로드가 정리를 안 하면 누적된다.
+      const install = `
+        (() => {
+          if (window.__smokeCounters) return window.__smokeCounters;
+          const counters = { intervals: 0, listeners: 0 };
+          const realInterval = window.setInterval;
+          window.setInterval = function (...args) { counters.intervals += 1; return realInterval.apply(this, args); };
+          const realAdd = EventTarget.prototype.addEventListener;
+          EventTarget.prototype.addEventListener = function (...args) { counters.listeners += 1; return realAdd.apply(this, args); };
+          window.__smokeCounters = counters;
+          return counters;
+        })()
+      `;
+      await panel.evalJs(install);
+      // 탭 선택자는 tab-sweep과 같은 것을 쓴다 — 다른 선택자를 쓰면 클릭이 0회여도 "증가 0"이
+      // 나와 통과처럼 보인다(1차 실측에서 실제로 그랬다). 그래서 클릭 수를 함께 센다.
+      const sweep = `(() => {
+        const tabs = [...document.querySelectorAll('.nav-tab[data-tab]')];
+        tabs.forEach((tab) => tab.click());
+        return tabs.length;
+      })()`;
+      const clicked1 = await panel.evalJs(sweep);
+      await sleep(1500);
+      const before = await panel.evalJs(`(() => ({ ...(window.__smokeCounters ?? {}) }))()`);
+      // 같은 조작을 한 번 더 — 리스너를 매번 새로 붙이면 여기서 선형 증가가 보인다.
+      const clicked2 = await panel.evalJs(sweep);
+      await sleep(1500);
+      const after = await panel.evalJs(`(() => ({ ...(window.__smokeCounters ?? {}) }))()`);
+      const grewListeners = (after?.listeners ?? 0) - (before?.listeners ?? 0);
+      const grewIntervals = (after?.intervals ?? 0) - (before?.intervals ?? 0);
+      // 탭 전환은 리스너를 새로 붙이지 않아야 한다(위임이든 1회 바인딩이든). 여유 5개.
+      const exercised = Number(clicked1) >= 12 && Number(clicked2) >= 12;
+      return {
+        pass: exercised && grewListeners <= 5 && grewIntervals <= 1,
+        details: `탭클릭 ${clicked1}+${clicked2}회 · 2회차 증가 리스너=${grewListeners} 타이머=${grewIntervals}`,
+      };
+    },
+  },
 ];
