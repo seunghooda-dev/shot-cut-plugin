@@ -207,7 +207,7 @@ npm run package:ccx
 
 - Premiere 내장 Auto Reframe 명령을 직접 호출하지 않습니다. 리프레임은 공개 API로 가능한 스케일·위치 계산이며, 샷 단위 인물 위치를 OpenAI 비전으로 감지해 프레이밍에 반영합니다(내장 얼굴 추적 API를 쓰는 것은 아닙니다).
 - AI 자동 컷은 하이라이트 후보를 AI 분석으로 스캔해 제안하고, 사용자가 선택한 구간만 생성합니다 — 자동 판단이 아니라 검토 가능한 제안입니다.
-- OpenAI STT로 SRT/텍스트를 생성할 수 있지만 Premiere의 내장 음성 분석/캡션 생성 명령을 호출하는 것은 아닙니다. 공개 UXP API에는 caption track item 생성 API가 없어 현재는 SRT 파일 저장·프로젝트 가져오기까지를 보장하고, 실제 캡션 트랙 배치는 Host gate에서 별도 검증합니다.
+- OpenAI STT로 SRT/텍스트를 생성할 수 있지만 Premiere의 내장 음성 분석/캡션 생성 명령을 호출하는 것은 아닙니다. 공개 UXP API에는 caption track item 생성 API가 없다는 것이 확정된 플랫폼 제약입니다 — 자막을 트랜스크립트로 첨부(자동)한 뒤 Premiere 텍스트 패널의 "캡션 만들기" 클릭 한 번이 필요합니다(USER_GUIDE "알려진 제한" 참조).
 - recovery, final QC와 diagnostics UI는 패널 작업 흐름에 연결됐지만 실제 시퀀스 mutation 결과는 최종 Host gate에서 다시 검증해야 합니다.
 - 로컬 mock 성공은 운영체제 코덱, 폰트, MOGRT, Media Encoder 프리셋과 실 렌더 품질을 보증하지 않습니다.
 
