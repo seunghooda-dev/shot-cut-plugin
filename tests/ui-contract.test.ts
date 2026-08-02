@@ -838,8 +838,8 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(call.slice(0, 400), /\[\],\s*\{\},\s*\{ standingPresenterOnly: true \}/u, "칼럼 판정에 참조 프레임을 실으면 안 된다");
     assert.ok(block.length > 0);
     // 4장씩 나눠 보내는 청크 루프가 있어야 한다.
-    const chunkArea = indexSource.slice(indexSource.indexOf("const standingHits"), indexSource.indexOf("standingPresenterOnly: true"));
-    assert.match(chunkArea, /offset \+= 4/u, "칼럼 판정은 청크로 나눠 보내야 한다");
+    const chunkArea = indexSource.slice(indexSource.indexOf("const standingHits"));
+    assert.match(chunkArea.slice(0, 900), /offset \+= 4/u, "칼럼 판정은 청크로 나눠 보내야 한다");
   });
 
   it("비경고 회차도 긴 공백(120s·8s)을 스윕하고, 스윕 발견은 2표 합의를 거친다(§171)", () => {
@@ -852,7 +852,16 @@ describe("audio signoff cue contract (§152)", () => {
     const confirmArea = indexSource.slice(indexSource.indexOf("2표 합의 확인"));
     assert.match(confirmArea.slice(0, 2200), /vote\.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE/u, "2표 합의가 회수 임계를 써야 한다");
     // 두 번째 프레임 판정 유실·실패는 기각이어야 한다 — 회수는 추가라 불확실하면 안 늘린다.
-    assert.match(confirmArea.slice(0, 2600), /if \(!confirmed\) \{/u, "미확인 기각 분기가 없다");
+    assert.match(confirmArea.slice(0, 3000), /if \(!confirmed\) \{/u, "미확인 기각 분기가 없다");
+  });
+
+  it("스윕 미달 앵커 판정(0.75~)은 2표 구제를 태우고, 칼럼 시작 채택 전 중간점을 확인한다(§172)", () => {
+    // §172-b — 7/13 실측: 188→앵커(0.81)를 임계에서 버려 189.8이 FN이 됐다.
+    assert.match(indexSource, /wideGapTimes\.has\(probe\.time\) && result\.confidence >= 0\.75/u, "미달 구제 수집이 없다");
+    assert.match(indexSource, /const weakRescueCandidates = wideGapWeakHits\.filter/u, "구제 후보가 2표 절차에 합류해야 한다");
+    // §172-a — 6/29 실측: 칼럼 중간 820을 새 시작으로 오인, §170-d 연쇄로 진짜 866.8 폐기.
+    const midArea = indexSource.slice(indexSource.indexOf("§172-a 중간점 확인"));
+    assert.match(midArea.slice(0, 1600), /midStanding !== false/u, "중간점 판정 불가는 보수적으로 기각해야 한다");
   });
 
   it("칼럼 시작을 확정하면 그 블록 안의 회수분을 버린다 — 칼럼은 통째로 하나(§170-d)", () => {

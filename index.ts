@@ -2948,6 +2948,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           // 엔트리 유실 = 그 지점 회수의 조용한 실패다. 검증 경로(§92)와 동일하게 수신 인덱스를
           // 대조해 유실분만 1회 재판정하고, 남으면 개수·시각으로 가시화한다.
           let rescuePending = probes;
+          // §172-b 스윕 미달 앵커 판정(0.75~0.95)의 2표 구제 후보.
+          const wideGapWeakHits: number[] = [];
           // 검증 경로와 동일한 한도 처리(§110-c) — 한도 기각을 유실로 위장하지 않는다.
           let rescueBudgetStopped = false;
           const rescueLossCauses = new Map<string, number>();
@@ -3000,7 +3002,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                   rescueVerdicts.push(`${probe.time.toFixed(0)}${result.isAnchor ? "→앵커" : "→비앵커"}(${result.confidence.toFixed(2)})`);
                   if (result.isAnchor && result.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE) found.push(probe.time);
                   // 임계 바로 아래 판정은 진단 가치가 있다(§101-c) — "오독"과 "임계 미달"을 로그로 가른다.
-                  else if (result.isAnchor) rescueNearMisses.push(`${probe.time.toFixed(0)}(${result.confidence.toFixed(2)})`);
+                  else if (result.isAnchor) {
+                    rescueNearMisses.push(`${probe.time.toFixed(0)}(${result.confidence.toFixed(2)})`);
+                    // §172-b 스윕 프로브의 미달 앵커 판정(0.75~0.95)은 버리지 않고 2표 구제 후보로
+                    // 남긴다 — 7/13 실측: 189.8 경계를 188→앵커(0.81)로 보고도 임계에서 버려 FN이
+                    // 됐다. +2초 독립 프레임이 0.95+면 두 표의 합의로 채택한다.
+                    if (wideGapTimes.has(probe.time) && result.confidence >= 0.75) wideGapWeakHits.push(probe.time);
+                  }
                 }
                 chunk.forEach((probe, index) => {
                   if (!received.has(index)) {
@@ -3046,9 +3054,16 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           // 떨어뜨린다. 두 번째 프레임의 판정 유실은 보수적으로 기각한다(회수는 추가라 불확실하면
           // 안 늘리는 쪽이 맞다 — §121-c와 같은 원칙).
           const wideGapHits = found.filter((time) => wideGapTimes.has(time));
-          if (wideGapHits.length > 0) {
-            activity.add("info", `긴 공백 스윕 발견 ${wideGapHits.length}건 — 2표 합의 확인: ${wideGapHits.map((time) => time.toFixed(1)).join(" ")}`);
-            for (const hitTime of wideGapHits) {
+          // §172-b 미달 구제 후보도 같은 2표 절차를 태운다 — 첫 표가 약하므로(0.75~0.95) 두 번째
+          // 표가 임계(0.95+)를 넘어야만 채택된다. 확정 히트와 조건이 같아 코드 경로를 공유한다.
+          const weakRescueCandidates = wideGapWeakHits.filter((time) => !found.includes(time));
+          if (weakRescueCandidates.length > 0) {
+            activity.add("info", `스윕 미달 2표 구제 후보 ${weakRescueCandidates.length}건: ${weakRescueCandidates.map((time) => time.toFixed(1)).join(" ")}`);
+          }
+          const secondVoteTargets = [...wideGapHits, ...weakRescueCandidates];
+          if (secondVoteTargets.length > 0) {
+            activity.add("info", `긴 공백 스윕 발견 ${wideGapHits.length}건 — 2표 합의 확인: ${secondVoteTargets.map((time) => time.toFixed(1)).join(" ")}`);
+            for (const hitTime of secondVoteTargets) {
               let confirmed = false;
               try {
                 let secondBytes: Uint8Array | null = null;
@@ -3077,6 +3092,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
               if (!confirmed) {
                 const foundIndex = found.indexOf(hitTime);
                 if (foundIndex >= 0) found.splice(foundIndex, 1);
+              } else if (!found.includes(hitTime)) {
+                // §172-b 미달 구제 — 첫 표 0.75~0.95 + 두 번째 표 0.95+의 합의로 채택된다.
+                found.push(hitTime);
               }
             }
           }
@@ -3249,8 +3267,28 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           if (visionRejectedTimes.length > 0) {
             try {
               const grabStanding = async (time: number): Promise<Uint8Array | null> => {
-                const { filename } = await exportFrameToFolder(Math.max(0, time), String(dataFolder.nativePath), 480);
-                return readExportedFrameBytes(dataFolder, api.formats, filename);
+                // 내보내기 재시도(§121-b와 동일) — 중간점 확인(§172-a)이 이 헬퍼에 걸리므로
+                // 1회 유실이 채택/기각을 가르면 안 된다.
+                let bytes: Uint8Array | null = null;
+                for (let attempt = 0; attempt < 2 && !bytes; attempt += 1) {
+                  const { filename } = await exportFrameToFolder(Math.max(0, time), String(dataFolder.nativePath), 480);
+                  bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+                }
+                return bytes;
+              };
+              // §172-a 단일 프레임 "서 있는 진행자" 판정 헬퍼 — 중간점 확인용.
+              const judgeStanding = async (time: number): Promise<boolean | null> => {
+                const bytes = await grabStanding(time);
+                if (!bytes) return null;
+                const votes = await rescueClient.classifyAnchorShots(
+                  [{ bytes, mimeType: "image/png" as const }],
+                  [],
+                  {},
+                  { standingPresenterOnly: true },
+                );
+                const vote = votes[0];
+                if (!vote) return null;
+                return vote.isAnchor && vote.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE;
               };
               const standingProbes: Array<{ time: number; bytes: Uint8Array }> = [];
               for (const time of visionRejectedTimes) {
@@ -3292,6 +3330,27 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                   // 프레임 수집 단계에서 이미 걸러진다.
                   const nearStanding = standingStarts.some((start) => probe.time - start <= 60 && probe.time > start);
                   if (nearStanding) continue;
+                  // §172-a 중간점 확인 — 칼럼이 **직전 확정 경계에서 이미 시작**된 경우, 그 중간의
+                  // 서 있는 진행자는 연속이지 새 시작이 아니다(6/29 실측: 칼럼 579~866.8의 중간
+                  // 820을 새 시작으로 오인 → FP 819 + §170-d 연쇄로 진짜 866.8까지 폐기).
+                  // 직전 확정 경계와 후보의 중간점도 서 있는 진행자면 기각한다. 7/29의 진짜 시작
+                  // (296)은 중간점(직전 경계 237.5와의 사이)이 이전 아이템 b-roll이라 통과한다.
+                  // 중간점 판정 실패(내보내기·응답 유실)는 보수적으로 기각 — 회수는 추가라
+                  // 불확실하면 안 늘린다(§121-c 원칙).
+                  const previousBoundary = [...verified].filter((time) => time < probe.time).sort((a, b) => b - a)[0];
+                  if (previousBoundary !== undefined && probe.time - previousBoundary > 16) {
+                    const midTime = Math.round(((previousBoundary + probe.time) / 2) * 10) / 10;
+                    let midStanding: boolean | null = null;
+                    try {
+                      midStanding = await judgeStanding(midTime);
+                    } catch {
+                      midStanding = null;
+                    }
+                    if (midStanding !== false) {
+                      activity.add("info", `칼럼 연속 기각 ${probe.time.toFixed(1)} — 중간점 ${midTime.toFixed(1)} ${midStanding === true ? "서 있는 진행자(연속)" : "판정 불가(보수 기각)"}`);
+                      continue;
+                    }
+                  }
                   standingStarts.push(probe.time);
                 }
                 if (standingStarts.length > 0) {
