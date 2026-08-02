@@ -95,6 +95,21 @@ export function sliceWavWindow(bytes: Uint8Array, begin: number, end: number): U
 }
 
 /**
+ * 파싱을 1회로 고정한 창 슬라이서를 만든다(안정화 감사 #3) — sliceWavWindow는 창마다
+ * 전체 WAV를 다시 파싱해 40분 회차 기준 창당 ~150MB 할당이 최대 24회 반복됐다. UXP 패널
+ * 메모리에서 감수할 이유가 없는 급증이라, 호출부(창 루프)는 이 팩토리를 쓴다.
+ */
+export function createWavWindowSlicer(bytes: Uint8Array): (begin: number, end: number) => Uint8Array {
+  const pcm = parseWavPcm(bytes);
+  return (begin: number, end: number): Uint8Array => {
+    if (!(end > begin)) throw new Error("오디오 창의 끝이 시작보다 뒤여야 합니다.");
+    const first = clampInt(begin * pcm.sampleRate, 0, pcm.samples.length);
+    const last = clampInt(end * pcm.sampleRate, first + 1, pcm.samples.length);
+    return encodeWavPcm16(pcm.samples.slice(first, last), pcm.sampleRate);
+  };
+}
+
+/**
  * 회수 후보 지점들로부터 볼 창 목록을 만든다.
  *
  * 전량 STT는 하지 않는다 — 회수 경로가 이미 "여기 뭔가 있다"는 지점(격자 프로브·띠 이벤트·

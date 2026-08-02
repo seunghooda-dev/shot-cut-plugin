@@ -2287,7 +2287,20 @@ export async function createNewsItemSequences(
       const end = sequenceEnd > 0 ? Math.min(item.end, sequenceEnd) : item.end;
       if (!(end - start > 0.5)) throw new ShortFlowError("INVALID_RANGE", "아이템 구간이 시퀀스 범위를 벗어났습니다.");
       const clone = await cloneSequence(project, source, sanitizeSequenceName(item.name));
-      setSequenceRange(project, clone, { start, end, duration: end - start, usedFallback: false });
+      try {
+        setSequenceRange(project, clone, { start, end, duration: end - start, usedFallback: false });
+      } catch (rangeError) {
+        // 클론 성공 + 인/아웃 커밋 실패(§40 간헐) 시 클론을 지우고 던진다 — 안 지우면
+        // ①전체 길이 고아 시퀀스가 프로젝트에 쌓이고 ②재시도의 uniqueSequenceName이
+        // " 2"를 붙여 출력 파일명 규칙(YYYYMMDD_news_NN)이 깨지며 ③이전 아이템 정리
+        // 정규식이 " 2" 이름을 못 잡아 정리가 역작동한다(안정화 감사 #1).
+        try {
+          await removeKnownClonedSequenceFromProject(project, source, clone);
+        } catch {
+          // 정리 실패는 원래 오류를 가리지 않는다 — 고아는 다음 정리 도구가 잡는다.
+        }
+        throw rangeError;
+      }
       created.push(String(clone.name));
     };
     try {
@@ -2372,7 +2385,10 @@ export async function deleteNewsItemSequences(): Promise<{ deleted: number; fail
   let deleted = 0;
   let failures = 0;
   for (const sequence of await project.getSequences()) {
-    if (!/^\d{8}_news_\d{2,}$/u.test(String(sequence.name))) continue;
+    // " 2" 접미까지 매치한다(안정화 감사 #1) — 클론 성공+인아웃 실패 재시도가
+    // uniqueSequenceName으로 " 2"를 붙인 이력이 있으면, 접미 없는 정규식은 고아만 남기고
+    // 진짜 아이템을 놓쳐 정리가 역작동한다.
+    if (!/^\d{8}_news_\d{2,}(?: \d+)?$/u.test(String(sequence.name))) continue;
     try {
       await project.deleteSequence(sequence);
       deleted += 1;
@@ -2580,12 +2596,25 @@ export async function buildHighlightReel(
     }
   }
   // 공유 projectItem의 in/out을 원복한다(다른 기능이 전체 미디어를 보도록).
+  // commitActionFactories는 실패 시 throw가 아니라 false를 반환한다(안정화 감사 #6) —
+  // 반환값을 안 보면 해제 실패가 조용히 지나가 원본 in/out이 마지막 구간으로 고정된 채
+  // 남고, 이후 그 미디어를 쓰는 삽입·내보내기가 잘린 범위를 쓴다.
   try {
-    commitActionFactories(project, [() => castItem.createClearInOutPointsAction()], "ShortFlow: 릴 구간 해제");
+    const cleared = commitActionFactories(project, [() => castItem.createClearInOutPointsAction()], "ShortFlow: 릴 구간 해제");
+    if (!cleared) {
+      warnings.push("원본 미디어 in/out 해제 커밋이 거부됐습니다. 프로젝트 패널에서 수동 해제해 주세요.");
+    }
   } catch {
     warnings.push("원본 미디어 in/out 해제에 실패했습니다. 프로젝트 패널에서 수동 해제해 주세요.");
   }
   if (inserted === 0) {
+    // 전량 실패면 방금 만든 빈 릴 시퀀스를 남기지 않는다(안정화 감사 #6) — 반복 실패가
+    // 빈 시퀀스를 쌓으면 프로젝트 비대화(4400시퀀스 멈춤 사고의 축적 경로)로 이어진다.
+    try {
+      await removeKnownClonedSequenceFromProject(project, source, reel);
+    } catch {
+      warnings.push("빈 릴 시퀀스 정리에 실패했습니다 — 프로젝트 패널에서 수동 삭제해 주세요.");
+    }
     throw new ShortFlowError("INSERT_COMMIT_FAILED", "릴에 삽입된 구간이 없습니다.");
   }
   await project.setActiveSequence(reel);

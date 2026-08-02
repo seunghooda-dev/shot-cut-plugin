@@ -79,7 +79,7 @@ import {
   findSignoffs,
   planSignoffWindows,
   signoffProbeTimes,
-  sliceWavWindow,
+  createWavWindowSlicer,
   type SignoffHit,
 } from "./src/audio-signoff";
 import {
@@ -2767,7 +2767,16 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 activity.add("info", `비전 검증 · ${need - 1}표 후보 ${time.toFixed(1)}s 재판정 ${need}표 합의 — 배제로 승격.`);
               }
             } catch (error) {
-              if (error instanceof Error && error.message.includes("한도")) budgetStopped = true;
+              // 실패를 무로그로 삼키지 않는다(안정화 감사 #5) — 재판정 실패는 "표 부족 유지"라
+              // 안전하지만, 원인이 로그에 없으면 §160 검문이 뚫린다. 한도면 남은 후보도 같은
+              // 결과이므로 즉시 끊는다.
+              const revoteMessage = error instanceof Error ? error.message : String(error);
+              activity.add("warning", `비전 검증 · ${time.toFixed(1)}s 재판정 실패(${revoteMessage.slice(0, 80)}) — 표 부족으로 유지합니다.`);
+              if (revoteMessage.includes("한도")) {
+                budgetStopped = true;
+                activity.add("warning", "AI 일일 한도 도달 — 남은 재판정 후보를 중단합니다.");
+                break;
+              }
             }
           }
         }
@@ -2856,26 +2865,45 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             activity.add("warning", `오디오 단서 · 오디오 추출 실패로 건너뜁니다: ${error instanceof Error ? error.message : String(error)}`);
             return 0;
           }
+          // 파싱 1회 슬라이서(안정화 감사 #3) — 창마다 전체 WAV 재파싱(~150MB×24)을 막는다.
+          let sliceWindow: (begin: number, end: number) => Uint8Array;
+          try {
+            sliceWindow = createWavWindowSlicer(audio.bytes);
+          } catch (error) {
+            activity.add("warning", `오디오 단서 · WAV 파싱 실패로 건너뜁니다: ${error instanceof Error ? error.message : String(error)}`);
+            return 0;
+          }
           const hits: SignoffHit[] = [];
           let sttStopped = false;
+          // 창별 실패 사유(안정화 감사 #2) — 실패를 "사인오프 없음"으로 위장하지 않기 위한 기록.
+          const sttFailedWindows = new Map<number, string>();
           for (const [windowIndex, window] of windows.entries()) {
             if (sttStopped) break;
             setText("busy-message", `오디오 단서 ${windowIndex + 1}/${windows.length}…`);
             try {
-              const clip = sliceWavWindow(audio.bytes, window.begin, window.end);
+              const clip = sliceWindow(window.begin, window.end);
               const result = await runSignoffStt(clip, window.begin);
               hits.push(...findSignoffs(result, window.begin));
+              sttFailedWindows.delete(windowIndex);
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
+              sttFailedWindows.set(windowIndex, message.slice(0, 80));
               // 한도·인증 실패는 남은 창도 같은 결과이므로 멈춘다 — 한도 기각을 유실로 위장하지 않는다(§110-c).
-              if (/한도|초과|인증|API 키/u.test(message)) {
+              // HTTP 4xx/5xx의 영어 detail(예: insufficient credits)도 같은 부류다(안정화 감사 #2) —
+              // 한국어 토큰만 보다가 402를 무성(無聲)으로 위장하면 §160 검문이 뚫린다.
+              if (/한도|초과|인증|API 키|HTTP 4\d\d|HTTP 5\d\d|credit|quota|unauthorized/iu.test(message)) {
                 activity.add("warning", `오디오 단서 · ${windowIndex}/${windows.length}창에서 중단(${message}) — 남은 창은 건너뜁니다.`);
                 sttStopped = true;
               }
             }
           }
+          // 실패 창을 무성(無聲)으로 위장하지 않는다 — "사인오프 없음"과 "판정 못 함"을 로그로 가른다.
+          if (sttFailedWindows.size > 0) {
+            const [firstIndex, firstMessage] = [...sttFailedWindows.entries()][0]!;
+            activity.add("warning", `오디오 단서 · 창 ${sttFailedWindows.size}곳 판정 실패(예: ${firstIndex}번 창 — ${firstMessage}) — 해당 창은 무성 아님·미판정이다.`);
+          }
           if (hits.length === 0) {
-            activity.add("info", `오디오 단서 · 창 ${windows.length}곳에서 사인오프 없음`);
+            activity.add("info", `오디오 단서 · 판정된 창 ${windows.length - sttFailedWindows.size}/${windows.length}곳에서 사인오프 없음`);
             return 0;
           }
           const times = signoffProbeTimes(hits, verified).filter((time) => plan.times.every((existing) => Math.abs(existing - time) > 1.5));
@@ -3182,6 +3210,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                   }
                 } catch (error) {
                   activity.add("warning", `회수 되짚기 배치 실패 — 해당 지점은 회수하지 않습니다: ${error instanceof Error ? error.message : String(error)}`);
+                  // 한도 도달이면 남은 청크도 같은 결과다(§110-c, 안정화 감사 #4) — 실패 호출을
+                  // 계속 내면 그 지점들이 "한도 때문"이 아니라 "그냥 회수 안 됨"으로 위장된다.
+                  if (error instanceof Error && error.message.includes("한도")) {
+                    activity.add("warning", "AI 일일 한도 도달 — 남은 되짚기 지점을 중단합니다.");
+                    break;
+                  }
                 }
               }
               return out;
