@@ -11,8 +11,8 @@
 - 현재 Premiere Pro 2026과 UXP Developer Tools에서 패널 로드, watch/reload, 빈 프로젝트 안전 처리, 테스트 MP4 import, 활성 시퀀스 기본 QC, Safe Zone overlay, SRT import, 음악/SFX WAV 기본 삽입, TrackItem 선택 감지, 자동 컷 dry-run·추천 마커·복제 시퀀스 적용까지 제한 통과했습니다. TTS live/API 삽입은 최종 승인 전 다시 확인합니다.
 - Host 연동 파일은 고위험 영역이며, 실제 결과에 근거한 최소 수정만 허용합니다.
 - 결제·라이선스·계정·서버·자동 텔레메트리·고급 AI·마케팅 기능은 구현하지 않고 후순위로만 기록합니다.
-- 중간 커밋·push는 하지 않습니다. 전체 범위와 `typecheck`, `lint`, `test`, `build`가 통과한 뒤 체크포인트 커밋 하나만 만듭니다.
-- GitHub push는 내부 베타 검증 완료 시점 또는 스프린트 종료 시점에 한 번만 합니다.
+- ~~중간 커밋·push는 하지 않습니다~~ — 2026-07-13 사용자 지시로 대체(검증 단위마다 커밋·푸시). CLAUDE.md Commit/push convention 참조.
+- ~~GitHub push는 한 번만~~ — 위와 동일하게 대체됨(newplugin 원격에 수시 푸시).
 
 ## 1주차 — 편집 기반과 자막·음성
 
@@ -84,6 +84,7 @@ Premiere Pro 26.3 UXP Canvas는 `drawImage`, 텍스트 렌더링과 browser-styl
 9. 설정·자동 저장·복구·진단 로그
 10. 에셋 권리 정보·내보내기 전 경고·권리 리포트
 11. 자동 품질 게이트와 내부 베타 패키징 체크리스트
+12. 뉴스 자동 분할(원클릭 무료 스캔 + 선택적 비전 검증 — 2026-07-15 편입, 프로젝트 1순위 목표, 회귀 게이트 `check:news`)
 
 ## AI 이미지·영상의 내부 베타 허용 범위
 

@@ -73,7 +73,7 @@ Adobe Premiere Pro UXP panel for short-form video editing. Goal: a Premiere inte
 라우팅** 문턱 완화·후보 합집합·시점 병합·대체 신호 10종(§161~§161-c) — 전부 재현율↑
 정밀도↓ 맞바꿈이고, **그 재현율은 실기에서 이미 회수 경로가 가지고 있다.**
 
-### 남은 미해결 한 유형 (2026-08-03 기준 — 데스크 칼럼은 §170에서 해결)
+### 남은 미해결 한 유형 (2026-08-04 기준 — 데스크 칼럼은 §170에서 해결)
 
 | 유형 | 대표 | 상태 |
 |---|---|---|
@@ -118,7 +118,10 @@ Both reuse the same OpenAI safety plumbing (HTTPS `api.openai.com` pinned, secur
 
 ## Commit/push convention
 
-Checkpoint commits require a passing `npm run check` first — never commit a red tree. As of 2026-07-13 (user directive), commit and push to the `newplugin` remote (https://github.com/seunghooda-dev/shot-cut-plugin — 2026-07-24 사용자가 비공개 전환·shot-cut-plugin으로 개명, 로컬 원격 별칭은 `newplugin` 유지) whenever a meaningful validated unit of work completes; the older "one commit per milestone" rule from "실행 원칙" in [docs/ROADMAP.md](docs/ROADMAP.md) is superseded. The `origin` remote (seunghooda-dev/plugin) is the legacy Codex repo — leave it untouched unless asked.
+Checkpoint commits require a passing `npm run check` first — never commit a red tree.
+감사 시정 커밋은 **런북의 등재 목록을 같은 커밋에서 갱신**하고(문서-실물 정합 — 두 번
+깨진 실사고), **커밋 메시지의 절 번호(§N)는 런북 절과 대조 후** 쓴다(§184 #10을 "§186
+#10"으로 오기해 추적을 방해한 실사고, §186-b). As of 2026-07-13 (user directive), commit and push to the `newplugin` remote (https://github.com/seunghooda-dev/shot-cut-plugin — 2026-07-24 사용자가 비공개 전환·shot-cut-plugin으로 개명, 로컬 원격 별칭은 `newplugin` 유지) whenever a meaningful validated unit of work completes; the older "one commit per milestone" rule from "실행 원칙" in [docs/ROADMAP.md](docs/ROADMAP.md) is superseded. The `origin` remote (seunghooda-dev/plugin) is the legacy Codex repo — leave it untouched unless asked.
 
 ## Things not to carry over from other CEP/UXP reference projects
 
