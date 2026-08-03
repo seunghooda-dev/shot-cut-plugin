@@ -679,11 +679,12 @@ export async function setSequencePlayerPosition(seconds: number): Promise<void> 
   if (!moved) throw new ShortFlowError("PLAYHEAD_MOVE_FAILED", "Premiere 재생 헤드를 이동하지 못했습니다.");
 }
 
+/** 반환: 실제로 제거했으면 true, 복제본이 이미 없어 정리할 것이 없었으면 false(§186 감사 #11). */
 export async function removeVerifiedClonedSequenceFromProject(
   project: Project,
   sourceGuid: string,
   cloneGuid: string,
-): Promise<void> {
+): Promise<boolean> {
   const sourceKey = sourceGuid.trim();
   const cloneKey = cloneGuid.trim();
   if (!sourceKey || !cloneKey || sourceKey === cloneKey) {
@@ -693,8 +694,11 @@ export async function removeVerifiedClonedSequenceFromProject(
   const source = sequences.find((sequence) => guidKey(sequence.guid) === sourceKey);
   const clone = sequences.find((sequence) => guidKey(sequence.guid) === cloneKey);
   if (!source) throw new ShortFlowError("SOURCE_SEQUENCE_NOT_FOUND", "보존된 원본 시퀀스를 찾지 못했습니다.");
-  if (!clone) return;
+  // no-op을 실제 제거와 구분한다(§186 감사 #11) — 무음 return이던 시절 패널이 이미 없는
+  // 복제본에도 "제거했습니다" 토스트를 띄웠다.
+  if (!clone) return false;
   await removeKnownClonedSequenceFromProject(project, source, clone);
+  return true;
 }
 
 async function removeKnownClonedSequenceFromProject(
@@ -721,10 +725,10 @@ async function removeKnownClonedSequenceFromProject(
   }
 }
 
-export async function removeVerifiedClonedSequence(sourceGuid: string, cloneGuid: string): Promise<void> {
+export async function removeVerifiedClonedSequence(sourceGuid: string, cloneGuid: string): Promise<boolean> {
   const project = await ppro.Project.getActiveProject();
   if (!project) throw new ShortFlowError("NO_ACTIVE_PROJECT", "활성 Premiere Pro 프로젝트가 없습니다.");
-  await removeVerifiedClonedSequenceFromProject(project, sourceGuid, cloneGuid);
+  return removeVerifiedClonedSequenceFromProject(project, sourceGuid, cloneGuid);
 }
 
 export async function readPlayerPositionSeconds(): Promise<number> {

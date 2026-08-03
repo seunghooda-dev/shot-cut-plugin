@@ -5,7 +5,7 @@ import { optionalElement, setText, toast } from "./ui";
 export interface RecoveryPanelOptions {
   /** 전역 매니저는 bootstrap에서 늦게 할당되므로 값이 아니라 getter로 주입한다. */
   getManager: () => RecoveryManager | null;
-  removeClone: (sourceId: string, cloneId: string) => Promise<void>;
+  removeClone: (sourceId: string, cloneId: string) => Promise<boolean>;
   onActivity: (level: "info" | "success" | "warning", message: string) => void;
   onError: (error: unknown, context: string) => void;
 }
@@ -72,12 +72,16 @@ export function createRecoveryPanel(options: RecoveryPanelOptions): { render(): 
         options.onActivity("warning", "명시적 확인을 받지 못해 복제 시퀀스 제거를 취소했습니다.");
         return;
       }
-      await manager.rollback(entry.operationId, () => options.removeClone(
-        entry.clonePolicy.sourceId,
-        entry.clonePolicy.cloneId,
-      ));
+      // no-op과 실제 제거를 구분해 고지한다(§186 감사 #11).
+      let removed = true;
+      await manager.rollback(entry.operationId, async () => {
+        removed = await options.removeClone(entry.clonePolicy.sourceId, entry.clonePolicy.cloneId);
+      });
       options.onActivity("success", `복제 시퀀스 복구 완료: ${entry.label}`);
-      toast("원본을 유지하고 복제 시퀀스를 제거했습니다.", "success");
+      toast(
+        removed ? "원본을 유지하고 복제 시퀀스를 제거했습니다." : "복제 시퀀스는 이미 없었습니다 — 복구 기록만 정리했습니다.",
+        "success",
+      );
     } catch (error) {
       options.onError(error, "복제 시퀀스 복구 실패");
     } finally {

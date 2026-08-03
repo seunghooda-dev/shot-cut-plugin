@@ -226,7 +226,7 @@ function buildPanel(getManager: () => RecoveryManager | null): PanelHarness {
   const removeCloneCalls: Array<[string, string]> = [];
   const panel = createRecoveryPanel({
     getManager,
-    removeClone: async (sourceId, cloneId) => { removeCloneCalls.push([sourceId, cloneId]); },
+    removeClone: async (sourceId, cloneId) => { removeCloneCalls.push([sourceId, cloneId]); return true; },
     onActivity: (level, message) => { activities.push([level, message]); },
     onError: (error, context) => {
       errors.push({ context, message: error instanceof Error ? error.message : String(error) });
