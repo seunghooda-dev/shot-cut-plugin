@@ -16,6 +16,7 @@ import {
   type TtsAudioFormat,
 } from "../src/speech-files";
 import type { SttRequest, SttResult, TtsRequest, TtsResult } from "../src/speech";
+import { encodeWavPcm16 } from "../src/wav-pcm";
 import { createSubtitleDocument, type SubtitleDocument } from "../src/subtitles";
 import { DEFAULT_SETTINGS } from "../src/settings";
 
@@ -245,6 +246,18 @@ function sttResult(name = "A"): SttResult {
   };
 }
 
+// 40초 4kHz WAV — 10·20·30초에 1초 무음(청크 경계 후보). 임계 30초의 1.2배를 넘겨 분할을 강제한다.
+function longSilenceWav(): Uint8Array {
+  const sampleRate = 4000;
+  const samples = new Float32Array(sampleRate * 40);
+  for (let index = 0; index < samples.length; index += 1) {
+    const seconds = index / sampleRate;
+    const silent = (seconds >= 10 && seconds < 11) || (seconds >= 20 && seconds < 21) || (seconds >= 30 && seconds < 31);
+    samples[index] = silent ? 0 : Math.sin(seconds * 440 * 2 * Math.PI) * 0.4;
+  }
+  return encodeWavPcm16(samples, sampleRate);
+}
+
 function audioBytes(format: "wav" | "mp3" | "aac" | "flac"): Uint8Array {
   if (format === "wav") {
     const bytes = new Uint8Array(44);
@@ -273,6 +286,7 @@ function controllerHarness(options: {
   onActivity?: (message: string) => void;
   onError?: (error: unknown, context: string) => void;
   ensureAiConsent?: () => void | Promise<void>;
+  sttChunkSeconds?: number;
 } = {}): { controller: SpeechController; dom: FakeDocument; files: MockFiles; host: MockHost } {
   const dom = speechDom();
   Object.defineProperty(globalThis, "document", { value: dom, configurable: true, writable: true });
@@ -293,6 +307,7 @@ function controllerHarness(options: {
     ...(options.onActivity ? { onActivity: options.onActivity } : {}),
     ...(options.onError ? { onError: options.onError } : {}),
     ...(options.ensureAiConsent ? { ensureAiConsent: options.ensureAiConsent } : {}),
+    ...(options.sttChunkSeconds !== undefined ? { sttChunkSeconds: options.sttChunkSeconds } : {}),
   });
   return { controller, dom, files, host };
 }
@@ -482,6 +497,69 @@ describe("SpeechController request snapshots and Mock Host", () => {
     stt.resolve(sttResult("OK"));
     await first;
     assert.equal(requests.length, 1);
+  });
+
+  it("긴 WAV는 무음 경계 청크로 나눠 순차 전사하고 타임코드를 오프셋한다(§185 #5)", async () => {
+    const requests: SttRequest[] = [];
+    const activities: string[] = [];
+    const published: SpeechControllerTranscript[] = [];
+    const { controller, dom, files } = controllerHarness({
+      sttChunkSeconds: 30,
+      runStt: (request) => {
+        requests.push(request);
+        return Promise.resolve({
+          text: `part${requests.length}`,
+          segments: [{ start: 0.5, end: 1.5, text: `part${requests.length}` }],
+          srt: "",
+          model: "whisper-1",
+        });
+      },
+      onActivity: (message) => activities.push(message),
+      onTranscript: (transcript) => published.push(transcript),
+    });
+    await controller.initialize();
+    dom.getElementById("stt-output-format-select")!.value = "text";
+    dom.getElementById("stt-import-checkbox")!.checked = false;
+    files.sttFolder = folder("stt", "STT-CHUNK");
+    await internals(controller).chooseFolder("stt");
+    await controller.transcribeMediaBytes({ bytes: longSilenceWav(), name: "long-audio.wav" });
+    // 단위 테스트(경계 계획·병합)가 각각 있어도 이 오케스트레이션이 무테스트면
+    // 오프셋 누적이 어긋나는 회귀를 못 잡는다 — 재구성 공백 #5.
+    assert.ok(requests.length >= 2, `청크 요청 수: ${requests.length}`);
+    assert.match(requests[0]?.filename ?? "", /_part1\.wav$/u);
+    assert.ok(activities.some((message) => message.includes("긴 오디오 분할 전사")), `수집된 활동: ${activities.join(" | ")}`);
+    const segments = published[0]?.result.segments ?? [];
+    assert.ok(segments.length >= 2, `병합 세그먼트 수: ${segments.length}`);
+    const last = segments[segments.length - 1]!;
+    assert.ok(last.start > 10, `마지막 세그먼트 시작이 청크 오프셋을 반영해야 한다: ${last.start}`);
+  });
+
+  it("빈 원고 폴백은 whisper-1로 고착돼 이후 청크가 재시도를 반복하지 않는다(§185 #6)", async () => {
+    const models: Array<string | undefined> = [];
+    let failedOnce = false;
+    const { controller, dom, files } = controllerHarness({
+      sttChunkSeconds: 30,
+      runStt: (request) => {
+        models.push(request.model);
+        if (!failedOnce && request.model !== "whisper-1") {
+          failedOnce = true;
+          return Promise.reject(Object.assign(new Error("빈 원고"), { code: "EMPTY_RESPONSE" }));
+        }
+        return Promise.resolve({ text: "ok", segments: [{ start: 0.5, end: 1, text: "ok" }], srt: "", model: "whisper-1" });
+      },
+    });
+    await controller.initialize();
+    dom.getElementById("stt-model-select")!.value = "gpt-4o-transcribe";
+    dom.getElementById("stt-output-format-select")!.value = "text";
+    dom.getElementById("stt-import-checkbox")!.checked = false;
+    files.sttFolder = folder("stt", "STT-FALLBACK");
+    await internals(controller).chooseFolder("stt");
+    await controller.transcribeMediaBytes({ bytes: longSilenceWav(), name: "long-audio.wav" });
+    // 첫 청크만 원 모델로 시도·실패하고, 재시도와 이후 청크 전부가 whisper-1이어야 한다 —
+    // 고착이 풀리면 청크마다 실패+재시도 비용이 배가 된다(재구성 공백 #6).
+    assert.equal(models[0], "gpt-4o-transcribe");
+    assert.ok(models.length >= 3, `요청 수: ${models.length}`);
+    assert.ok(models.slice(1).every((model) => model === "whisper-1"), `요청 모델 열: ${models.join(", ")}`);
   });
 
   it("runStt: 실행 중 중복 호출은 무음이 아니라 경고를 남기고 건너뛴다(§185)", async () => {
