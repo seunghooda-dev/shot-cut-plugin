@@ -317,6 +317,34 @@ describe("cue split, merge, and max-character reflow", () => {
     assert.equal(result.cues[0]?.end, 7.5);
   });
 
+  it("keeps hidden words on a character-index split instead of dropping them (§186-b)", () => {
+    // 표시 텍스트(cue.text)는 보이는 단어만 담는다 — 무효 타이밍으로 문자 비례 경로를
+    // 강제하면, 종전에는 재생성 원장에서 숨긴 단어가 되돌릴 수 없이 사라졌다.
+    const withHidden = cue({
+      start: 0,
+      end: 10,
+      text: "가나다 라마바",
+      words: [
+        { wordId: "w-first", s: 0, e: 0, t: "가나다", hidden: false },
+        { wordId: "w-hidden", s: 4, e: 6, t: "비밀", hidden: true },
+        { wordId: "w-last", s: 6, e: 10, t: "라마바", hidden: false },
+      ],
+    });
+    const result = splitSubtitleCue(documentWith(withHidden), "cue-1", { charIndex: 3 });
+    assert.equal(result.cues[0]?.text, "가나다");
+    assert.equal(result.cues[1]?.text, "라마바");
+    const words = [...(result.cues[0]?.words ?? []), ...(result.cues[1]?.words ?? [])];
+    const hidden = words.find((word) => word.wordId === "w-hidden");
+    assert.ok(hidden, "숨긴 단어가 분할 후에도 원장에 남아야 한다");
+    assert.equal(hidden?.hidden, true);
+    assert.equal(hidden?.t, "비밀");
+    // 좌/우 각 큐의 단어 시각은 정렬돼 있어야 커밋의 UNSORTED_WORDS 검증을 통과한다.
+    for (const resultCue of result.cues) {
+      const times = resultCue.words.map((word) => word.s);
+      assert.deepEqual(times, [...times].sort((a, b) => a - b));
+    }
+  });
+
   it("does not mutate the source while splitting", () => {
     const original = documentWith(cue());
     splitSubtitleCue(original, "cue-1", "word-2");

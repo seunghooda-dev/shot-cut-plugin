@@ -659,6 +659,15 @@ export function splitSubtitleCue(
     rightText = cue.text.slice(resolution.charIndex).trim();
     leftWords = proportionalWords(leftText, cue.start, resolution.time, `${cue.cueId}|left`);
     rightWords = proportionalWords(rightText, resolution.time, cue.end, `${cue.cueId}|right`);
+    // 숨긴 단어 보존(§186-b) — cue.text는 보이는 단어만의 표시 문자열이라 재생성 원장에
+    // 숨긴 단어가 빠지고, 되돌릴 수 없이 영구 삭제됐다. 경계 시각 기준으로 좌/우에 합류시킨다.
+    const hiddenWords = cue.words.filter((word) => word.hidden === true).map(cloneWord);
+    if (hiddenWords.length > 0) {
+      leftWords = [...leftWords, ...hiddenWords.filter((word) => word.s < resolution.time)]
+        .sort((a, b) => a.s - b.s || a.e - b.e);
+      rightWords = [...rightWords, ...hiddenWords.filter((word) => word.s >= resolution.time)]
+        .sort((a, b) => a.s - b.s || a.e - b.e);
+    }
   }
   if (!leftText || !rightText) throw new Error("자막을 비어 있지 않은 두 부분으로 나눠 주세요.");
   const boundary = Math.max(cue.start + MIN_CUE_DURATION, Math.min(cue.end - MIN_CUE_DURATION, resolution.time));
