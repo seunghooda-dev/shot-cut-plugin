@@ -807,6 +807,22 @@ describe("ReferenceLibrary loading and token recovery", () => {
     assert.equal(loaded[0]?.token, "expired");
   });
 
+  it("restoreTokens 재호출이 복귀한 파일을 unavailable에서 되살린다(§189 미호출 표면)", async () => {
+    const { adapter, storage, entriesByToken } = createHarness();
+    storage.values.set(
+      REFERENCE_STORAGE_KEY,
+      serializeReferences([reference("lost", { token: "back-token" })]),
+    );
+    const library = new ReferenceLibrary(adapter);
+    await library.load();
+    assert.equal(library.items[0]?.unavailable, true);
+    // 파일이 돌아왔다(드라이브 재연결·복원 등) — 재복원 직접 호출로 세션 중 회복된다.
+    entriesByToken.set("back-token", mockFile("back.png", "E:\\Back\\back.png"));
+    const restored = await library.restoreTokens();
+    assert.equal(restored[0]?.unavailable, false);
+    assert.equal(restored[0]?.name, "back.png");
+  });
+
   it("persists refreshed metadata and unavailable state after token recovery", async () => {
     const { adapter, storage, entriesByToken } = createHarness();
     const stored = reference("moved", { token: "move-token" });
