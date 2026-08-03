@@ -535,6 +535,31 @@ describe("persistence and interrupted recovery", () => {
     assert.equal(restored.get(begun.operationId)?.recoveryGuidance, MANUAL_RESTORE_GUIDANCE);
   });
 
+  it("skips a structurally corrupt entry, keeps the rest, and backs up the original (§186)", async () => {
+    // preview가 없는 항목 하나가 저널 전체를 RESTORE_FAILED로 죽이던 결함(#4)과,
+    // 걸러낸 상태로 persist가 덮어써 손실이 영구화되던 결함(#5)의 회귀 방지.
+    const storage = new MemoryStorage();
+    const source = new RecoveryManager({ storage });
+    const good = source.begin(operation("operation-good-01"));
+    source.commit(good.operationId);
+    await source.flushPersistence();
+    const raw = storage.values.get(RECOVERY_STORAGE_KEY)!;
+    const state = JSON.parse(raw) as { entries: Array<Record<string, unknown>> };
+    const broken = JSON.parse(JSON.stringify(state.entries[0])) as Record<string, unknown>;
+    broken.operationId = "operation-broken-1";
+    delete broken.preview;
+    state.entries.push(broken);
+    const damagedRaw = JSON.stringify(state);
+    storage.values.set(RECOVERY_STORAGE_KEY, damagedRaw);
+
+    const restored = new RecoveryManager({ storage });
+    await restored.restore();
+    assert.ok(restored.get("operation-good-01"), "정상 항목은 복원돼야 한다");
+    assert.equal(restored.get("operation-broken-1"), null, "손상 항목은 걸러져야 한다");
+    assert.equal(restored.list().length, 1);
+    assert.equal(storage.values.get(`${RECOVERY_STORAGE_KEY}.corrupt`), damagedRaw, "손상 원문이 백업 키에 남아야 한다");
+  });
+
   it("rejects corrupt and unsupported serialized journals", async () => {
     const storage = new MemoryStorage();
     storage.setItem(RECOVERY_STORAGE_KEY, '{"apiKey":"sk-proj-abcdefghijk"');

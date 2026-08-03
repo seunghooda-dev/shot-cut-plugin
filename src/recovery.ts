@@ -514,9 +514,17 @@ export class RecoveryManager {
       this.entries.clear();
       this.rollbacks.clear();
       let interrupted = 0;
+      let corrupted = 0;
       const restored = state.entries.slice(-MAX_OPERATION_JOURNAL);
       for (const candidate of restored) {
-        if (!candidate || candidate.schemaVersion !== RECOVERY_SCHEMA_VERSION || !validateOperationId(candidate.operationId)) continue;
+        if (!candidate || candidate.schemaVersion !== RECOVERY_SCHEMA_VERSION || !validateOperationId(candidate.operationId)) { corrupted += 1; continue; }
+        // 구조 검증(§186 감사 #4) — operationId만 보고 통과시키면 preview가 손상된 항목
+        // 하나가 이후 list()·persist()의 cloneEntry에서 TypeError를 내고, 그것이
+        // RESTORE_FAILED로 포장돼 저널 전체가 못 쓰게 된다.
+        if (
+          !candidate.preview || !Array.isArray(candidate.preview.changes)
+          || !candidate.clonePolicy || typeof candidate.clonePolicy !== "object"
+        ) { corrupted += 1; continue; }
         const entry = redactRecoveryData(candidate) as OperationJournalEntry;
         if (entry.status === "running" || entry.status === "rolling-back") {
           entry.status = "interrupted";
@@ -533,7 +541,16 @@ export class RecoveryManager {
         this.entries.set(entry.operationId, entry);
         this.sequence += 1;
       }
-      this.emit("restored", undefined, `${interrupted} operation(s) interrupted`);
+      if (corrupted > 0) {
+        // 손상 원본 보존(§186 감사 #5) — 이 뒤의 persist()가 걸러낸 상태로 스토리지를
+        // 덮어써 손실이 영구화되므로, 덮어쓰기 전에 원문을 백업 키로 남긴다(수동 복구 여지).
+        try {
+          await this.storage.setItem(`${this.storageKey}.corrupt`, serialized);
+        } catch {
+          // 백업 실패는 복원 자체를 막지 않는다 — 아래 이벤트로 손상 사실은 드러난다.
+        }
+      }
+      this.emit("restored", undefined, `${interrupted} operation(s) interrupted${corrupted > 0 ? `, ${corrupted} corrupted entr${corrupted === 1 ? "y" : "ies"} skipped (backup: .corrupt)` : ""}`);
       this.persist();
       return interrupted;
     } catch (error) {
