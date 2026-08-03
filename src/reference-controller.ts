@@ -61,8 +61,11 @@ export class ReferenceController {
   }
 
   async initialize(): Promise<void> {
-    this.bindEvents();
+    // 저장소 로드를 이벤트 결속보다 먼저 한다(§189 감사 #1) — 순서가 반대면 load 실패
+    // 세션에서 리스너만 살아남아, 빈 목록 위에 추가 커밋이 일어나 기존 레퍼런스 전체를
+    // 덮어쓴다(bind는 해제 경로가 없어 컨트롤러를 null로 만들어도 리스너가 남는다).
     await this.library.load();
+    this.bindEvents();
     this.render();
   }
 

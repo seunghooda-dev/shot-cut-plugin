@@ -265,6 +265,40 @@ function enrichButton(list: FakeElement): FakeElement {
   return button;
 }
 
+describe("ReferenceController 초기화 안전성", () => {
+  it("저장소 로드 실패 시 이벤트를 결속하지 않아 기존 데이터를 덮어쓸 수 없다(§189 #1)", async () => {
+    const dom = installDom();
+    try {
+      const chooseButton = dom.doc.register("choose-reference-btn", "button");
+      let pickerCalls = 0;
+      let writes = 0;
+      const adapter = {
+        localFileSystem: {
+          getFileForOpening: async () => { pickerCalls += 1; return null; },
+          createPersistentToken: async () => "t",
+          getEntryForPersistentToken: async () => { throw new Error("nope"); },
+        },
+        storage: {
+          getItem: async () => { throw new Error("storage read failed"); },
+          setItem: async () => { writes += 1; },
+          removeItem: async () => undefined,
+        },
+        binaryFormat: "binary-format",
+      } as unknown as ReferenceLibraryAdapter;
+      const controller = new ReferenceController({ library: new ReferenceLibrary(adapter) });
+      await assert.rejects(() => controller.initialize());
+      // 종전에는 결속이 로드보다 먼저라, 로드 실패 세션의 클릭이 빈 목록 위에 커밋해
+      // 읽지도 못한 기존 레퍼런스 전체를 덮어쓸 수 있었다.
+      chooseButton.dispatch("click");
+      await flush();
+      assert.equal(pickerCalls, 0, "결속되지 않은 리스너가 파일 피커를 열면 안 된다");
+      assert.equal(writes, 0);
+    } finally {
+      dom.restore();
+    }
+  });
+});
+
 describe("ReferenceController AI 프롬프트 보강", () => {
   it("provider가 없으면 AI 보강 버튼을 비활성화한다", async () => {
     const dom = installDom();
