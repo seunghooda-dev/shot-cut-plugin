@@ -474,6 +474,28 @@ async function waitUntil(predicate: () => boolean, attempts = 100): Promise<void
   assert.fail("condition was not reached");
 }
 
+function spyObjectUrls(): { created: string[]; revoked: string[]; restore(): void } {
+  const created: string[] = [];
+  const revoked: string[] = [];
+  const urlGlobal = URL as unknown as Record<string, unknown>;
+  const originalCreate = urlGlobal.createObjectURL;
+  const originalRevoke = urlGlobal.revokeObjectURL;
+  urlGlobal.createObjectURL = () => {
+    const url = `blob:test-${created.length + 1}`;
+    created.push(url);
+    return url;
+  };
+  urlGlobal.revokeObjectURL = (url: string) => { revoked.push(url); };
+  return {
+    created,
+    revoked,
+    restore() {
+      urlGlobal.createObjectURL = originalCreate;
+      urlGlobal.revokeObjectURL = originalRevoke;
+    },
+  };
+}
+
 async function withDocument<T>(document: FakeDocument, task: () => Promise<T>): Promise<T> {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
   Object.defineProperty(globalThis, "document", { configurable: true, value: document });
@@ -1425,6 +1447,154 @@ describe("ThumbnailController deeper layer, restore, and capability coverage", (
     // 적용 결과가 영속됐는지 — 재시작 유실이 #22의 결함이었다.
     const saved = JSON.parse(storage.values.get(THUMBNAIL_STORAGE_KEY) ?? "{}") as { layers?: unknown[] };
     assert.equal(saved.layers?.length, 1);
+  });
+
+  it("revokes every session object URL on dispose regardless of source kind", async () => {
+    const spy = spyObjectUrls();
+    try {
+      const dom = controllerDom(false).document;
+      const fileSystem = new FakeLocalFileSystem();
+      // url이 없는 파일 원본 — resolveEntryUrl 폴백이 "file" 레코드에 objectURL을 만든다(§187 #16).
+      fileSystem.selection = {
+        name: "noturl.png",
+        isFile: true,
+        read: () => Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 4, 4]),
+      };
+      const storage = new MemoryStorage();
+      await withDocument(dom, async () => {
+        const controller = createController(dom, fileSystem, storage);
+        await controller.initialize();
+        dom.getElementById("thumbnail-source-btn")!.emit("click");
+        await waitUntil(() => controller.state.layers.length === 1);
+        assert.equal(spy.created.length, 1);
+        await controller.dispose();
+      });
+      assert.deepEqual(spy.revoked, spy.created);
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it("revokes the object URL of an AI history item evicted past the 10-item cap", async () => {
+    const spy = spyObjectUrls();
+    try {
+      const dom = controllerDom(false).document;
+      const fileSystem = new FakeLocalFileSystem();
+      fileSystem.selection = sourceEntry("seed.png");
+      const storage = new MemoryStorage();
+      await withDocument(dom, async () => {
+        const controller = new ThumbnailController({
+          adapter: adapter(fileSystem, storage),
+          now: () => Date.UTC(2026, 6, 12, 1, 2, 3),
+          imageFactory: loadedImage,
+          onError: () => undefined,
+          onAIRequest: () => ({ bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 5, 5]), name: "AI 결과" }),
+        });
+        await controller.initialize();
+        dom.getElementById("thumbnail-source-btn")!.emit("click");
+        await waitUntil(() => controller.state.layers.length === 1);
+        for (let round = 1; round <= 11; round += 1) {
+          dom.getElementById("thumb-ai-run-btn")!.emit("click");
+          await waitUntil(() => spy.created.length === round);
+          await settle();
+        }
+        // 11번째 결과가 가장 오래된 히스토리를 밀어내고, 그 blob이 즉시 회수된다(§187 #15).
+        assert.ok(spy.revoked.includes("blob:test-1"));
+        await controller.dispose();
+      });
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it("reports a real initial-render failure instead of masking it as a Canvas limit", async () => {
+    const fileSystem = new FakeLocalFileSystem();
+    fileSystem.selection = sourceEntry("keep.png");
+    const storage = new MemoryStorage();
+    const firstDom = controllerDom(false).document;
+    await withDocument(firstDom, async () => {
+      const controller = createController(firstDom, fileSystem, storage);
+      await controller.initialize();
+      firstDom.getElementById("thumbnail-source-btn")!.emit("click");
+      await waitUntil(() => controller.state.layers.length === 1);
+      await controller.dispose();
+    });
+    // 두 번째 세션: Canvas는 정상인데 이미지 디코딩이 실패한다 — 제한 안내가 아니라 오류여야 한다(§187 #21).
+    const restoredDom = controllerDom(true).document;
+    const errors: string[] = [];
+    await withDocument(restoredDom, async () => {
+      const controller = new ThumbnailController({
+        adapter: adapter(fileSystem, storage),
+        now: () => Date.UTC(2026, 6, 12, 1, 2, 3),
+        imageFactory: () => {
+          const image = {
+            src: "",
+            complete: false,
+            naturalWidth: 0,
+            naturalHeight: 0,
+            onload: null as (() => void) | null,
+            onerror: null as ((event?: unknown) => void) | null,
+          };
+          setTimeout(() => image.onerror?.(new Error("decode failed")), 0);
+          return image;
+        },
+        onError: (error, context) =>
+          errors.push(`${context}: ${error instanceof Error ? error.message : String(error)}`),
+      });
+      await controller.initialize();
+      assert.ok(errors.some((message) => /썸네일 초기 렌더 실패/u.test(message)), `수집된 오류: ${errors.join(" | ")}`);
+      await controller.dispose();
+    });
+  });
+
+  it("lists saved variants with their labels for the upload package", async () => {
+    const dom = controllerDom(false).document;
+    dom.add("thumb-variants", "div");
+    const fileSystem = new FakeLocalFileSystem();
+    fileSystem.selection = sourceEntry("base.png");
+    const storage = new MemoryStorage();
+    await withDocument(dom, async () => {
+      const controller = createController(dom, fileSystem, storage);
+      await controller.initialize();
+      dom.getElementById("thumbnail-source-btn")!.emit("click");
+      await waitUntil(() => controller.state.layers.length === 1);
+      dom.getElementById("thumb-save-variant-btn")!.emit("click");
+      await waitUntil(() => dom.getElementById("thumb-variants")!.children.length === 1);
+      dom.getElementById("thumb-save-variant-btn")!.emit("click");
+      await waitUntil(() => dom.getElementById("thumb-variants")!.children.length === 2);
+      const exports = controller.listVariantExports();
+      assert.deepEqual(exports.map((entry) => entry.label), ["A", "B"]);
+      for (const entry of exports) assert.match(entry.svg, /<svg/u);
+      await controller.dispose();
+    });
+  });
+
+  it("relabels remaining variants after a deletion so export filenames stay unique", async () => {
+    const dom = controllerDom(false).document;
+    dom.add("thumb-variants", "div");
+    const fileSystem = new FakeLocalFileSystem();
+    fileSystem.selection = sourceEntry("base.png");
+    const storage = new MemoryStorage();
+    await withDocument(dom, async () => {
+      const controller = createController(dom, fileSystem, storage);
+      await controller.initialize();
+      dom.getElementById("thumbnail-source-btn")!.emit("click");
+      await waitUntil(() => controller.state.layers.length === 1);
+      dom.getElementById("thumb-save-variant-btn")!.emit("click");
+      await waitUntil(() => dom.getElementById("thumb-variants")!.children.length === 1);
+      dom.getElementById("thumb-save-variant-btn")!.emit("click");
+      await waitUntil(() => dom.getElementById("thumb-variants")!.children.length === 2);
+      // 첫 카드(A)를 삭제하면 B가 A로 재라벨링돼 내보내기 파일명(_A.svg)이 유일하게 유지된다.
+      const firstCard = dom.getElementById("thumb-variants")!.children[0]!;
+      const removeButton = firstCard.children[2]!.children[1]!;
+      assert.equal(removeButton.textContent, "삭제");
+      removeButton.emit("click");
+      await waitUntil(() => dom.getElementById("thumb-variants")!.children.length === 1);
+      assert.deepEqual(controller.listVariantExports().map((entry) => entry.label), ["A"]);
+      const heading = dom.getElementById("thumb-variants")!.children[0]!.children[0]!;
+      assert.equal(heading.textContent, "변형 A");
+      await controller.dispose();
+    });
   });
 
   it("keeps AI retouch disabled when the run button is disabled", async () => {

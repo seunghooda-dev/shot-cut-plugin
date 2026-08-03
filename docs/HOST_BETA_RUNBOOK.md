@@ -165,9 +165,11 @@
    불가라 무테스트로 부기하고, 도달 가능한 실동작(예상비 보수적 잔류)을 테스트로 명세화.
 5. **useVariant(#22)** — 변형 적용이 상태 복원·영속까지 되는 것을 카드 버튼 제품 경로로 검증.
 
-**등재(미시정)** — 테스트 공백 하위 5건: dispose의 kind 무관 blob 회수(#16 무테스트) ·
-히스토리 축출 revoke(#15 무테스트) · 초기 렌더 예외 분류(#21 무테스트) ·
-listVariantExports(소비자는 루트 index.ts 업로드 패키지) · deleteVariant 재라벨.
+**테스트 공백 하위 5건도 시정 (2026-08-04)** — dispose의 kind 무관 blob 회수(objectURL
+스파이로 생성=회수 전량 대조) · 히스토리 11개째 축출 시 가장 오래된 blob 즉시 회수 ·
+초기 렌더 실패가 Canvas 제한으로 위장되지 않음(2세션 복원 + 디코딩 실패 팩토리) ·
+listVariantExports 라벨/svg 계약 · deleteVariant 재라벨(A/B → 삭제 → A). **§187 감사의
+등재 항목은 전부 소진** — 시정 또는 근거 있는 판정으로 종결.
 
 **#18 판정: 원격 유입 경로 없음** — sources.url의 생산자는 resolveEntryUrl(file·blob·data)과
 objectURL(blob)뿐이라 원격 http(s)가 저장 SVG에 들어갈 경로가 없다. 남는 것은 바이트 접근이
