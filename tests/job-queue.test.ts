@@ -343,6 +343,21 @@ describe("transient retry", () => {
     assert.deepEqual(delays, [100, 200]);
   });
 
+  it("refunds the failed attempt's cost estimate so retries do not double-count (§187)", async () => {
+    // reserveBudget이 시도마다 예약하므로 환불이 없으면 실패 시도의 예상 비용이 원장에
+    // 영구 잔류했다 — 2회 실패 후 성공하면 costUnits가 3배로 잡히던 결함.
+    let calls = 0;
+    const queue = new JobQueue(async () => {
+      calls += 1;
+      if (calls < 3) throw Object.assign(new Error("temporary"), { status: 503 });
+      return {};
+    }, { maxRetries: 2, sleep: async () => undefined });
+    const done = await queue.waitFor(queue.enqueue(request(1, { estimateUnits: 5 })).id);
+    assert.equal(done.state, "succeeded");
+    assert.equal(queue.getUsage().requests, 3, "요청 수는 실제 시도 수를 반영해야 한다");
+    assert.equal(queue.getUsage().costUnits, 5, "비용은 성공한 예약 1회분만 남아야 한다");
+  });
+
   it("retries status 429", async () => {
     let calls = 0;
     const queue = new JobQueue(async () => {

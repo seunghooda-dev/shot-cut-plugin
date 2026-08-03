@@ -731,6 +731,17 @@ export class JobQueue {
     this.usage.costUnits = Math.max(0, this.usage.costUnits + actualUnits - estimateUnits);
   }
 
+  /**
+   * 재시도 예정인 실패 시도의 비용 예상분 환불(§187 감사 #2) — reserveBudget이 시도마다
+   * 예약하므로 환불이 없으면 실패 시도의 예상 비용이 원장에 영구 잔류해, 재시도 많은 날
+   * 실제보다 이르게 한도에 닿는다. 요청 수는 실제로 API 요청이 나갔으므로 되돌리지 않고,
+   * 자정을 넘긴 경우는 새 날 원장에서 음수가 되지 않게만 한다(과환불 없음).
+   */
+  private refundEstimate(estimateUnits: number): void {
+    this.rollUsageDay();
+    this.usage.costUnits = Math.max(0, this.usage.costUnits - estimateUnits);
+  }
+
   private scheduleDrain(): void {
     if (this.drainScheduled) return;
     this.drainScheduled = true;
@@ -796,6 +807,11 @@ export class JobQueue {
         if (!canRetry) {
           this.transitionTerminal(job, "failed", error);
           return;
+        }
+        // 다음 시도가 다시 예약하므로 이번 시도의 예상분은 환불한다(§187 감사 #2).
+        // 한도 초과(BUDGET_EXCEEDED)는 예약 전에 던져지므로 여기 도달 시 예약은 항상 1회분이다.
+        if (!(error instanceof JobQueueError && error.code === "BUDGET_EXCEEDED")) {
+          this.refundEstimate(job.estimateUnits);
         }
         const delay = this.retryDelay(job.attempt);
         try {
