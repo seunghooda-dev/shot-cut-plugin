@@ -27,6 +27,9 @@ export function subtitleDocumentToAutomationTranscript(document: SubtitleDocumen
   if (segments.length === 0) return null;
   return {
     name: `${SUBTITLE_AUTOMATION_TRANSCRIPT_PREFIX}: ${document.projectKey}`,
+    // 한계(§189 감사 #14): 자막 문서에는 시퀀스 실제 길이가 없어 마지막 발화 끝을 쓴다 —
+    // 끝에 무음 여백이 있는 시퀀스에서는 복구 저널의 원본 길이가 짧게 기록되고 후미 무음이
+    // trimTrailing 대상에서 빠진다. 정확한 길이가 필요하면 호출부가 시퀀스 길이를 따로 대야 한다.
     duration: Math.max(...segments.map((segment) => segment.end)),
     segments,
   };

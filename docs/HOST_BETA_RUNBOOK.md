@@ -83,10 +83,13 @@ pull(STT 우선) 불일치로 분석이 자막 편집을 조용히 폐기(설계
 미관 문제뿐이고, 컨트롤러 메시지를 제거하면 포트-무기록 소비자에서 무고지가 되므로 유지) ·
 ~~#10 피커 취소~~(빈 배열 취소는 #7과
 함께 시정, CANCELLED 정규화 우회는 잔존) · ~~#11 type-select 핸들러 guard 밖~~(**시정**) ·
-#12 메타데이터
-저장의 전체 재렌더가 다른 카드의 유료 보강 미리보기 파기 · #13 addEntries 중도 실패 시
-선생성 토큰 누수(해제 API 자체가 없음) · #14 자막 기반 plan의 sourceDuration이 마지막 큐
-끝(복구 저널 오기록) · #15 renderPlan만 element() throw(실패 고지와 유효 plan 공존 가능).
+~~#12 재렌더의 보강 미리보기 파기~~(**시정** — 미리보기를 컨트롤러 상태로 보존해 재렌더
+복원, 적용·취소 시 정리, 회귀 테스트) · #13 addEntries 중도 실패 시
+선생성 토큰 누수(해제 API 자체가 어댑터에 없음 — API 확장 규모라 등재 유지) ·
+~~#14 sourceDuration~~(기존 명세 테스트가 이미 고정 — 한계 주석 부기로 종결) ·
+~~#15 renderPlan element() throw~~(**시정** — invalidatePlan과 같은 optionalElement 규약).
+**§189 종결 현황: 15건 중 시정 9(+#10 부분)·재판정 1(#9)·잔여 4**(#2·#3 설계 검토 ·
+#6 실기 확인 · #13 API 확장) — 잔여는 성격상 즉시 시정 대상이 아니다.
 
 **테스트 미호출 공개 표면** — ReferenceController.getSelectedImageInputs(#4의 미검출 원인) ·
 ReferenceLibrary.restoreTokens/selectFiles/updateNotes/search/clear(뒤 4개는 프로덕션 호출부

@@ -467,6 +467,35 @@ describe("ReferenceController 만료 항목 회복(§189 #4)", () => {
 });
 
 describe("ReferenceController AI 프롬프트 보강", () => {
+  it("재렌더에서 미적용 보강 미리보기가 살아남는다(§189 #12)", async () => {
+    const dom = installDom();
+    try {
+      const { library, seed } = createSeededLibrary();
+      await seed("원본 메모");
+      const controller = new ReferenceController({
+        library,
+        enrichPromptProvider: async () => "보강된 메모",
+      });
+      await controller.initialize();
+      enrichButton(dom.list).dispatch("click");
+      await flush();
+      assert.equal(dom.list.querySelectorAll(".reference-enrich-preview").length, 1);
+      // 메타데이터 저장이 전체 재렌더를 부른다 — 종전에는 유료 보강 결과가 확인 없이 파기됐다.
+      const editor = notesEditor(dom.list);
+      editor.value = "수정 메모";
+      editor.dispatch("change");
+      await flush();
+      assert.equal(dom.list.querySelectorAll(".reference-enrich-preview").length, 1, "재렌더 후에도 미리보기가 남아야 한다");
+      const applyButton = dom.list.querySelectorAll(".reference-enrich-apply-btn")[0]!;
+      applyButton.dispatch("click");
+      await flush();
+      assert.equal(notesEditor(dom.list).value, "보강된 메모");
+      assert.equal(dom.list.querySelectorAll(".reference-enrich-preview").length, 0, "적용하면 미리보기 상태가 정리된다");
+    } finally {
+      dom.restore();
+    }
+  });
+
   it("provider가 없으면 AI 보강 버튼을 비활성화한다", async () => {
     const dom = installDom();
     try {

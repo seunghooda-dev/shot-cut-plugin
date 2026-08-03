@@ -53,6 +53,8 @@ function tagsText(tags: readonly string[]): string {
 export class ReferenceController {
   private readonly library: ReferenceLibrary;
   private readonly selectedReferenceIds = new Set<string>();
+  // 미적용 AI 보강 미리보기(itemId → 보강 텍스트) — 전체 재렌더에서 살아남아야 한다(§189 #12).
+  private readonly pendingEnrichPreviews = new Map<string, string>();
   private stagedEntries: ReferenceFileEntry[] = [];
   private dragFromIndex = -1;
 
@@ -380,6 +382,34 @@ export class ReferenceController {
     enrichBtn.textContent = "AI 보강";
     enrichBtn.disabled = !this.options.enrichPromptProvider;
     enrichBtn.setAttribute("aria-label", `${item.name} 활용 메모 AI 보강`);
+    // 미리보기는 컨트롤러 상태에 보존한다(§189 감사 #12) — DOM에만 두면 다른 카드의
+    // 메타데이터 저장이 부르는 전체 재렌더가 유료 보강 결과를 확인 없이 파기한다.
+    const appendEnrichPreview = (enriched: string): void => {
+      enrichRow.querySelector(".reference-enrich-preview")?.remove();
+      const preview = document.createElement("div");
+      preview.className = "reference-enrich-preview";
+      const previewText = document.createElement("p");
+      previewText.textContent = enriched;
+      const applyBtn = document.createElement("button");
+      applyBtn.type = "button";
+      applyBtn.className = "reference-enrich-apply-btn";
+      applyBtn.textContent = "적용";
+      applyBtn.addEventListener("click", () => {
+        this.pendingEnrichPreviews.delete(item.id);
+        notes.value = enriched;
+        saveMetadata();
+      });
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.className = "reference-enrich-cancel-btn";
+      cancelBtn.textContent = "취소";
+      cancelBtn.addEventListener("click", () => {
+        this.pendingEnrichPreviews.delete(item.id);
+        preview.remove();
+      });
+      preview.append(previewText, applyBtn, cancelBtn);
+      enrichRow.append(preview);
+    };
     enrichBtn.addEventListener("click", () => void this.guard(async () => {
       const provider = this.options.enrichPromptProvider;
       if (!provider) return;
@@ -391,28 +421,12 @@ export class ReferenceController {
       } finally {
         enrichBtn.disabled = false;
       }
-      enrichRow.querySelector(".reference-enrich-preview")?.remove();
-      const preview = document.createElement("div");
-      preview.className = "reference-enrich-preview";
-      const previewText = document.createElement("p");
-      previewText.textContent = enriched;
-      const applyBtn = document.createElement("button");
-      applyBtn.type = "button";
-      applyBtn.className = "reference-enrich-apply-btn";
-      applyBtn.textContent = "적용";
-      applyBtn.addEventListener("click", () => {
-        notes.value = enriched;
-        saveMetadata();
-      });
-      const cancelBtn = document.createElement("button");
-      cancelBtn.type = "button";
-      cancelBtn.className = "reference-enrich-cancel-btn";
-      cancelBtn.textContent = "취소";
-      cancelBtn.addEventListener("click", () => preview.remove());
-      preview.append(previewText, applyBtn, cancelBtn);
-      enrichRow.append(preview);
+      this.pendingEnrichPreviews.set(item.id, enriched);
+      appendEnrichPreview(enriched);
     }, "AI 프롬프트 보강 실패"));
     enrichRow.append(enrichBtn);
+    const pendingPreview = this.pendingEnrichPreviews.get(item.id);
+    if (pendingPreview) appendEnrichPreview(pendingPreview);
 
     const actions = document.createElement("div");
     actions.className = "reference-card-actions";
