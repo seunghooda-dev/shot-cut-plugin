@@ -869,7 +869,34 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(area.slice(0, 2400), /quoteCardOnly: true/u, "카드 판정 프롬프트가 배선돼야 한다");
     assert.match(area.slice(0, 2400), /cardVote\.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE/u, "회수 임계를 써야 한다");
     // 연속성 통과(중간점 비앵커) 분기와 배타적이어야 한다 — 같은 지점을 이중 채택하면 안 된다.
-    assert.match(area.slice(0, 600), /else if \(midHits\.get\(mid\) === true\)/u, "기각 분기에서만 발동해야 한다");
+    // 한도 가드(&& !cardBudgetStopped)가 붙어도 "중간점이 앵커일 때만"이라는 조건은 유지돼야 한다.
+    assert.match(area.slice(0, 700), /else if \(midHits\.get\(mid\) === true/u, "기각 분기에서만 발동해야 한다");
+  });
+
+  it("유료 비전 호출은 전부 runVisionBatch를 거친다 — 직접 호출은 한도·비용 집계 밖(안정화 감사)", () => {
+    // 카드 확인(§173)·칼럼 확인(§170)이 rescueClient를 직접 불러 일일 한도가 걸리지 않았다.
+    // classifyAnchorShots 호출 지점마다 앞쪽에 runVisionBatch가 있어야 한다.
+    const calls = [...indexSource.matchAll(/rescueClient\.classifyAnchorShots/gu)].map((match) => match.index ?? 0);
+    assert.ok(calls.length >= 5, `회수 경로 비전 호출이 예상보다 적다: ${calls.length}`);
+    for (const at of calls) {
+      const before = indexSource.slice(Math.max(0, at - 400), at);
+      assert.match(before, /runVisionBatch\(/u, `runVisionBatch를 거치지 않는 직접 호출이 있다(offset ${at})`);
+    }
+  });
+
+  it("2표 합의·카드 확인 루프가 한도 도달 시 멈춘다 — 예산 소진을 '비전 기각'으로 위장하지 않는다", () => {
+    const confirmArea = indexSource.slice(indexSource.indexOf("2표 합의 확인"));
+    assert.match(confirmArea.slice(0, 3500), /confirmBudgetStopped = true/u, "2표 합의에 한도 중단이 없다");
+    assert.match(confirmArea.slice(0, 3500), /한도로 미확인 → 기각\(비전 판정 아님\)/u, "한도 기각을 판정과 구별하는 로그가 없다");
+    const cardArea = indexSource.slice(indexSource.indexOf("§173 3형 카드 확인"));
+    assert.match(cardArea.slice(0, 2600), /cardBudgetStopped = true/u, "카드 확인에 한도 중단이 없다");
+  });
+
+  it("카드 확인 실패는 로그를 남긴다 — 무성 catch면 '카드 아님'과 구별 불가(안정화 감사)", () => {
+    const cardArea = indexSource.slice(indexSource.indexOf("§173 3형 카드 확인"));
+    const body = cardArea.slice(0, 2600);
+    assert.match(body, /3형 카드 확인 .{0,40}실패/u, "카드 확인 실패 경고가 없다");
+    assert.match(body, /프레임 내보내기 유실/u, "내보내기 유실을 판정과 구별하는 로그가 없다");
   });
 
   it("칼럼 시작을 확정하면 그 블록 안의 회수분을 버린다 — 칼럼은 통째로 하나(§170-d)", () => {

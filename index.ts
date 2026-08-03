@@ -3050,7 +3050,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             activity.add("info", `회수 판정 상세: ${shown.join(" ")}${rescueVerdicts.length > shown.length ? " …" : ""}`);
           }
           if (rescueNearMisses.length > 0) {
-            activity.add("info", `회수 · 임계(0.9) 미달 판정 ${rescueNearMisses.length}건: ${rescueNearMisses.slice(0, 8).join(" ")}`);
+            activity.add("info", `회수 · 임계(${RESCUE_ANCHOR_MIN_CONFIDENCE}) 미달 판정 ${rescueNearMisses.length}건: ${rescueNearMisses.slice(0, 8).join(" ")}`);
           }
           // §171 긴 공백 스윕 발견은 2표 합의를 거친다 — §107-b의 FP 3건은 진단에서 재현되지 않는
           // 단일 프레임 산발 오판이었다(§107-c). +2초 프레임이 독립 표본이 되어 오판 확률을 제곱으로
@@ -3066,31 +3066,48 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           const secondVoteTargets = [...wideGapHits, ...weakRescueCandidates];
           if (secondVoteTargets.length > 0) {
             activity.add("info", `긴 공백 스윕 발견 ${wideGapHits.length}건 — 2표 합의 확인: ${secondVoteTargets.map((time) => time.toFixed(1)).join(" ")}`);
+            // 한도 도달 후에도 표적마다 실패 호출을 계속 내면, 남은 히트가 "비전이 기각함"이
+            // 아니라 **예산 소진 때문에** 조용히 삭제된다(안정화 감사 — 회수 본체 §110-c와
+            // judge()에는 있던 처리가 이 루프에만 빠져 있었다). 한도를 만나면 호출을 멈추되,
+            // 미확인 표적은 §121-c 원칙대로 그대로 기각하고 그 사유를 로그로 가른다.
+            let confirmBudgetStopped = false;
             for (const hitTime of secondVoteTargets) {
               let confirmed = false;
-              try {
-                let secondBytes: Uint8Array | null = null;
-                for (let attempt = 0; attempt < 2 && !secondBytes; attempt += 1) {
-                  const { filename } = await exportFrameToFolder(Math.max(0, hitTime + 2.0), String(dataFolder.nativePath), 480);
-                  secondBytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+              if (confirmBudgetStopped) {
+                activity.add("info", `2표 합의 ${hitTime.toFixed(1)}: 한도로 미확인 → 기각(비전 판정 아님)`);
+              } else {
+                try {
+                  let secondBytes: Uint8Array | null = null;
+                  for (let attempt = 0; attempt < 2 && !secondBytes; attempt += 1) {
+                    const { filename } = await exportFrameToFolder(Math.max(0, hitTime + 2.0), String(dataFolder.nativePath), 480);
+                    secondBytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+                  }
+                  if (secondBytes) {
+                    const votes = await runVisionBatch(
+                      `rescue-confirm:${hitTime}`,
+                      1,
+                      () => rescueClient.classifyAnchorShots(
+                        [{ bytes: secondBytes!, mimeType: "image/png" as const }],
+                        rescueRefs,
+                        {},
+                        { anchorLeftDesk: true, seatedAtDesk: true },
+                      ),
+                    );
+                    const vote = votes[0];
+                    confirmed = Boolean(vote && vote.isAnchor && vote.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE);
+                    activity.add("info", `2표 합의 ${hitTime.toFixed(1)}: +2초 프레임 ${vote ? `${vote.isAnchor ? "앵커" : "비앵커"}(${vote.confidence.toFixed(2)})` : "판정 유실"} → ${confirmed ? "채택" : "기각"}`);
+                  } else {
+                    // 내보내기 유실을 "비전이 기각함"으로 위장하지 않는다(1차 회수 경로와 동일 원칙).
+                    activity.add("info", `2표 합의 ${hitTime.toFixed(1)}: +2초 프레임 내보내기 유실 → 기각(비전 판정 아님)`);
+                  }
+                } catch (error) {
+                  const message = error instanceof Error ? error.message : String(error);
+                  activity.add("warning", `2표 합의 ${hitTime.toFixed(1)} 확인 실패(${message}) — 보수적으로 기각합니다.`);
+                  if (message.includes("한도")) {
+                    activity.add("warning", "AI 일일 한도 도달 — 남은 2표 합의 확인을 중단합니다(미확인분은 기각).");
+                    confirmBudgetStopped = true;
+                  }
                 }
-                if (secondBytes) {
-                  const votes = await runVisionBatch(
-                    `rescue-confirm:${hitTime}`,
-                    1,
-                    () => rescueClient.classifyAnchorShots(
-                      [{ bytes: secondBytes!, mimeType: "image/png" as const }],
-                      rescueRefs,
-                      {},
-                      { anchorLeftDesk: true, seatedAtDesk: true },
-                    ),
-                  );
-                  const vote = votes[0];
-                  confirmed = Boolean(vote && vote.isAnchor && vote.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE);
-                  activity.add("info", `2표 합의 ${hitTime.toFixed(1)}: +2초 프레임 ${vote ? `${vote.isAnchor ? "앵커" : "비앵커"}(${vote.confidence.toFixed(2)})` : "판정 유실"} → ${confirmed ? "채택" : "기각"}`);
-                }
-              } catch (error) {
-                activity.add("warning", `2표 합의 ${hitTime.toFixed(1)} 확인 실패(${error instanceof Error ? error.message : String(error)}) — 보수적으로 기각합니다.`);
               }
               if (!confirmed) {
                 const foundIndex = found.indexOf(hitTime);
@@ -3210,6 +3227,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 if (bytes) midProbes.push({ time: mid, bytes });
               }
               const midHits = await judge(midProbes);
+              // 카드 확인도 한도를 존중한다 — 도달 후 남은 중간점마다 실패 호출을 반복하면
+              // 그 지점들이 "카드 아님"으로 위장된다(안정화 감사, §110-c와 같은 부류).
+              let cardBudgetStopped = false;
               for (const mid of midCandidates) {
                 const owner = midOwner.get(mid)!;
                 // 중간점 판정을 못 받았으면(내보내기·응답 유실) 보수적으로 버린다 — 되짚기 FP가
@@ -3222,25 +3242,42 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 // 원 지점(owner+6 ≈ 띠 이벤트)이 "전면 인용 카드"면 3형 규칙(카드 직행은 별도
                 // 아이템)대로 그 지점을 경계로 채택한다. 성금·캠페인 카드(명단)는 프롬프트가
                 // false로 갈라 §138의 성금 구조를 침범하지 않는다. 판정 실패는 보수 기각.
-                else if (midHits.get(mid) === true) {
+                else if (midHits.get(mid) === true && !cardBudgetStopped) {
                   const cardTime = Math.round((owner + 6.0) * 10) / 10;
                   try {
                     const cardBytes = await grab(cardTime + 0.8);
                     if (cardBytes) {
-                      const cardVotes = await rescueClient.classifyAnchorShots(
-                        [{ bytes: cardBytes, mimeType: "image/png" as const }],
-                        [],
-                        {},
-                        { quoteCardOnly: true },
+                      // runVisionBatch 경유 — 직접 호출하면 일일 한도·비용 집계 밖이라
+                      // "한도" 에러를 받을 수조차 없다(안정화 감사).
+                      const cardVotes = await runVisionBatch(
+                        `rescue-card:${cardTime}`,
+                        1,
+                        () => rescueClient.classifyAnchorShots(
+                          [{ bytes: cardBytes, mimeType: "image/png" as const }],
+                          [],
+                          {},
+                          { quoteCardOnly: true },
+                        ),
                       );
                       const cardVote = cardVotes[0];
                       if (cardVote && cardVote.isAnchor && cardVote.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE) {
                         activity.add("info", `3형 카드 경계 채택 ${cardTime.toFixed(1)} — 앵커 단신이 전면 인용 카드로 끝남(§173)`);
                         backAccepted.push(cardTime);
+                      } else {
+                        activity.add("info", `3형 카드 확인 ${cardTime.toFixed(1)}: ${cardVote ? `카드 아님(${cardVote.confidence.toFixed(2)})` : "판정 유실"} → 기각`);
                       }
+                    } else {
+                      activity.add("info", `3형 카드 확인 ${cardTime.toFixed(1)}: 프레임 내보내기 유실 → 기각(판정 아님)`);
                     }
-                  } catch {
+                  } catch (error) {
                     // 카드 확인 실패는 기각 유지 — 회수는 추가라 불확실하면 안 늘린다(§121-c).
+                    // 다만 실패를 무성으로 삼키면 "카드 아님"과 구별할 수 없다(안정화 감사).
+                    const message = error instanceof Error ? error.message : String(error);
+                    activity.add("warning", `3형 카드 확인 ${cardTime.toFixed(1)} 실패(${message}) — 기각 유지.`);
+                    if (message.includes("한도")) {
+                      activity.add("warning", "AI 일일 한도 도달 — 남은 3형 카드 확인을 중단합니다.");
+                      cardBudgetStopped = true;
+                    }
                   }
                 }
               }
@@ -3315,13 +3352,20 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                 const standingHits: Array<{ probeIndex: number; isAnchor: boolean; confidence: number }> = [];
                 for (let offset = 0; offset < standingProbes.length; offset += 4) {
                   const chunk = standingProbes.slice(offset, offset + 4);
+                  // runVisionBatch 경유 — 직접 호출하면 이 유료 호출이 일일 한도·비용 집계
+                  // 밖에 놓여 "한도" 에러를 받을 수조차 없다(안정화 감사). 다른 비전 경로 5곳과
+                  // 같은 규약으로 맞춘다.
                   const chunkResults = await busy.during(
                     `칼럼 시작 확인 ${offset + 1}~${offset + chunk.length}/${standingProbes.length}(유료)…`,
-                    () => rescueClient.classifyAnchorShots(
-                      chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
-                      [],
-                      {},
-                      { standingPresenterOnly: true },
+                    () => runVisionBatch(
+                      `rescue-standing:${chunk[0]?.time ?? 0}`,
+                      chunk.length,
+                      () => rescueClient.classifyAnchorShots(
+                        chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
+                        [],
+                        {},
+                        { standingPresenterOnly: true },
+                      ),
                     ),
                   );
                   for (const result of chunkResults) {
