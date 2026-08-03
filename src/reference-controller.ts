@@ -78,10 +78,20 @@ export class ReferenceController {
   }
 
   async getSelectedImageInputs(): Promise<ReferenceImageInput[]> {
+    // 만료 항목은 사전 배제한다(§189 감사 #4) — 포함하면 TOKEN_EXPIRED로 썸네일 AI 전체가
+    // 실패하는데, 만료 카드는 체크박스를 렌더하지 않아 사용자가 선택을 풀 수도 없었다
+    // (index.ts의 selectedReferencePromptItems와 같은 필터 기준).
     const imageIds = this.items
-      .filter((item) => item.type === "image" && this.selectedReferenceIds.has(item.id))
+      .filter((item) => item.type === "image" && !item.unavailable && this.selectedReferenceIds.has(item.id))
       .map((item) => item.id);
-    return this.library.getImageInputs(imageIds);
+    try {
+      return await this.library.getImageInputs(imageIds);
+    } catch (error) {
+      // 이 호출에서 처음 만료가 발견되면 라이브러리가 markUnavailable을 남긴다 — 카드 상태를
+      // 즉시 갱신해 다음 호출이 자동 회복되게 한다(종전에는 재시작 전까지 영구 실패).
+      this.render();
+      throw error;
+    }
   }
 
   private bindEvents(): void {

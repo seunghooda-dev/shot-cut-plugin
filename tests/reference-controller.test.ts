@@ -299,6 +299,59 @@ describe("ReferenceController 초기화 안전성", () => {
   });
 });
 
+describe("ReferenceController 만료 항목 회복(§189 #4)", () => {
+  it("만료 레퍼런스는 선택 입력에서 배제돼 다음 호출이 자동 회복된다", async () => {
+    const dom = installDom();
+    try {
+      const store = new Map<string, string>();
+      const entriesByToken = new Map<string, ReferenceFileEntry>();
+      let tokenCount = 0;
+      const adapter = {
+        localFileSystem: {
+          getFileForOpening: async () => null,
+          createPersistentToken: async (entry: ReferenceFileEntry) => {
+            tokenCount += 1;
+            const token = `token-${tokenCount}`;
+            entriesByToken.set(token, entry);
+            return token;
+          },
+          getEntryForPersistentToken: async (token: string) => {
+            const entry = entriesByToken.get(token);
+            if (!entry) throw new Error(`expired token: ${token}`);
+            return entry;
+          },
+        },
+        storage: {
+          getItem: async (key: string) => store.get(key) ?? null,
+          setItem: async (key: string, value: string) => { store.set(key, value); },
+          removeItem: async (key: string) => { store.delete(key); },
+        },
+        binaryFormat: "binary-format",
+      } as unknown as ReferenceLibraryAdapter;
+      let nextId = 0;
+      const library = new ReferenceLibrary(adapter, { idFactory: () => `ref-${++nextId}`, now: () => 1 });
+      await library.addEntries([mockPngFile("a.png")], "메모A", { source: "s", tags: "" });
+      await library.addEntries([mockPngFile("b.png")], "메모B", { source: "s", tags: "" });
+      const controller = new ReferenceController({ library });
+      await controller.initialize();
+      for (const box of aiCheckboxes(dom.list)) {
+        box.checked = true;
+        box.dispatch("change");
+      }
+      assert.equal(controller.selectedIds.length, 2);
+      // a.png의 토큰이 만료된다(파일 이동 등) — 첫 호출은 실패하며 만료를 학습한다.
+      entriesByToken.delete("token-1");
+      await assert.rejects(() => controller.getSelectedImageInputs());
+      // 종전에는 만료 카드가 체크박스를 렌더하지 않아 선택을 풀 수 없어, 재시작 전까지
+      // 모든 호출이 같은 이유로 실패했다. 이제 만료 항목이 배제돼 나머지로 진행된다.
+      const recovered = await controller.getSelectedImageInputs();
+      assert.equal(recovered.length, 1);
+    } finally {
+      dom.restore();
+    }
+  });
+});
+
 describe("ReferenceController AI 프롬프트 보강", () => {
   it("provider가 없으면 AI 보강 버튼을 비활성화한다", async () => {
     const dom = installDom();
