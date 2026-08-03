@@ -792,11 +792,13 @@ describe("audio signoff cue contract (§152)", () => {
   const indexSource = readFileSync(path.join(ROOT, "index.ts"), "utf8");
 
   it("오디오 단서는 비전 ON 블록 안에서만 동작한다 — 유료 동의 게이트(§99) 재사용", () => {
-    const visionBlock = indexSource.slice(indexSource.indexOf("if (visionEnabled) {"));
-    const cueAt = visionBlock.indexOf("오디오 사인오프 회수");
-    assert.ok(cueAt > 0, "사인오프 회수는 visionEnabled 블록 안에 있어야 한다");
-    // 회수 블록이 끝나기 전에 나와야 한다 — 띠 필터(§149)보다 앞.
-    assert.ok(cueAt < visionBlock.indexOf("하단 띠 검사"), "사인오프 회수는 회수 단계 안이어야 한다");
+    // 앵커를 게이트 코드 문자열로 잡는다(§182 감사 #7) — 로그 문구("하단 띠 검사")는 다른
+    // 곳에 재등장할 수 있어 취약했다(강등 문구 추가로 실제로 깨짐).
+    const rescueAt = indexSource.indexOf("if (visionEnabled && !verifyBudgetStopped) {");
+    const cueAt = indexSource.indexOf("오디오 사인오프 회수");
+    const freeFilterAt = indexSource.indexOf("if (verified.length > 1 && !visionEnabled) {");
+    assert.ok(rescueAt > 0 && cueAt > rescueAt, "사인오프 회수는 회수(비전 ON) 블록 안에 있어야 한다");
+    assert.ok(freeFilterAt > cueAt, "사인오프 회수는 무료 띠 필터(§149)보다 앞이어야 한다");
   });
 
   it("사인오프 후보는 회수 프로브 목록에만 합류한다 — 경계를 직접 확정하지 않는다(§149 위계)", () => {
@@ -897,6 +899,29 @@ describe("audio signoff cue contract (§152)", () => {
     const body = cardArea.slice(0, 2600);
     assert.match(body, /3형 카드 확인 .{0,40}실패/u, "카드 확인 실패 경고가 없다");
     assert.match(body, /프레임 내보내기 유실/u, "내보내기 유실을 판정과 구별하는 로그가 없다");
+  });
+
+  it("검증 통째 실패는 무료 경로로 실제 강등된다 — 플래그·문구·toast(§182 감사 #1·#2)", () => {
+    // 종전에는 catch가 문구만 남기고 플래그를 안 내려, 무료 유일 방어(§149 띠 검사)가
+    // 꺼진 채 완주했다. 강등 대입이 catch 안에 있어야 한다.
+    const at = indexSource.indexOf("비전 검증 실패 — 무료 경로로 강등");
+    assert.ok(at > 0, "강등 문구가 없다");
+    assert.match(indexSource.slice(Math.max(0, at - 600), at), /visionEnabled = false;/u, "강등 대입이 catch 안에 있어야 한다");
+    assert.match(indexSource.slice(at, at + 400), /toast\("비전 검증이 실패해/u, "강등 toast가 있어야 한다");
+  });
+
+  it("검증 한도 도달은 회수 단계까지 전파된다(§182 감사 #3)", () => {
+    assert.match(indexSource, /verifyBudgetStopped = true;/u, "한도 전파 대입이 없다");
+    assert.match(indexSource, /if \(visionEnabled && !verifyBudgetStopped\) \{/u, "회수 게이트가 한도를 반영해야 한다");
+    assert.match(indexSource, /검증 단계에서 한도 도달 — 놓친 경계 회수를 생략/u, "회수 생략 로그가 없다");
+  });
+
+  it("설정 OFF·DOM 결손의 비전 생략도 로그를 남긴다(§182 감사 #5)", () => {
+    assert.match(indexSource, /비전 검증 생략 — 설정에서 꺼져 있어/u, "생략 로그가 없다");
+  });
+
+  it("무료 경로 하단 띠 검사는 비전 OFF에서만 켜진다 — §149 불변식", () => {
+    assert.match(indexSource, /if \(verified\.length > 1 && !visionEnabled\) \{/u, "무료 전용 게이트가 없다");
   });
 
   it("칼럼 시작을 확정하면 그 블록 안의 회수분을 버린다 — 칼럼은 통째로 하나(§170-d)", () => {

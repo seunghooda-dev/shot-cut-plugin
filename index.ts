@@ -2526,6 +2526,14 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
       activity.add("info", "비전 검증 건너뜀 — OpenAI API 키가 없어 무료 결과로 진행합니다(AI 설정 탭에서 저장 시 자동 활성).");
       visionEnabled = false;
     }
+    // 설정 OFF·DOM 결손도 로그를 남긴다(§182 감사 #5) — "비전 검증 시작"의 부재만으로는
+    // 사용자가 껐는지·조용한 강등인지 사후 로그로 가를 수 없었다(§155 검문의 사각).
+    if (!visionEnabled && optionalElement<HTMLInputElement>("news-cut-vision-check")?.checked !== true) {
+      activity.add("info", "비전 검증 생략 — 설정에서 꺼져 있어 무료 결과로 진행합니다.");
+    }
+    // 검증 단계의 한도 도달을 회수 단계까지 전파한다(§182 감사 #3) — try 안 지역 변수로만
+    // 두면 회수 블록이 그대로 진입해 같은 한도 실패를 프레임 내보내기 비용까지 치르며 반복한다.
+    let verifyBudgetStopped = false;
     if (visionEnabled) {
       try {
         // 유료 호출의 시작 시점을 로그에 남긴다 — 진행 표시(busy-message)는 사라지므로,
@@ -2707,6 +2715,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           if (budgetStopped) break;
         }
         if (budgetStopped) {
+          verifyBudgetStopped = true;
           activity.add("warning", `AI 일일 한도 도달 — 비전 검증을 중단합니다(미판정 ${pending.length}장은 배제하지 않습니다). 설정 탭에서 한도를 조정할 수 있습니다.`);
         } else if (pending.length > 0) {
           activity.add("warning", `비전 검증 · 프레임 ${pending.length}장 판정 유실${formatLossCauses(lossCauses)} — 해당 후보는 배제하지 않습니다.`);
@@ -2799,7 +2808,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           activity.add("info", "비전 검증 · 전 후보 앵커 확인(제외 0)");
         }
       } catch (error) {
-        activity.add("warning", `비전 검증 실패 — 무료 결과 그대로 진행: ${error instanceof Error ? error.message : String(error)}`);
+        // 런타임 강등(§182 감사 #1·#2) — 검증이 통째로 실패하면 남은 유료 경로도 같은
+        // 결과다(§110-c). 플래그를 내려 회수 블록을 건너뛰고, 무료 경로의 유일한 FP 방어인
+        // 하단 띠 검사(§149)를 살린다 — 종전에는 플래그가 안 내려가 띠 필터가 꺼진 채
+        // 완주했고, 로그 문구("무료 결과 그대로 진행")가 그 사실을 가렸다.
+        visionEnabled = false;
+        activity.add("warning", `비전 검증 실패 — 무료 경로로 강등합니다(하단 띠 검사 활성): ${error instanceof Error ? error.message : String(error)}`);
+        toast("비전 검증이 실패해 이번 분할은 무료 경로로 진행했습니다.", "warning", 6000);
       }
     }
     // 놓친 경계 회수(§101·§107) — 무료 신호로는 놓친 경계를 원리적으로 찾을 수 없는 경우가 있다
@@ -2813,7 +2828,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     //  ②띠 이벤트: 전 회차. "새 헤드라인 등장" 사전 신호가 있는 지점만이라(회차당 20~30곳)
     //    §107의 실패 요인이 없고, 격자 사정권 밖(75s 구간·짧은 리드)의 FN도 닿는다(§109 실측 96%).
     //  ③배제 재심: 검증이 배제한 후보(§101-c) — 오배제 자기치유.
-    if (visionEnabled) {
+    if (visionEnabled && verifyBudgetStopped) {
+      // §182 감사 #3 — 검증이 한도로 중단됐으면 회수도 같은 결과다(§110-c). 프레임 내보내기
+      // 비용까지 치르며 실패를 반복하지 않는다.
+      activity.add("warning", "검증 단계에서 한도 도달 — 놓친 경계 회수를 생략합니다.");
+    }
+    if (visionEnabled && !verifyBudgetStopped) {
       try {
         // §171 비경고 회차 긴 공백 스윕 — §107 전면 발동은 산발 오판 FP 3건으로 원복됐지만(§107-b),
         // §170-b가 "후보가 어느 목록에도 안 오르는 FN"(4/07 220.8, 135초 공백)을 규명해 재개한다.
@@ -3428,13 +3448,18 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           // 480px 유지 — 960px 실험(§141-c)은 기각됐다: 밀집 인용문은 540p에서도 한 덩어리
           // (51~63행)로 읽혀 못 잡고, 진짜 앵커 오판만 1건 늘었다(1/28 232.4). 밀집 인용
           // FP의 판별자는 띠가 아니라 §139 위치 단서다(회수 경로 전용 프롬프트).
-          const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 480, undefined, "bmp");
-          const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-          try {
-            const entry = await dataFolder.getEntry(filename);
-            await entry.delete();
-          } catch {
-            // 임시 파일 삭제 실패는 무시
+          // 내보내기 재시도(§121-b와 동일, §182 감사 #11) — 무료 경로의 유일한 FP 방어라
+          // 1회 유실이 판정 표를 조용히 줄이면 안 된다.
+          let bytes: Uint8Array | null = null;
+          for (let attempt = 0; attempt < 2 && !bytes; attempt += 1) {
+            const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 480, undefined, "bmp");
+            bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+            try {
+              const entry = await dataFolder.getEntry(filename);
+              await entry.delete();
+            } catch {
+              // 임시 파일 삭제 실패는 무시
+            }
           }
           const bmp = bytes ? parseBmp24(bytes) : null;
           return bmp ? isQuoteBandStats(lowerThirdRowStats(bmp), bmp.height) : null;
@@ -3462,13 +3487,17 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         if (votes.length > 0 && votes.every((vote) => vote)) rejected.push(time);
         else kept.push(time);
       }
+      // 안전망 문턱 3은 의도적 분기다(§182 감사 #8) — 비전 경로는 §124에서 1로 내렸지만
+      // 그쪽은 4프레임 검증이 오배제를 걸러 준다. 무료 경로는 이 필터가 유일한 방어라
+      // 검증 없이 대량 배제되면 확인할 길이 없으므로 §92 당시의 보수 문턱을 유지한다.
       if (rejected.length > 0 && kept.length >= 3) {
         verified = kept;
         // 배제 시각을 반드시 남긴다(§134) — 개수만 남기면 이 필터가 진짜 앵커를 지워도
         // 사후 판독으로 알 수 없다(1/28 687 실측: 헤드라인 띠를 인용 띠로 오인해 TP 1개 소실).
         activity.add("info", `하단 띠 검사 · 인용·이름표 띠 ${rejected.length}건 배제 → 앵커 ${verified.length}개 (배제 ${rejected.map((time) => time.toFixed(1)).join(" ")})`);
       } else if (rejected.length > 0) {
-        activity.add("warning", `하단 띠 검사 · 배제 후보 ${rejected.length}건이 있으나 잔여 ${kept.length}개(<3)라 필터를 해제합니다.`);
+        // 해제 시에도 의심 시각을 남긴다(§134·§182 감사 #9) — 채택 분기와 같은 이유.
+        activity.add("warning", `하단 띠 검사 · 배제 후보 ${rejected.length}건이 있으나 잔여 ${kept.length}개(<3)라 필터를 해제합니다 (의심 ${rejected.map((time) => time.toFixed(1)).join(" ")})`);
       }
     }
     // 2/4 경계 정밀 재스냅(인점 = 전환 컷 정확히, §61)
