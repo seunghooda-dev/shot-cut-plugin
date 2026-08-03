@@ -564,7 +564,10 @@ export class ThumbnailController {
       if (!this.options.onError) console.error("썸네일 종료 전 자동 저장 실패", error);
     } finally {
       for (const source of this.sources.values()) {
-        if (source.kind === "generated") revokeGeneratedUrl(source.url);
+        // kind와 무관하게 blob URL이면 회수한다(§187 감사 #16) — resolveEntryUrl 폴백이
+        // "file" 레코드에도 objectURL을 만들며, generated만 걸면 그쪽이 영구 누수였다.
+        // revokeGeneratedUrl은 blob: 이 아니면 no-op이라 file:// 직접 URL엔 무해하다.
+        revokeGeneratedUrl(source.url);
       }
       this.sources.clear();
       this.imageCache.clear();
@@ -1395,8 +1398,14 @@ export class ThumbnailController {
       const first = this.stateValue.layers[0];
       if (first) {
         this.stateValue = removeLayer(this.stateValue, first.id);
+        // addAIResult의 축출 경로와 대칭으로 revoke한다(§187 감사 #15) — 히스토리에서 이미
+        // 밀려난 generated blob URL은 여기서 놓치면 세션 내내 영구 누수다.
+        const old = this.sources.get(first.id);
         this.sources.delete(first.id);
         this.imageCache.delete(first.id);
+        if (old?.kind === "generated" && !this.historyItems.some((entry) => entry.url === old.url)) {
+          revokeGeneratedUrl(old.url);
+        }
       }
     }
     const id = this.uniqueSourceId(item.id);
