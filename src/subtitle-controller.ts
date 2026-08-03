@@ -720,9 +720,19 @@ export class SubtitleController {
   }
 
   importSrtText(srt: string): SubtitleDocument {
-    const parsed = parseSrt(srt, { projectKey: this.projectKey, maxCueCount: this.maximumCues });
+    // 부분 유실 고지(§185 감사) — parseSrt가 역순 시각·빈 텍스트 블록을 조용히 버려도
+    // 성공 개수만 알리면 사용자는 유실을 모른다.
+    let discarded = 0;
+    const parsed = parseSrt(srt, {
+      projectKey: this.projectKey,
+      maxCueCount: this.maximumCues,
+      onDiscarded: (count) => { discarded = count; },
+    });
     if (parsed.cues.length === 0) throw new Error("SRT에서 유효한 자막 큐를 찾지 못했습니다.");
     this.commit(parsed, `SRT 자막 ${parsed.cues.length}개를 불러왔습니다.`);
+    if (discarded > 0) {
+      this.options.onActivity?.(`SRT 블록 ${discarded}개는 타이밍 오류·빈 텍스트로 건너뛰었습니다.`);
+    }
     return this.document;
   }
 

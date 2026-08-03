@@ -902,18 +902,20 @@ export function parseSrt(value: string, options: ParseSrtOptions = {}): Subtitle
   if (!clean) return createSubtitleDocument(projectKey);
   const cues: Partial<SubtitleCue>[] = [];
   let totalTextChars = 0;
+  // 폐기 블록을 센다(§185 감사) — 무음 continue만 있던 시절 호출자가 부분 유실을 알 수 없었다.
+  let discarded = 0;
   for (const block of clean.split(/\n[\t ]*\n+/gu)) {
     const lines = block.split("\n");
     if (/^\d+$/u.test(lines[0]?.trim() ?? "")) lines.shift();
     const timingIndex = lines.findIndex((line) => line.includes("-->"));
-    if (timingIndex < 0) continue;
+    if (timingIndex < 0) { discarded += 1; continue; }
     const timing = lines[timingIndex]?.match(/^\s*([^\s]+)\s*-->\s*([^\s]+)(?:\s+.*)?$/u);
-    if (!timing) continue;
+    if (!timing) { discarded += 1; continue; }
     const start = srtTimeToSeconds(timing[1] ?? "");
     const end = srtTimeToSeconds(timing[2] ?? "");
-    if (start === null || end === null || end <= start) continue;
+    if (start === null || end === null || end <= start) { discarded += 1; continue; }
     const text = lines.slice(timingIndex + 1).join("\n").trim();
-    if (!text) continue;
+    if (!text) { discarded += 1; continue; }
     totalTextChars += text.length;
     if (totalTextChars > maxTotalTextChars) {
       throw new Error(`SRT 자막 텍스트가 안전 제한 ${maxTotalTextChars.toLocaleString("ko-KR")}자를 초과했습니다.`);
@@ -923,6 +925,7 @@ export function parseSrt(value: string, options: ParseSrtOptions = {}): Subtitle
     }
     cues.push({ start, end, text, enabled: true, hidden: false });
   }
+  if (discarded > 0) options.onDiscarded?.(discarded);
   return createSubtitleDocument(projectKey, cues);
 }
 

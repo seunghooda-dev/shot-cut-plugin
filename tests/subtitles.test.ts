@@ -234,6 +234,27 @@ describe("immutable word and cue editing", () => {
   });
 });
 
+describe("parseSrt discarded-block notification (§185)", () => {
+  it("counts blocks dropped for reversed timing or empty text", () => {
+    const srt = [
+      "1", "00:00:01,000 --> 00:00:02,000", "정상 큐", "",
+      "2", "00:00:05,000 --> 00:00:03,000", "역순 시각", "",
+      "3", "00:00:06,000 --> 00:00:07,000", "", "",
+    ].join("\n");
+    let discarded = 0;
+    const document = parseSrt(srt, { onDiscarded: (count) => { discarded = count; } });
+    assert.equal(document.cues.length, 1);
+    assert.equal(discarded, 2);
+  });
+
+  it("stays silent when nothing is dropped", () => {
+    const srt = ["1", "00:00:01,000 --> 00:00:02,000", "정상", ""].join("\n");
+    let called = false;
+    parseSrt(srt, { onDiscarded: () => { called = true; } });
+    assert.equal(called, false);
+  });
+});
+
 describe("cue split, merge, and max-character reflow", () => {
   it("merges overlapping cues with time-sorted words so commit validation passes (§185)", () => {
     // 겹치는 큐는 파싱된 SRT에서 정상 발생한다 — 단순 연결이던 시절 단어 시각 역전으로
