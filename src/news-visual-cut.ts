@@ -174,6 +174,52 @@ export function planRescueProbes(
   return { times, spans };
 }
 
+export interface ChyronGapPlan {
+  /** 발동 구간(진단 로그용) — 확정 경계 사이의 미해명 공백. */
+  gapStart: number;
+  gapEnd: number;
+  /** 직전 아이템의 헤드라인 띠가 보이는 참조 프레임 시각(경계 +10s — 띠는 +1.2~+8.3s에 뜬다, §176-b 실측). */
+  referenceTime: number;
+  /** 구간 안 띠 등장 이벤트 — 시간순. 이 순서로 판정해 "다른 주제"의 첫 등장만 채택한다(§170 원칙). */
+  eventTimes: number[];
+}
+
+/**
+ * §176-b 띠 주제 전환 제안 계획 — §125 4형(앵커 VO + b-roll 직행)은 경계 프레임에 앵커가
+ * 없어 시각·청각 여덟 갈래가 전부 소진된 유형이다(§171 스윕이 표적 ±8초에 닿고도 비앵커가
+ * 정답이라 기각). 판별 정보는 하단 헤드라인 띠 **텍스트**에 있다(§176 실측: 4/07 재현율
+ * 14/14, 표적 220.8을 띠 등장 224.0 = +3.2s로 적중).
+ *
+ * 발동은 §171과 같은 "확정 경계 사이 120초+ 공백"으로 한정하고, 판정은 직전 아이템 띠와의
+ * 주제 비교(비전)에 맡긴다 — 정상 회차에도 발동 구간이 생기지만(7/27 57.7~177.9 = 120.2초)
+ * 그 안의 띠 교체는 전부 같은 주제라 걸러진다(§176-b 실측: 대조 9/9 기각·표적 1/1 채택).
+ *
+ * leadSeconds 12: 직전 아이템 자신의 띠 등장(+1.2~+8.3s 실측)을 후보에서 제외하는 여유다.
+ * 채택 시각은 띠 등장 그대로 넘긴다 — 재스냅이 뒤로 36초를 훑어 컷으로 당긴다(§101과 동일).
+ */
+export function planChyronTopicProbes(
+  starts: readonly number[],
+  bandEvents: readonly number[],
+  endTime: number,
+  { minGapSeconds = 120, leadSeconds = 12, tailEdgeSeconds = 5, maxEventsPerGap = 8 } = {},
+): ChyronGapPlan[] {
+  const bounds = [...new Set(starts)].sort((a, b) => a - b);
+  if (endTime > (bounds.at(-1) ?? 0)) bounds.push(endTime);
+  const plans: ChyronGapPlan[] = [];
+  for (let index = 0; index < bounds.length - 1; index += 1) {
+    const gapStart = bounds[index]!;
+    const gapEnd = bounds[index + 1]!;
+    if (gapEnd - gapStart < minGapSeconds) continue;
+    const eventTimes = [...bandEvents]
+      .filter((time) => time > gapStart + leadSeconds && time < gapEnd - tailEdgeSeconds)
+      .sort((a, b) => a - b)
+      .slice(0, maxEventsPerGap);
+    if (eventTimes.length === 0) continue;
+    plans.push({ gapStart, gapEnd, referenceTime: Math.round((gapStart + 10) * 10) / 10, eventTimes });
+  }
+  return plans;
+}
+
 /** 특수 포맷 뱅크 채택 상한 — 진짜 포맷 일치는 0.001~0.025, 평일 오라우팅은 0.07~0.09 실측(완벽 분리). */
 const ROUTE_MAX_DIST = 0.05;
 const ROUTE_RATIO = 0.5;

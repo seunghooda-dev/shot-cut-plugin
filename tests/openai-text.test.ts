@@ -679,5 +679,23 @@ describe("classifyAnchorShots — §139 위치 단서 계약", () => {
     assert.equal(instruction().includes("TWO-LINE QUOTATION"), true);
     assert.equal(instruction().includes("plain single-colour backdrop"), true);
   });
+
+  it("chyronTopicShift면 띠 주제 비교만 묻는 별도 지시로 바뀐다(§176-b)", async () => {
+    const { fetcher, instruction } = capture();
+    await client(fetcher).classifyAnchorShots([frame(10), frame(11)], [], {}, { chyronTopicShift: true });
+    assert.equal(instruction().includes("CLEARLY DIFFERENT topic"), true);
+    assert.equal(instruction().includes("lower-third headline banner"), true);
+    // 앵커 정의 문구가 남아 있으면 안 된다 — 4형 경계 프레임에는 앵커가 없다(§170-b).
+    assert.equal(instruction().includes("IN-STUDIO ANCHOR SHOT"), false);
+  });
+
+  it("chyronTopicShift 지시에 기각 단서(같은 주제·따옴표 인용·2줄·이름표)가 있다 — 대조 9/9 기각의 근거(§176-b)", async () => {
+    const { fetcher, instruction } = capture();
+    await client(fetcher).classifyAnchorShots([frame(10), frame(11)], [], {}, { chyronTopicShift: true });
+    assert.equal(instruction().includes("same or a related topic"), true);
+    assert.equal(instruction().includes("QUOTATION"), true);
+    assert.equal(instruction().includes("TWO-LINE quotation"), true);
+    assert.equal(instruction().includes("name and title"), true);
+  });
 });
 

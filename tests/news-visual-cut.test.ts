@@ -5,6 +5,7 @@ import {
   BANK_FIT_WARN_DISTANCE,
   bankFitDistance,
   planRescueProbes,
+  planChyronTopicProbes,
   buildAnchorMatcher,
   buildItemsFromStarts,
   chunkVisionProbes,
@@ -279,6 +280,52 @@ describe("planRescueProbes 긴 공백 스윕 파라미터 (§171)", () => {
     const plan = planRescueProbes(starts407, 920, { maxSpan: 120, stepSeconds: 8 });
     const inNormalReport = plan.times.filter((time) => time > 392.3 + 20 && time < 497.0 - 8);
     assert.deepEqual(inNormalReport, []);
+  });
+});
+
+describe("planChyronTopicProbes (§176-b)", () => {
+  // 4/07 실기 시나리오 — 표적 220.8이 177.8→313.1 공백(135.3s) 안에 있고, 그 구간의 띠
+  // 이벤트는 180(직전 아이템 자신의 띠)·224(표적)·242·254·268·284(내부 교체)다.
+  const starts407 = [42.5, 177.8, 313.1, 356.7, 392.1, 496.8, 590.6, 712.5];
+  const events407 = [46, 180, 224, 242, 254, 268, 284, 316, 360, 396, 500];
+
+  it("120초+ 공백에서만 발동하고, 직전 아이템 자신의 띠(+12s 이내)는 후보에서 뺀다", () => {
+    const plans = planChyronTopicProbes(starts407, events407, 920);
+    assert.equal(plans.length, 1);
+    const plan = plans[0]!;
+    assert.equal(plan.gapStart, 177.8);
+    assert.equal(plan.gapEnd, 313.1);
+    // 180은 직전 아이템(177.8)의 띠 등장(+2.2s)이라 제외 — 표적 224가 첫 후보여야 한다.
+    assert.deepEqual(plan.eventTimes, [224, 242, 254, 268, 284]);
+    assert.equal(plan.eventTimes[0], 224);
+  });
+
+  it("참조 프레임 시각은 직전 경계 +10초다 — 띠는 +1.2~+8.3초에 뜬다(§176-b 실측)", () => {
+    const plans = planChyronTopicProbes(starts407, events407, 920);
+    assert.equal(plans[0]!.referenceTime, 187.8);
+  });
+
+  it("120초 미만 공백(정상 리포트)에서는 발동하지 않는다", () => {
+    // 392.1→496.8 = 104.7s — §107-b가 경고한 정상 리포트 길이 구간이다.
+    const plans = planChyronTopicProbes([392.1, 496.8], [420, 450], 600);
+    assert.deepEqual(plans, []);
+  });
+
+  it("구간에 띠 이벤트가 없으면 계획을 만들지 않는다", () => {
+    const plans = planChyronTopicProbes([100, 300], [50, 102, 296], 400);
+    assert.deepEqual(plans, []);
+  });
+
+  it("마지막 경계 뒤 꼬리 공백도 발동 대상이다", () => {
+    const plans = planChyronTopicProbes([100], [180, 220], 260);
+    assert.equal(plans.length, 1);
+    assert.deepEqual(plans[0]!.eventTimes, [180, 220]);
+  });
+
+  it("구간당 이벤트 상한(8)을 지킨다 — 비용 폭주 방지", () => {
+    const many = Array.from({ length: 20 }, (_, index) => 120 + index * 6);
+    const plans = planChyronTopicProbes([100, 300], many, 400);
+    assert.equal(plans[0]!.eventTimes.length, 8);
   });
 });
 
