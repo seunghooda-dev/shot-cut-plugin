@@ -2939,6 +2939,21 @@ async function addAutomationMarkersToSequence(
 ): Promise<AutomationMarkerResult> {
   assertAutomationPlan(plan, cues);
   const markerCollection = await ppro.Markers.getMarkers(sequence);
+  // 반복 클릭 중복 방지(§189 감사 #6) — 같은 plan을 다시 커밋하면 SF CUT/ZOOM 마커가
+  // 무제한 누적된다. UXP 마커 제거 액션은 미확인 API라 대체(replace) 대신, 기존 SF 마커가
+  // 있으면 추가를 멈추고 정리 방법을 안내한다.
+  const existingMarkers = markerCollection.getMarkers();
+  for (let index = 0; index < existingMarkers.length; index += 1) {
+    const marker = existingMarkers[index];
+    if (!marker) continue;
+    const name = String(marker.getName());
+    if (name.startsWith("SF CUT ") || name.startsWith("SF ZOOM ")) {
+      throw new ShortFlowError(
+        "AUTOMATION_MARKERS_EXIST",
+        "이미 추가된 자동 편집 추천 마커(SF CUT/ZOOM)가 있습니다. 시퀀스에서 기존 마커를 삭제한 뒤 다시 추가해 주세요.",
+      );
+    }
+  }
   const markerType = ppro.Marker.MARKER_TYPE_COMMENT;
   const actions: ActionFactory[] = [];
   for (const [index, cut] of plan.cuts.entries()) {
