@@ -1127,6 +1127,10 @@ export class ThumbnailController {
     if (!variant) return;
     this.stateValue = JSON.parse(JSON.stringify(variant.state)) as ThumbnailState;
     this.syncUI();
+    // 적용을 화면·저장에 실제로 반영한다(§187 감사 #22) — syncUI만 하던 시절 미리보기가
+    // 이전 상태로 남고, 재시작하면 변형 적용이 통째로 유실됐다.
+    this.requestRender();
+    this.schedulePersist();
     this.options.onActivity?.(`변형 ${variant.label}를 현재 썸네일로 적용했습니다.`);
   }
 
