@@ -376,7 +376,9 @@ export class RecoveryManager {
       throw new RecoveryError("CLONE_REQUIRED", `원본 복제 정책을 충족하지 못했습니다: ${policyValidation.reasons.join(" ")}`);
     }
 
-    this.ensureJournalCapacity();
+    // 검증을 용량 확보보다 먼저 한다(§186 감사 #1) — 순서가 반대면 INVALID_OPERATION·
+    // DUPLICATE_OPERATION으로 거부될 begin()도 기존 저널 항목 1개를 먼저 지운 뒤 실패해,
+    // 거부된 호출이 저널을 갉아먹는다.
     const timestamp = this.now();
     const operationId = input.operationId ?? this.idFactory(kind, timestamp, ++this.sequence);
     if (!validateOperationId(operationId)) {
@@ -385,6 +387,7 @@ export class RecoveryManager {
     if (this.entries.has(operationId)) {
       throw new RecoveryError("DUPLICATE_OPERATION", "이미 존재하는 operationId입니다.", operationId);
     }
+    this.ensureJournalCapacity();
 
     const entry: OperationJournalEntry = {
       schemaVersion: RECOVERY_SCHEMA_VERSION,
@@ -629,7 +632,12 @@ export class RecoveryManager {
 
   private ensureJournalCapacity(): void {
     while (this.entries.size >= MAX_OPERATION_JOURNAL) {
-      const removable = [...this.entries.values()].find((entry) => isTerminalForPruning(entry.status));
+      // 조치가 필요 없는 항목을 먼저 버린다(§186 감사 #2) — 삽입 순서로만 고르면 복제본
+      // 정리가 남은 failed·interrupted·rollback-failed가 무해한 최신 committed보다 먼저,
+      // 고지 없이 사라진다. 같은 등급 안에서는 오래된 것부터.
+      const terminal = [...this.entries.values()].filter((entry) => isTerminalForPruning(entry.status));
+      const removable = terminal.find((entry) => entry.status === "committed" || entry.status === "rolled-back")
+        ?? terminal[0];
       if (!removable) throw new RecoveryError("JOURNAL_FULL", "실행 중인 복구 작업이 많아 새 작업을 시작할 수 없습니다.");
       this.entries.delete(removable.operationId);
       this.rollbacks.delete(removable.operationId);

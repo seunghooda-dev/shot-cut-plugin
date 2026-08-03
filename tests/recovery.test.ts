@@ -307,6 +307,35 @@ describe("operation journal cap", () => {
       expectCode("JOURNAL_FULL"),
     );
   });
+
+  it("does not evict anything when begin() is rejected — 거부된 호출이 저널을 갉아먹지 않는다(§186)", () => {
+    const manager = new RecoveryManager();
+    const first = manager.begin(operation("operation-000"));
+    manager.commit(first.operationId);
+    for (let index = 1; index < MAX_OPERATION_JOURNAL; index += 1) {
+      manager.begin(operation(`operation-${String(index).padStart(3, "0")}`));
+    }
+    // 중복 ID로 거부될 begin — 종전에는 용량 확보가 먼저라 committed 항목을 지운 뒤 던졌다.
+    assert.throws(() => manager.begin(operation("operation-001")), expectCode("DUPLICATE_OPERATION"));
+    assert.ok(manager.get("operation-000"), "거부된 begin이 기존 항목을 지우면 안 된다");
+    assert.equal(manager.list().length, MAX_OPERATION_JOURNAL);
+  });
+
+  it("prunes harmless committed entries before actionable failed ones (§186)", async () => {
+    const manager = new RecoveryManager();
+    // 조치 필요 항목(failed — 복제본 정리 안내가 남아 있어야 함)을 먼저 만든다.
+    const failed = manager.begin(operation("operation-000"));
+    await manager.fail(failed.operationId, new Error("의도적 실패"));
+    // 무해한 committed 항목을 뒤에 만든다 — 삽입 순서 폐기라면 failed가 먼저 사라진다.
+    const committed = manager.begin(operation("operation-001"));
+    manager.commit(committed.operationId);
+    for (let index = 2; index < MAX_OPERATION_JOURNAL; index += 1) {
+      manager.begin(operation(`operation-${String(index).padStart(3, "0")}`));
+    }
+    manager.begin(operation("operation-050"));
+    assert.ok(manager.get("operation-000"), "조치 필요(failed) 항목은 남아야 한다");
+    assert.equal(manager.get("operation-001"), null, "무해한 committed가 먼저 폐기돼야 한다");
+  });
 });
 
 describe("external side-effect rollback", () => {
@@ -577,7 +606,9 @@ describe("recovery events", () => {
 });
 
 describe("journal cap edge cases", () => {
-  it("evicts terminal entries in insertion order while running operations survive", async () => {
+  it("evicts harmless terminal entries before actionable ones while running operations survive", async () => {
+    // §186 감사 #2 — 종전 "삽입 순서" 폐기는 복제본 정리가 남은 failed를 무해한 rolled-back보다
+    // 먼저 지웠다. 새 규약: committed·rolled-back(무해) 먼저, 조치 필요(failed 등)는 마지막.
     const manager = new RecoveryManager();
     const failed = manager.begin(operation("operation-cap-000"));
     manager.fail(failed.operationId, "boom");
@@ -590,11 +621,11 @@ describe("journal cap edge cases", () => {
     assert.equal(manager.list().length, MAX_OPERATION_JOURNAL);
 
     manager.begin(operation("operation-cap-050"));
-    assert.equal(manager.get("operation-cap-000"), null, "가장 오래된 실패 항목이 먼저 제거되어야 합니다.");
-    assert.ok(manager.get("operation-cap-001"));
+    assert.equal(manager.get("operation-cap-001"), null, "무해한 rolled-back이 먼저 제거되어야 합니다.");
+    assert.ok(manager.get("operation-cap-000"), "조치 필요(failed) 항목은 무해 항목이 남아 있는 동안 살아야 합니다.");
 
     manager.begin(operation("operation-cap-051"));
-    assert.equal(manager.get("operation-cap-001"), null, "롤백 완료 항목도 제거 대상이어야 합니다.");
+    assert.equal(manager.get("operation-cap-000"), null, "무해 항목이 소진되면 조치 필요 항목이 제거 대상이 됩니다.");
     assert.equal(manager.list().length, MAX_OPERATION_JOURNAL);
     assert.equal(manager.list().every((entry) => entry.status === "running"), true);
   });
