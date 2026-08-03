@@ -984,6 +984,20 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(indexSource.slice(at, at + 300), /activity\.add\("warning"/u, "무고지 건너뜀이면 안 된다");
   });
 
+  it("내보내기는 생성 시점 GUID를 1차 키로 전달한다(§184 #14)", () => {
+    const at = indexSource.indexOf("queueSequenceExportsByName(newsCutCreatedNames, presetFile, outputFolder");
+    assert.ok(at > 0);
+    assert.match(
+      indexSource.slice(at, at + 140),
+      /newsCutCreatedGuids\)/u,
+      "이름만 전달하면 동명 시퀀스에서 다른 대상을 내보낼 수 있다",
+    );
+    // 생성·초기화가 이름과 GUID를 함께 다뤄야 인덱스 1:1 동기가 유지된다.
+    assert.match(indexSource, /newsCutCreatedGuids = result\.createdGuids;/u);
+    const fallbackAt = indexSource.indexOf("usedNameFallback.length > 0");
+    assert.ok(fallbackAt > 0, "GUID 미일치 이름 폴백은 경고 고지가 있어야 한다");
+  });
+
   it("원클릭 분할은 스캔 전에 내보내기 전제를 전체 선검증한다(§183)", () => {
     const at = indexSource.indexOf("async function runNewsCutAutoFlow");
     assert.ok(at > 0);

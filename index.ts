@@ -1791,6 +1791,8 @@ let newsCutSourceName = "";
 // 미리보기 경합 가드 — 목록이 다시 그려지면 이전 로드는 버린다(adjust-panel 패턴).
 let newsCutThumbToken = 0;
 let newsCutCreatedNames: string[] = [];
+// 생성 시점 GUID(§184 #14) — 이름과 인덱스 1:1, 내보내기 해석의 1차 키.
+let newsCutCreatedGuids: Array<string | null> = [];
 // 플러그인 설치 폴더 경로(부팅 시 1회 조회) — 출력 폴더 오염 경고(speech-controller)에 쓴다.
 let pluginFolderPathValue: string | null = null;
 
@@ -2129,6 +2131,7 @@ async function handleNewsCutAnalyze(): Promise<void> {
   }
   newsCutItems = items;
   newsCutCreatedNames = [];
+  newsCutCreatedGuids = [];
   renderNewsCutList();
   if (newsCutItems.length === 0) {
     activity.add("warning", "뉴스 분할: 아이템 0개 — 자막이 뉴스 형식이 아닐 수 있습니다.");
@@ -2150,6 +2153,7 @@ async function handleNewsCutCreate(): Promise<void> {
   // 시작 시 이전 배치 목록을 비운다(§184 감사 #13) — 생성 도중 예외가 나면 UI가 이전 배치
   // 이름을 유지해 '일괄 내보내기'가 직전 배치를 내보냈다.
   newsCutCreatedNames = [];
+  newsCutCreatedGuids = [];
   const today = new Date();
   // 조회 실패를 무음으로 삼키면 번호가 01부터 다시 시작해 규약이 어긋난다(§183) — 고지하고 진행.
   const existingNames = await listSequenceNames().catch(() => {
@@ -2168,6 +2172,7 @@ async function handleNewsCutCreate(): Promise<void> {
       busy.progress((completed / Math.max(1, total)) * 100);
     }));
   newsCutCreatedNames = result.created;
+  newsCutCreatedGuids = result.createdGuids;
   activity.add(
     result.failures.length ? "warning" : "success",
     `뉴스 분할 시퀀스 생성 · 성공 ${result.created.length} · 실패 ${result.failures.length}`,
@@ -2329,11 +2334,15 @@ async function exportNewsSequencesWith(presetFile: any, outputFolder: any): Prom
     return;
   }
   const result = await busy.during(`AME 대기열에 ${newsCutCreatedNames.length}개 추가 중…`, () =>
-    queueSequenceExportsByName(newsCutCreatedNames, presetFile, outputFolder));
+    queueSequenceExportsByName(newsCutCreatedNames, presetFile, outputFolder, newsCutCreatedGuids));
   activity.add(
     result.failures.length ? "warning" : "success",
     `뉴스 분할 대기열 추가 · 성공 ${result.queued.length} · 실패 ${result.failures.length}`,
   );
+  // GUID 미일치 이름 폴백(§184 #14) — 프로젝트 전환·재생성 뒤라면 동명의 다른 시퀀스일 수 있다.
+  if (result.usedNameFallback.length > 0) {
+    activity.add("warning", `GUID가 일치하지 않아 이름으로 해석한 시퀀스 ${result.usedNameFallback.length}개 — 프로젝트를 전환했거나 시퀀스를 다시 만들었다면 산출물을 확인하세요: ${result.usedNameFallback.join(", ")}`);
+  }
   result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
   toast(
     result.failures.length
@@ -2387,6 +2396,7 @@ async function handleNewsCutCleanup(): Promise<void> {
   disarmNewsCutCleanup();
   const result = await busy.during(`아이템 시퀀스 ${count}개를 정리하고 있습니다…`, () => deleteNewsItemSequences());
   newsCutCreatedNames = [];
+  newsCutCreatedGuids = [];
   renderNewsCutList();
   activity.add(
     result.failures ? "warning" : "success",
@@ -3581,6 +3591,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
 
   newsCutItems = items;
   newsCutCreatedNames = [];
+  newsCutCreatedGuids = [];
   renderNewsCutList();
   if (items.length === 0) throw new Error("보도 아이템을 만들지 못했습니다.");
   activity.add("success", `원클릭 분할 · 화면 분석 아이템 ${items.length}개`);

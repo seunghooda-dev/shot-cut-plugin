@@ -2276,13 +2276,16 @@ export interface NewsItemSequenceInput {
 export async function createNewsItemSequences(
   items: NewsItemSequenceInput[],
   onProgress?: (completed: number, total: number, name: string) => void,
-): Promise<{ created: string[]; failures: Array<{ name: string; error: string }> }> {
+): Promise<{ created: string[]; createdGuids: Array<string | null>; failures: Array<{ name: string; error: string }> }> {
   if (!Array.isArray(items) || items.length === 0) {
     throw new ShortFlowError("NO_NEWS_ITEMS", "생성할 보도 아이템이 없습니다.");
   }
   const { project, sequence: source } = await getActiveContext();
   const sequenceEnd = await safeTime(source, "getEndTime", 0);
   const created: string[] = [];
+  // 생성 시점 GUID 포착(§184 #14 Plan 2단계) — 이름 재조회는 동명 시퀀스에서 다른 대상을
+  // 해석할 수 있다. created와 인덱스가 1:1로 동기된다.
+  const createdGuids: Array<string | null> = [];
   const failures: Array<{ name: string; error: string }> = [];
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index]!;
@@ -2307,6 +2310,7 @@ export async function createNewsItemSequences(
         throw rangeError;
       }
       created.push(String(clone.name));
+      createdGuids.push((clone as { guid?: unknown }).guid ? String((clone as { guid?: unknown }).guid) : null);
     };
     try {
       await buildOne();
@@ -2335,15 +2339,20 @@ export async function createNewsItemSequences(
       failures.push({ name: String(source.name ?? "원본"), error: "생성 후 원본 시퀀스 재활성화에 실패했습니다 — 원본 시퀀스를 직접 선택해 주세요." });
     }
   }
-  return { created, failures };
+  return { created, createdGuids, failures };
 }
 
-/** 이름으로 찾은 시퀀스들을 AME 대기열에 추가한다(파일명 = 시퀀스명, 전체 범위). */
+/**
+ * 이름으로 찾은 시퀀스들을 AME 대기열에 추가한다(파일명 = 시퀀스명, 전체 범위).
+ * sequenceGuids가 오면 GUID를 1차 키로 해석한다(§184 #14) — 이름은 동명 시퀀스에서 다른
+ * 대상을 내보낼 수 있다. GUID 미일치 시 이름 폴백을 쓰되 usedNameFallback으로 알린다.
+ */
 export async function queueSequenceExportsByName(
   sequenceNames: string[],
   presetFile: { nativePath?: string },
   outputFolder: { nativePath?: string },
-): Promise<{ queued: string[]; failures: Array<{ name: string; error: string }> }> {
+  sequenceGuids?: ReadonlyArray<string | null | undefined>,
+): Promise<{ queued: string[]; failures: Array<{ name: string; error: string }>; usedNameFallback: string[] }> {
   if (!presetFile?.nativePath) {
     throw new ShortFlowError("NO_EXPORT_PRESET", "Adobe Media Encoder .epr 프리셋을 선택해 주세요.");
   }
@@ -2364,11 +2373,25 @@ export async function queueSequenceExportsByName(
   const { project } = await getActiveContext();
   const sequences = await project.getSequences();
   const byName = new Map(sequences.map((sequence) => [String(sequence.name), sequence]));
+  const byGuid = new Map<string, (typeof sequences)[number]>();
+  for (const sequence of sequences) {
+    const guid = (sequence as { guid?: unknown }).guid;
+    if (guid) byGuid.set(String(guid), sequence);
+  }
   const queued: string[] = [];
   const failures: Array<{ name: string; error: string }> = [];
-  for (const name of sequenceNames) {
+  const usedNameFallback: string[] = [];
+  for (let index = 0; index < sequenceNames.length; index += 1) {
+    const name = sequenceNames[index]!;
     try {
-      const sequence = byName.get(name);
+      const guid = sequenceGuids?.[index];
+      let sequence = guid ? byGuid.get(String(guid)) : undefined;
+      if (!sequence) {
+        sequence = byName.get(name);
+        // GUID를 받고도 못 찾아 이름으로 해석한 경우(§184 #14) — 프로젝트 전환·재생성
+        // 가능성이 있으니 호출부가 고지하도록 알린다.
+        if (sequence && guid) usedNameFallback.push(name);
+      }
       if (!sequence) throw new ShortFlowError("SEQUENCE_NOT_FOUND", "시퀀스를 찾지 못했습니다.");
       const extension = String(await ppro.EncoderManager.getExportFileExtension(sequence, presetPath) || "mp4");
       const outputPath = joinNativePath(String(outputFolder.nativePath), buildExportFilename(name, extension));
@@ -2386,7 +2409,7 @@ export async function queueSequenceExportsByName(
       failures.push({ name, error: errorMessage(error) });
     }
   }
-  return { queued, failures };
+  return { queued, failures, usedNameFallback };
 }
 
 /**
