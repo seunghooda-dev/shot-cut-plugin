@@ -198,7 +198,7 @@ export class ReferenceController {
     try {
       // 포트 반환값은 신뢰하지 않는다 — addEntries가 파일 엔트리·형식·중복을 다시 검증한다.
       const entry = await this.options.generatedImageProvider(prompt, size);
-      const additions = await this.library.addEntries([entry], `[AI 생성] ${prompt}`, {
+      const additions = await this.addGeneratedEntry(entry, `[AI 생성] ${prompt}`, {
         source: "AI 생성 (gpt-image-2)",
         tags: "ai-생성",
       });
@@ -224,7 +224,7 @@ export class ReferenceController {
     try {
       this.options.onActivity?.("AI 영상 생성을 시작했습니다. 수 분이 걸릴 수 있습니다…");
       const entry = await this.options.generatedVideoProvider(prompt, seconds);
-      const additions = await this.library.addEntries([entry], `[AI 생성] ${prompt}`, {
+      const additions = await this.addGeneratedEntry(entry, `[AI 생성] ${prompt}`, {
         source: "AI 생성 (Sora)",
         tags: "ai-생성, 영상",
       });
@@ -233,6 +233,23 @@ export class ReferenceController {
       this.options.onActivity?.(`AI 영상 ${additions.length}개를 레퍼런스로 추가했습니다.`);
     } finally {
       button.disabled = false;
+    }
+  }
+
+  /** 생성 산출물 등록 — 실패해도 파일 위치를 고지해 유료 산출물이 묻히지 않게 한다(§189 #5). */
+  private async addGeneratedEntry(
+    entry: Parameters<ReferenceLibrary["addEntries"]>[0][number],
+    notes: string,
+    metadata: { source: string; tags: string },
+  ): ReturnType<ReferenceLibrary["addEntries"]> {
+    try {
+      return await this.library.addEntries([entry], notes, metadata);
+    } catch (error) {
+      const name = typeof (entry as { name?: unknown }).name === "string" ? (entry as { name: string }).name : "ai-gen 파일";
+      this.options.onActivity?.(
+        `생성 결과는 플러그인 데이터 폴더의 ${name}(으)로 남아 있습니다 — 등록 실패 원인을 해결한 뒤 파일 선택으로 직접 추가할 수 있습니다.`,
+      );
+      throw error;
     }
   }
 

@@ -657,6 +657,46 @@ describe("ReferenceController AI 이미지 생성", () => {
     } as unknown as ReferenceFileEntry;
   }
 
+  it("등록 실패 시 생성 파일의 위치를 고지한다(§189 #5)", async () => {
+    const dom = installDom();
+    registerGenControls(dom);
+    try {
+      const adapter = {
+        localFileSystem: {
+          getFileForOpening: async () => null,
+          createPersistentToken: async () => "t-1",
+          getEntryForPersistentToken: async () => { throw new Error("nope"); },
+        },
+        storage: {
+          getItem: async () => null,
+          setItem: async () => { throw new Error("disk full"); },
+          removeItem: async () => undefined,
+        },
+        binaryFormat: "binary-format",
+      } as unknown as ReferenceLibraryAdapter;
+      const activities: string[] = [];
+      const errors: string[] = [];
+      const controller = new ReferenceController({
+        library: new ReferenceLibrary(adapter),
+        generatedImageProvider: async () => mockPngFile("ai-gen-123.png"),
+        onActivity: (message) => activities.push(message),
+        onError: (error) => errors.push(error instanceof Error ? error.message : String(error)),
+      });
+      await controller.initialize();
+      dom.doc.getElementById("reference-gen-prompt-input")!.value = "노을";
+      dom.doc.getElementById("reference-gen-btn")!.dispatch("click");
+      await flush();
+      // 유료 생성물은 이미 디스크에 있다 — 등록 실패로 위치가 묻히면 회수할 수 없다.
+      assert.ok(
+        activities.some((message) => message.includes("ai-gen-123.png") && message.includes("남아 있습니다")),
+        `수집된 활동: ${activities.join(" | ")}`,
+      );
+      assert.equal(errors.length, 1, "등록 실패 자체도 여전히 오류로 보고돼야 한다");
+    } finally {
+      dom.restore();
+    }
+  });
+
   it("provider가 돌려준 영상 파일을 'AI 생성 (Sora)' 출처로 레퍼런스에 추가한다", async () => {
     const dom = installDom();
     registerGenControls(dom);
