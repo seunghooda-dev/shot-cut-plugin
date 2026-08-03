@@ -964,6 +964,15 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(indexSource.slice(Math.max(0, at - 500), at), /newsCutCreatedNames = \[\];/u, "생성 시작 전에 이전 배치를 비워야 한다");
   });
 
+  it("복구 저널 복원 실패 시 추적을 끄지 않고 백업 후 재시작한다(§186 감사 #15)", () => {
+    const at = indexSource.indexOf("복구 기록 초기화 실패");
+    assert.ok(at > 0);
+    const before = indexSource.slice(Math.max(0, at - 1600), at);
+    assert.match(before, /RECOVERY_STORAGE_KEY\}\.corrupt/u, "손상 저널을 백업 키로 옮겨야 한다");
+    assert.match(before, /removeItem\(RECOVERY_STORAGE_KEY\)/u, "손상 원본 키를 지워 반복 실패를 끊어야 한다");
+    assert.match(before, /recoveryManager = new RecoveryManager\(\{ storage: browserStorage \}\)/u, "빈 저널로 추적을 재개해야 한다");
+  });
+
   it("칼럼 시작을 확정하면 그 블록 안의 회수분을 버린다 — 칼럼은 통째로 하나(§170-d)", () => {
     // 판정 자체는 news-visual-cut의 columnMidRescueDrops(단위 테스트 별도)로 추출됐다.
     // 여기서는 배선만 확인한다 — 인라인 재구현으로 되돌아가면 단위 테스트가 무력화된다.

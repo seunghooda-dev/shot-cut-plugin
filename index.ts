@@ -180,7 +180,7 @@ import {
   type ReferenceFileEntry,
   type ReferenceItem,
 } from "./src/references";
-import { RecoveryManager } from "./src/recovery";
+import { RECOVERY_STORAGE_KEY, RecoveryManager } from "./src/recovery";
 import { createRecoveryPanel } from "./src/recovery-panel";
 import { installTextEncodingPolyfill } from "./src/text-encoding";
 import { createAiSettingsPanel } from "./src/ai-settings-panel";
@@ -4223,7 +4223,25 @@ async function bootstrap(): Promise<void> {
     }
     recoveryPanel.render();
   } catch (error) {
+    // 복원 실패로 추적을 끄지 않는다(§186 감사 #15) — 종전에는 null로 두어 이후 자동 편집이
+    // **저널 없이** 복제+변경을 진행했고, 손상 스토리지는 지워지지 않아 매 실행 반복됐다.
+    // 손상 원문을 백업 키로 옮긴 뒤 빈 저널로 재시작해 추적을 유지한다.
     recoveryManager = null;
+    try {
+      const browserStorage = (globalThis as unknown as { localStorage?: Storage }).localStorage;
+      if (browserStorage) {
+        const damaged = browserStorage.getItem(RECOVERY_STORAGE_KEY);
+        if (typeof damaged === "string" && damaged) {
+          browserStorage.setItem(`${RECOVERY_STORAGE_KEY}.corrupt`, damaged);
+          browserStorage.removeItem(RECOVERY_STORAGE_KEY);
+        }
+        recoveryManager = new RecoveryManager({ storage: browserStorage });
+        recoveryManager.subscribe(() => recoveryPanel.render());
+        activity.add("warning", "복구 저널이 손상돼 백업 키(.corrupt)에 보존하고 빈 저널로 다시 시작했습니다 — 이후 작업의 복구 추적은 유지됩니다.");
+      }
+    } catch {
+      // 재초기화까지 실패하면 추적 없이 진행하는 수밖에 없다 — 아래 오류 보고가 그 사실을 남긴다.
+    }
     reportError(error, "복구 기록 초기화 실패");
   }
   try {
