@@ -430,7 +430,9 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /bind\("run-diagnostics-btn",\s*"click",\s*guarded\(\(\) => diagnosticsPanel\.run\(\)/);
   assert.match(source, /bind\("export-diagnostics-btn",\s*"click",\s*guarded\(\(\) => diagnosticsPanel\.exportJson\(\)/);
   assert.match(source, /button\.type\s*=\s*"button";[\s\S]*?button\.textContent\s*=\s*"복제본 제거";/);
-  assert.match(source, /removeVerifiedClonedSequence\(/);
+  // 복구 패널의 복제본 제거는 검증형 remove를 배선해야 한다 — §186 #9로 직접 호출은
+  // 사라졌으므로(정리는 applyAutomationPlan 단일 지점) 배선 참조를 확인한다.
+  assert.match(source, /removeClone: removeVerifiedClonedSequence/);
   assert.match(source, /dialog\.uxpShowModal\.bind\(dialog\)/);
   assert.match(source, /if \(!await requestRecoveryRollbackConfirmation\(entry\)\)/);
   assert.doesNotMatch(source, /globalThis as unknown as \{ confirm\?/);

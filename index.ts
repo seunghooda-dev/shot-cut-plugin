@@ -4262,36 +4262,36 @@ async function bootstrap(): Promise<void> {
         try {
           const result = await applyAutomationPlan(plan, cues, {
             expectedContextKey: guard.sourceContextKey,
+            // begin() 실패 시 여기서 복제본을 지우지 않는다(§186 감사 #9) — 이 훅은
+            // applyAutomationPlan의 try 안에서 불리므로 예외를 그대로 흘리면 그쪽 catch가
+            // 원본 재활성화 방어까지 갖춘 정리를 한다. 종전의 사전 제거는 같은 복제본을
+            // 두 번 지우게 해, 두 번째 정리 실패(AUTOMATION_CLONE_CLEANUP_FAILED)가
+            // 원래 오류(begin 실패)를 가렸다.
             onClonePrepared: async ({ sourceGuid, cloneGuid, sequenceName }) => {
               if (!recoveryManager) return;
-              try {
-                const entry = recoveryManager.begin({
-                  kind: "automation-plan",
-                  label: `비파괴 자동 편집 · ${sequenceName}`,
-                  beforeSummary: {
-                    sequenceGuid: sourceGuid,
-                    duration: plan.sourceDuration,
-                    cutMarkers: 0,
-                    punchCues: 0,
-                  },
-                  afterSummary: {
-                    sequenceGuid: cloneGuid,
-                    duration: plan.outputDuration,
-                    cutMarkers: plan.cuts.length,
-                    punchCues: cues.length,
-                  },
-                  clonePolicy: {
-                    sourceId: sourceGuid,
-                    cloneId: cloneGuid,
-                    createdBeforeMutation: true,
-                    verified: true,
-                  },
-                });
-                operationId = entry.operationId;
-              } catch (error) {
-                await removeVerifiedClonedSequence(sourceGuid, cloneGuid).catch(() => undefined);
-                throw error;
-              }
+              const entry = recoveryManager.begin({
+                kind: "automation-plan",
+                label: `비파괴 자동 편집 · ${sequenceName}`,
+                beforeSummary: {
+                  sequenceGuid: sourceGuid,
+                  duration: plan.sourceDuration,
+                  cutMarkers: 0,
+                  punchCues: 0,
+                },
+                afterSummary: {
+                  sequenceGuid: cloneGuid,
+                  duration: plan.outputDuration,
+                  cutMarkers: plan.cuts.length,
+                  punchCues: cues.length,
+                },
+                clonePolicy: {
+                  sourceId: sourceGuid,
+                  cloneId: cloneGuid,
+                  createdBeforeMutation: true,
+                  verified: true,
+                },
+              });
+              operationId = entry.operationId;
             },
           });
           if (operationId) {
