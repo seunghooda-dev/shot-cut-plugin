@@ -4425,6 +4425,11 @@ async function bootstrap(): Promise<void> {
         if (!subtitleController) {
           automationController?.setTranscript(resolveAutomationTranscript(transcript, null));
         }
+        // 타임코드 구간이 없으면 자막 문서를 만들 수 없다 — 무고지로 건너뛰지 않는다(§186-b).
+        // 원고 자체는 speechController.transcript로 남아 자동 편집(getTranscript)이 쓸 수 있다.
+        if (subtitleController && transcript.result.segments.length === 0) {
+          activity.add("warning", "STT 원고에 타임코드 구간이 없어 자막 문서로 변환하지 않았습니다 — 원고는 자동 편집에서 사용할 수 있습니다.");
+        }
         if (subtitleController && transcript.result.segments.length > 0) {
           subtitleController.setDocument(createSubtitleDocument(
             subtitleController.projectKey,

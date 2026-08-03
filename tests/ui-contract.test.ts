@@ -978,6 +978,12 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(indexSource.slice(at, at + 900), /cue\.enabled && !cue\.hidden/u, "0바이트 SRT 성공 집계를 막는 보이는 큐 가드가 있어야 한다");
   });
 
+  it("타임코드 없는 STT 원고는 자막 미변환을 고지한다(§186-b)", () => {
+    const at = indexSource.indexOf("transcript.result.segments.length === 0");
+    assert.ok(at > 0, "타임코드 부재 분기가 있어야 한다");
+    assert.match(indexSource.slice(at, at + 300), /activity\.add\("warning"/u, "무고지 건너뜀이면 안 된다");
+  });
+
   it("자동 편집은 저널 영속화 완료 후에 변경을 진행한다(§186 감사 #6)", () => {
     const at = indexSource.indexOf("operationId = entry.operationId;");
     assert.ok(at > 0);
