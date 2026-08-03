@@ -879,19 +879,4 @@ describe("audio signoff cue contract (§152)", () => {
     const body = area.slice(0, area.indexOf("standingStarts]"));
     assert.match(body, /columnMidRescueDrops\(standingStarts, verifiedBeforeRescue, verified\)/u, "폐기 판정은 추출 함수를 거쳐야 한다");
   });
-
-  it("모든 회수가 끝난 뒤 남은 120초+ 공백은 띠 주제 전환 제안자를 거친다(§176-b)", () => {
-    // 계획은 news-visual-cut의 planChyronTopicProbes(단위 테스트 별도)로 추출됐다 — 배선만 확인.
-    const area = indexSource.slice(indexSource.indexOf("§176-b 띠 주제 전환 제안자"));
-    const body = area.slice(0, 5200);
-    assert.match(body, /planChyronTopicProbes\(verified, bandEvents, tailStart \?\? duration\)/u, "발동 계획은 추출 함수를 거쳐야 한다");
-    assert.match(body, /chyronTopicShift: true/u, "주제 비교 프롬프트가 배선돼야 한다");
-    assert.match(body, /vote\.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE/u, "회수 임계를 써야 한다");
-    // "다른 주제"의 첫 등장만 — 채택 직후 그 구간을 끝내야 한다(§170 원칙, 대조 242~284가 근거).
-    assert.match(body, /첫 등장만[\s\S]{0,200}break;/u, "첫 등장 채택 후 구간을 끝내야 한다");
-    // 회수 경로 검증 2원칙 — 판정 결과(새 주제/같은 주제/유실)를 반드시 로그로 남긴다.
-    assert.match(body, /판정 유실/u, "판정 반환 여부가 로그에 남아야 한다");
-    // 한도 실패를 "같은 주제"로 위장하면 §160 검문이 뚫린다 — 중단 분기가 있어야 한다.
-    assert.match(body, /chyronBudgetStopped = true/u, "한도 중단 분기가 없다");
-  });
 });

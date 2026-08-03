@@ -134,7 +134,6 @@ import {
   BANK_FIT_WARN_DISTANCE,
   detectBandEvents,
   planRescueProbes,
-  planChyronTopicProbes,
   collectAnchorCandidates,
   detectMismatchBorder,
   selectAnchorMatcher,
@@ -3367,84 +3366,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             } catch (error) {
               activity.add("warning", `칼럼 시작 확인 실패 — 건너뜁니다: ${error instanceof Error ? error.message : String(error)}`);
             }
-          }
-
-          // §176-b 띠 주제 전환 제안자 — §125 4형(앵커 VO + b-roll 직행)은 경계 프레임에
-          // 앵커가 없어 위의 회수·되짚기·칼럼 경로가 전부 못 잡는다(§171 스윕이 표적 ±8초에
-          // 닿고도 비앵커가 정답이라 기각). 판별 정보는 하단 헤드라인 띠 텍스트에 있다(§176
-          // 실측: 4/07 재현율 14/14·표적 220.8 = 띠 등장 224.0). 모든 회수가 끝난 뒤에도
-          // 120초+ 공백이 남은 구간에서만, 구간 내 띠 이벤트를 직전 아이템의 띠와 주제
-          // 비교해(유료, 이벤트당 1호출) "다른 주제"의 **첫 등장만** 경계로 제안한다(§170
-          // 원칙). 같은 주제의 내부 띠 교체는 프롬프트가 걸러낸다 — §176-b 실측: 4/07 표적
-          // 1/1 채택 + 라벨 밖 4/4 기각, 7/27(정상 회차에도 발동 구간 존재) 라벨 밖 5/5 기각.
-          // 채택 시각은 띠 등장 그대로 — 재스냅(§148)이 뒤로 36초를 훑어 컷으로 당긴다.
-          try {
-            const chyronGapPlans = planChyronTopicProbes(verified, bandEvents, tailStart ?? duration);
-            if (chyronGapPlans.length > 0) {
-              const grabChyron = async (time: number): Promise<Uint8Array | null> => {
-                let bytes: Uint8Array | null = null;
-                for (let attempt = 0; attempt < 2 && !bytes; attempt += 1) {
-                  const { filename } = await exportFrameToFolder(Math.max(0, time), String(dataFolder.nativePath), 480);
-                  bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-                  try {
-                    const entry = await dataFolder.getEntry(filename);
-                    await entry.delete();
-                  } catch {
-                    // 임시 파일 삭제 실패는 무시
-                  }
-                }
-                return bytes;
-              };
-              let chyronBudgetStopped = false;
-              for (const gapPlan of chyronGapPlans) {
-                if (chyronBudgetStopped) break;
-                activity.add("info", `띠 주제 확인 · 미해명 구간 ${gapPlan.gapStart.toFixed(1)}~${gapPlan.gapEnd.toFixed(1)} — 띠 이벤트 ${gapPlan.eventTimes.length}곳을 직전 띠와 비교합니다(유료).`);
-                const referenceBytes = await grabChyron(gapPlan.referenceTime);
-                if (!referenceBytes) {
-                  activity.add("warning", `띠 주제 확인 · 참조 프레임(${gapPlan.referenceTime.toFixed(1)}) 확보 실패 — 이 구간은 건너뜁니다.`);
-                  continue;
-                }
-                for (const eventTime of gapPlan.eventTimes) {
-                  if (verified.some((existing) => Math.abs(existing - eventTime) <= 8)) continue;
-                  setText("busy-message", `띠 주제 확인 ${eventTime.toFixed(0)}s…`);
-                  try {
-                    const candidateBytes = await grabChyron(eventTime);
-                    if (!candidateBytes) {
-                      activity.add("info", `띠 주제 확인 ${eventTime.toFixed(1)}: 프레임 확보 실패 — 건너뜀`);
-                      continue;
-                    }
-                    const votes = await rescueClient.classifyAnchorShots(
-                      [
-                        { bytes: referenceBytes, mimeType: "image/png" as const },
-                        { bytes: candidateBytes, mimeType: "image/png" as const },
-                      ],
-                      [],
-                      {},
-                      { chyronTopicShift: true },
-                    );
-                    const vote = votes.find((entry) => entry.index === 1);
-                    // 회수 경로 검증 2원칙 — 호출이 무엇을 반환했고 무엇을 골랐는지 반드시 남긴다.
-                    activity.add("info", `띠 주제 확인 ${eventTime.toFixed(1)}: ${vote ? `${vote.isAnchor ? "새 주제" : "같은 주제"}(${vote.confidence.toFixed(2)})` : "판정 유실"}`);
-                    if (vote && vote.isAnchor && vote.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE) {
-                      activity.add("info", `띠 주제 전환 경계 채택 ${eventTime.toFixed(1)} — 직전 띠와 다른 주제의 첫 등장(§176-b)`);
-                      verified = [...verified, eventTime].sort((a, b) => a - b);
-                      // 첫 등장만 — 이후 이벤트는 새 아이템의 내부 띠 교체다(§176-b 실측 242~284).
-                      break;
-                    }
-                  } catch (error) {
-                    const message = error instanceof Error ? error.message : String(error);
-                    activity.add("warning", `띠 주제 확인 ${eventTime.toFixed(1)} 실패(${message}) — 보수적으로 건너뜁니다.`);
-                    // 한도 도달이면 남은 호출도 같은 결과다(§110-c) — 실패를 "같은 주제"로 위장하지 않는다.
-                    if (message.includes("한도")) {
-                      chyronBudgetStopped = true;
-                      break;
-                    }
-                  }
-                }
-              }
-            }
-          } catch (error) {
-            activity.add("warning", `띠 주제 확인 실패 — 건너뜁니다: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
       } catch (error) {
