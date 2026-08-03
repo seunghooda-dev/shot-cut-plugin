@@ -3011,7 +3011,28 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           // 내보내기 유실은 그 지점의 회수 기회 상실이다(§101-c 진단) — 몇 장이 어디서 빠졌는지 남긴다.
           if (probes.length < plan.times.length) {
             const lost = plan.times.filter((time) => !probes.some((probe) => probe.time === time));
-            activity.add("info", `회수 훑기 · 프레임 내보내기 유실 ${lost.length}장: ${lost.slice(0, 10).map((time) => time.toFixed(0)).join(" ")}`);
+            // 지연 재시도 패스(§190-b) — 같은 지점 2연속 실패(§121-b)는 순간 부하에서 함께
+            // 죽는다. 순회가 끝나 부하가 풀린 뒤 한 번 더 시도한다. 1/06 실측: 372 프로브
+            // 유실이 그대로 FN이 되어 5실행 중 1실행이 95.2로 떨어졌다(요동의 실체).
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            for (const time of lost) {
+              const { filename } = await exportFrameToFolder(Math.max(0, time), String(dataFolder.nativePath), 480);
+              const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
+              try {
+                const entry = await dataFolder.getEntry(filename);
+                await entry.delete();
+              } catch {
+                // 임시 파일 삭제 실패는 무시
+              }
+              if (bytes) probes.push({ time, bytes });
+            }
+            probes.sort((a, b) => a.time - b.time);
+            const stillLost = plan.times.filter((time) => !probes.some((probe) => probe.time === time));
+            if (stillLost.length > 0) {
+              activity.add("info", `회수 훑기 · 프레임 내보내기 유실 ${stillLost.length}장(지연 재시도 후): ${stillLost.slice(0, 10).map((time) => time.toFixed(0)).join(" ")}`);
+            } else {
+              activity.add("info", `회수 훑기 · 유실 ${lost.length}장을 지연 재시도로 전부 확보했습니다.`);
+            }
           }
           // 같은 회차에서 이미 확정된 앵커 프레임을 참조로 우선 주입(§101-c) — 연단·기자회견이
           // 배경으로 합성된 앵커샷 오독은 프롬프트 절로도 남았다(3차 실기 799.6·833.8 잔존).
