@@ -1735,6 +1735,11 @@ async function handleMultilangExport(): Promise<void> {
   if (!controller) throw new Error("자막 편집기가 초기화되지 않았습니다.");
   const doc = controller.document;
   if (doc.cues.length === 0) throw new Error("먼저 자막을 불러오세요(STT 또는 SRT).");
+  // 전량 숨김·비활성 문서 가드(§186-b) — 번역 SRT는 보이는 큐만 담으므로(§185), 이대로
+  // 진행하면 언어별 0바이트 SRT가 만들어지고 성공으로 집계된다. 번역 비용을 쓰기 전에 막는다.
+  if (!doc.cues.some((cue) => cue.enabled && !cue.hidden)) {
+    throw new Error("내보낼 수 있는 표시 자막이 없습니다 — 전부 숨김·비활성 상태입니다.");
+  }
   const selectedCodes = Array.from(document.querySelectorAll<HTMLInputElement>("input[data-multilang]"))
     .filter((checkbox) => checkbox.checked)
     .map((checkbox) => checkbox.dataset.multilang ?? "");

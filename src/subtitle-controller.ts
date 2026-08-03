@@ -911,10 +911,14 @@ export class SubtitleController {
       const payload = await this.options.analysisProvider?.(request);
       this.assertAiRequestCurrent(requestRevision, requestLoadGeneration, request.document.projectKey);
       this.analysisResult = validateAnalysisResponse(payload, request);
+      // 마지막 가지를 폴스루로 두지 않는다(§186-b) — news-items·shorts-plan이 이 경로로
+      // 배선되는 순간 "유튜브 메타데이터" 오표기가 실현된다(§185 validateAnalysisResponse
+      // 분기 규약과 같은 계열).
       this.options.onActivity?.(
         action === "interview-highlight" ? "AI 인터뷰 발췌 결과를 표시했습니다."
           : action === "edit-outline" ? "AI 편집 구성안을 표시했습니다."
-            : "AI 유튜브 메타데이터를 표시했습니다.",
+            : action === "youtube-metadata" ? "AI 유튜브 메타데이터를 표시했습니다."
+              : `AI 분석(${action}) 결과를 표시했습니다.`,
       );
     });
     // Render after runBusy clears isBusy so the seek buttons are not created disabled.

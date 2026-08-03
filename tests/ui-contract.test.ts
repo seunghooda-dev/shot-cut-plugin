@@ -972,6 +972,12 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(indexSource.slice(at, at + 400), /activity\.add\("warning"/u, "실패 시 경고 고지가 있어야 한다");
   });
 
+  it("다국어 내보내기는 표시 자막이 0이면 번역 전에 중단한다(§186-b)", () => {
+    const at = indexSource.indexOf("async function handleMultilangExport");
+    assert.ok(at > 0);
+    assert.match(indexSource.slice(at, at + 900), /cue\.enabled && !cue\.hidden/u, "0바이트 SRT 성공 집계를 막는 보이는 큐 가드가 있어야 한다");
+  });
+
   it("자동 편집은 저널 영속화 완료 후에 변경을 진행한다(§186 감사 #6)", () => {
     const at = indexSource.indexOf("operationId = entry.operationId;");
     assert.ok(at > 0);
