@@ -9,7 +9,7 @@ ShortFlow Studio는 Adobe Premiere Pro용 UXP 숏폼 제작 패널입니다. 현
 - 자동 게이트: `npm run check`(typecheck·lint·build·test — 테스트 개수는 계속 늘어나므로 숫자는 게이트 출력이 기준이다. 2026-08-02 기준 1889개 통과)
 - 분할 로직 회귀 게이트: `npm run check:news`(고정 회차 경계 F1 스냅샷 — 분할 관련 수정 후 필수)
 - CCX/SHA-256 증거는 검증된 체크포인트 커밋 후 clean 작업 트리에서 `npm run beta:evidence:verified`로 새로 생성합니다. dirty worktree에서 생성된 임시 SHA는 최종 후보로 기록하지 않습니다.
-- Premiere 실기 검증: `npm run host:smoke:full` 11개 체크(패널 부팅·13탭·컨텍스트·UI 계약·SRT 라운드트립·트랜스크립트 첨부·한글 경로·리스너 수명주기·원본 보존·시퀀스 전환 복귀·상태 표시 일치) + 뉴스 분할 실기 블라인드 41회차 중 40회차 F1 100
+- Premiere 실기 검증: `npm run host:smoke:full` 11개 체크(패널 부팅·13탭·컨텍스트·UI 계약·SRT 라운드트립·트랜스크립트 첨부·한글 경로·리스너 수명주기·원본 보존·시퀀스 전환 복귀·상태 표시 일치) + 뉴스 분할 실기 블라인드 43회차 중 42회차 F1 100(여러 빌드 누적치 — 세부는 CLAUDE.md 지표 ③)
 - Media Encoder 연동은 내보내기 탭에서 동작합니다(AME 있으면 대기열, 없으면 Premiere 직접 렌더). Adobe 서명·Marketplace 심사는 **하지 않음**(내부 베타 범위 밖)
 
 자동 테스트는 순수 로직과 어댑터 경계를 검증하지만 UXP 버전 차이와 실제 렌더 결과 전부를 보증하지는 않습니다. 현재 포함·제외 기준은 [내부 베타 범위](docs/INTERNAL_BETA_SCOPE.md), 진행 순서는 [로드맵](docs/ROADMAP.md), 설치 후 검증 절차는 [베타 체크리스트](docs/BETA_RELEASE_CHECKLIST.md) 2절(자동 항목은 `host:smoke:full`로 갈음), 전체 검증은 [QA 체크리스트](docs/QA_CHECKLIST.md)와 [요구사항 추적표](docs/REQUIREMENTS_MATRIX.md)를 확인해 주세요. [HOST_BETA_RUNBOOK.md](docs/HOST_BETA_RUNBOOK.md)는 뉴스 분할 연구 로그(§133~)이고, 그 이전 절차·기록은 [아카이브](docs/HOST_BETA_RUNBOOK_ARCHIVE.md)에 있습니다.

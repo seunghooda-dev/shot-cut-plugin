@@ -4,11 +4,11 @@ import { describe, it } from "node:test";
 
 import {
   SIGNOFF_PATTERN,
+  createWavWindowSlicer,
   encodeWavPcm16,
   findSignoffs,
   planSignoffWindows,
   signoffProbeTimes,
-  sliceWavWindow,
 } from "../src/audio-signoff";
 import { parseWavPcm } from "../src/wav-pcm";
 
@@ -37,9 +37,11 @@ describe("SIGNOFF_PATTERN — 실측으로 고른 규칙(§152)", () => {
   });
 });
 
-describe("sliceWavWindow — 창을 샘플 오프셋으로 자른다", () => {
+describe("createWavWindowSlicer — 출하 경로의 창 슬라이서(파싱 1회)", () => {
+  // 구 sliceWavWindow의 테스트를 그대로 계승한다 — 실제 제품(index.ts 창 루프)이 쓰는 것은
+  // 이 팩토리다. 감사에서 미출하 쌍둥이만 테스트되고 출하 경로가 무검증임이 드러나 이전했다.
   it("요청한 길이만큼 자르고 16비트 모노 PCM으로 낸다", () => {
-    const sliced = sliceWavWindow(makeWav(30), 10, 22);
+    const sliced = createWavWindowSlicer(makeWav(30))(10, 22);
     const pcm = parseWavPcm(sliced);
     assert.equal(pcm.sampleRate, 16000);
     assert.equal(pcm.channels, 1);
@@ -47,20 +49,29 @@ describe("sliceWavWindow — 창을 샘플 오프셋으로 자른다", () => {
   });
 
   it("자른 구간이 원본의 그 시각이다 — 오프셋 계산 검증", () => {
-    const pcm = parseWavPcm(sliceWavWindow(makeWav(30), 10, 22));
+    const pcm = parseWavPcm(createWavWindowSlicer(makeWav(30))(10, 22));
     // 심어 둔 값 = 초/1000. 창 시작(원본 10초) 값이 0.01 근처여야 한다.
     assert.ok(Math.abs(pcm.samples[0]! - 0.01) < 1e-3, `창 시작값 ${pcm.samples[0]}`);
     const last = pcm.samples[pcm.samples.length - 1]!;
     assert.ok(Math.abs(last - 0.022) < 1e-3, `창 끝값 ${last}`);
   });
 
+  it("같은 슬라이서로 여러 창을 잘라도 각 창이 독립적으로 옳다", () => {
+    const slice = createWavWindowSlicer(makeWav(30));
+    const first = parseWavPcm(slice(10, 22));
+    const second = parseWavPcm(slice(5, 9));
+    assert.ok(Math.abs(first.samples[0]! - 0.01) < 1e-3);
+    assert.ok(Math.abs(second.samples[0]! - 0.005) < 1e-3);
+    assert.equal(second.samples.length, 4 * 16000);
+  });
+
   it("창이 소스 끝을 넘어도 잘라낸 만큼만 낸다", () => {
-    const pcm = parseWavPcm(sliceWavWindow(makeWav(10), 5, 20));
+    const pcm = parseWavPcm(createWavWindowSlicer(makeWav(10))(5, 20));
     assert.equal(pcm.samples.length, 5 * 16000);
   });
 
   it("끝이 시작보다 앞이면 거부한다", () => {
-    assert.throws(() => sliceWavWindow(makeWav(10), 5, 5), /끝이 시작보다/u);
+    assert.throws(() => createWavWindowSlicer(makeWav(10))(5, 5), /끝이 시작보다/u);
   });
 });
 

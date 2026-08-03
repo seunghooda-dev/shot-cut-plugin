@@ -2,8 +2,10 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import {
+  BOTTOM_BAND_REGION,
   FRAME_DIFF_GRID_COLS,
   FRAME_DIFF_GRID_ROWS,
+  bandRow,
   cloneSamplesForReusedTimes,
   frameDifference,
   looksCompleteImage,
@@ -202,5 +204,39 @@ describe("vision-cache", () => {
     assert.equal(loadCachedSpans("k1", storage, 1500), null);
     saveCachedSpans("fresh", [span(0, 1)], storage, 1600);
     assert.ok(loadCachedSpans("fresh", storage, 1700));
+  });
+});
+
+describe("bandRow — 하단 헤드라인 띠 휘도 벡터(§110)", () => {
+  // 감사에서 드러난 공백 — 이 함수는 detectBandEvents(띠 이벤트 열)의 유일한 입력인데
+  // 픽셀→벡터 변환 자체가 무테스트였다(이벤트 감지는 합성 벡터로만 검증됨).
+  const W = 96;
+  const H = 54;
+  const inBand = (x: number, y: number): boolean =>
+    x >= Math.floor(W * BOTTOM_BAND_REGION.x0r) && x < Math.floor(W * BOTTOM_BAND_REGION.x1r)
+    && y >= Math.floor(H * BOTTOM_BAND_REGION.y0r) && y < Math.floor(H * BOTTOM_BAND_REGION.y1r);
+  const frameWithBand = (bright: boolean): ReturnType<typeof parseBmp24> =>
+    parseBmp24(bmp24(W, H, (x, y) => (inBand(x, y) === bright ? [255, 255, 255] : [0, 0, 0])));
+
+  it("기본 크기는 80×6 = 480 셀이다", () => {
+    assert.equal(bandRow(frameWithBand(true)!).length, 480);
+  });
+
+  it("띠 영역을 읽는다 — 띠만 밝은 프레임은 벡터가 밝고, 띠 밖만 밝은 프레임은 어둡다", () => {
+    const bandBright = bandRow(frameWithBand(true)!);
+    const outsideBright = bandRow(frameWithBand(false)!);
+    const mean = (vector: Float64Array): number => vector.reduce((sum, value) => sum + value, 0) / vector.length;
+    assert.ok(mean(bandBright) > 200, `띠 프레임 평균 ${mean(bandBright)}`);
+    assert.ok(mean(outsideBright) < 55, `띠 밖 프레임 평균 ${mean(outsideBright)}`);
+  });
+
+  it("띠 안 픽셀 변화는 벡터를 바꾸고, 띠 밖 변화는 못 바꾼다 — 이벤트 감지의 전제", () => {
+    const base = bandRow(frameWithBand(true)!);
+    // 띠 안 왼쪽 절반을 지운 프레임 = 헤드라인 텍스트 교체의 근사.
+    const halfCleared = parseBmp24(bmp24(W, H, (x, y) => (inBand(x, y) && x >= W / 2 ? [255, 255, 255] : [0, 0, 0])))!;
+    // 띠 밖(상단)만 바뀐 프레임 — 벡터는 그대로여야 한다.
+    const outsideChanged = parseBmp24(bmp24(W, H, (x, y) => (inBand(x, y) || y < 10 ? [255, 255, 255] : [0, 0, 0])))!;
+    assert.ok(frameDifference(base, bandRow(halfCleared)) > 0.2, "띠 안 변화가 감지돼야 한다");
+    assert.equal(frameDifference(base, bandRow(outsideChanged)), 0, "띠 밖 변화는 벡터에 없어야 한다");
   });
 });

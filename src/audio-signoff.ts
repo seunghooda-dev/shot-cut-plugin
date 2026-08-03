@@ -80,24 +80,13 @@ export function encodeWavPcm16(samples: Float32Array, sampleRate: number): Uint8
 }
 
 /**
- * 전체 시퀀스 WAV에서 [begin, end] 구간만 잘라 새 WAV 바이트를 만든다.
+ * 전체 시퀀스 WAV를 한 번만 파싱해 [begin, end] 창을 잘라 주는 슬라이서를 만든다.
  *
  * 창마다 Premiere를 다시 부르지 않는 것이 요점이다 — 전체 오디오는 이미 16kHz 모노로 한 번
  * 로컬 추출돼 있고(무료), 창은 샘플 오프셋으로 자르면 된다. 창이 독립적이라 전량 STT의
- * 타임스탬프 드리프트(최대 8초 — §152 8차)도 원리적으로 생기지 않는다.
- */
-export function sliceWavWindow(bytes: Uint8Array, begin: number, end: number): Uint8Array {
-  const pcm = parseWavPcm(bytes);
-  if (!(end > begin)) throw new Error("오디오 창의 끝이 시작보다 뒤여야 합니다.");
-  const first = clampInt(begin * pcm.sampleRate, 0, pcm.samples.length);
-  const last = clampInt(end * pcm.sampleRate, first + 1, pcm.samples.length);
-  return encodeWavPcm16(pcm.samples.slice(first, last), pcm.sampleRate);
-}
-
-/**
- * 파싱을 1회로 고정한 창 슬라이서를 만든다(안정화 감사 #3) — sliceWavWindow는 창마다
- * 전체 WAV를 다시 파싱해 40분 회차 기준 창당 ~150MB 할당이 최대 24회 반복됐다. UXP 패널
- * 메모리에서 감수할 이유가 없는 급증이라, 호출부(창 루프)는 이 팩토리를 쓴다.
+ * 타임스탬프 드리프트(최대 8초 — §152 8차)도 원리적으로 생기지 않는다. 파싱 1회 고정은
+ * 안정화 감사 #3 — 창마다 재파싱하던 구 sliceWavWindow는 40분 회차 기준 창당 ~150MB 할당이
+ * 최대 24회 반복돼 폐기했다.
  */
 export function createWavWindowSlicer(bytes: Uint8Array): (begin: number, end: number) => Uint8Array {
   const pcm = parseWavPcm(bytes);
