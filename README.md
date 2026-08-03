@@ -6,7 +6,7 @@ ShortFlow Studio는 Adobe Premiere Pro용 UXP 숏폼 제작 패널입니다. 현
 
 현재는 Mock Host와 실제 Premiere 개발 로드 확인을 분리해 검증하고 있습니다. Premiere/UXP 기본 로드, 패널 표시, 테스트 MP4 프로젝트 import, 활성 시퀀스 생성, 기본 QC, Safe Zone BMP overlay, SRT 파일 import, 음악/SFX 폴더 동기화와 WAV A1 삽입, 타임라인 TrackItem 선택 감지, 자동 컷 dry-run과 추천 마커 추가를 실제 Host smoke로 확인했습니다. 추가로 무음 간격 SRT를 사용해 원본 시퀀스를 보존하고 새 복제 시퀀스에 `SF CUT 01/02`와 `SF ZOOM` 마커를 적용하는 기본 자동 컷·펀치인 Host 경로도 통과했습니다. TTS live/API 삽입은 내부 베타 최종 승인 전 별도 Host gate로 수행합니다.
 
-- 자동 게이트: `npm run check`(typecheck·lint·build·test — 테스트 개수는 계속 늘어나므로 숫자는 게이트 출력이 기준이다. 2026-08-02 기준 1889개 통과)
+- 자동 게이트: `npm run check`(typecheck·lint·build·test — 테스트 개수는 계속 늘어나므로 숫자는 게이트 출력이 기준이다. 2026-08-03 기준 1922개 통과)
 - 분할 로직 회귀 게이트: `npm run check:news`(고정 회차 경계 F1 스냅샷 — 분할 관련 수정 후 필수)
 - CCX/SHA-256 증거는 검증된 체크포인트 커밋 후 clean 작업 트리에서 `npm run beta:evidence:verified`로 새로 생성합니다. dirty worktree에서 생성된 임시 SHA는 최종 후보로 기록하지 않습니다.
 - Premiere 실기 검증: `npm run host:smoke:full` 11개 체크(패널 부팅·13탭·컨텍스트·UI 계약·SRT 라운드트립·트랜스크립트 첨부·한글 경로·리스너 수명주기·원본 보존·시퀀스 전환 복귀·상태 표시 일치) + 뉴스 분할 실기 블라인드 43회차 중 42회차 F1 100(여러 빌드 누적치 — 세부는 CLAUDE.md 지표 ③)

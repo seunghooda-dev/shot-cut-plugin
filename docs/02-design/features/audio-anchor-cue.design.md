@@ -59,7 +59,8 @@ export interface SignoffWindow { begin: number; end: number; }
 export interface SignoffHit { at: number; text: string; }
 
 /** 16kHz 모노 PCM WAV에서 [begin, end] 구간만 잘라 새 WAV 바이트를 만든다. */
-export function sliceWavWindow(bytes: Uint8Array, begin: number, end: number): Uint8Array;
+// 파싱 1회 창 슬라이서(안정화 감사 #3에서 sliceWavWindow를 대체 — 창마다 재파싱 ~150MB 방지)
+export function createWavWindowSlicer(bytes: Uint8Array): (begin: number, end: number) => Uint8Array;
 
 /** 후보 지점들로부터 볼 창 목록을 만든다(중복·경계 인접 제거, 상한 적용). */
 export function planSignoffWindows(

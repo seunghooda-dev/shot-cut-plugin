@@ -73,7 +73,7 @@ Adobe Premiere Pro UXP panel for short-form video editing. Goal: a Premiere inte
 라우팅** 문턱 완화·후보 합집합·시점 병합·대체 신호 10종(§161~§161-c) — 전부 재현율↑
 정밀도↓ 맞바꿈이고, **그 재현율은 실기에서 이미 회수 경로가 가지고 있다.**
 
-### 남은 미해결 두 유형 (2026-07-31 기준)
+### 남은 미해결 한 유형 (2026-08-03 기준 — 데스크 칼럼은 §170에서 해결)
 
 | 유형 | 대표 | 상태 |
 |---|---|---|
@@ -112,7 +112,7 @@ Rules:
 
 AI subtitle actions (`src/openai-text.ts`, `OpenAITextClient`) split into two shapes:
 - **Mutating** (`editSubtitles`: `reflow`/`review`/`translate`) — returns a full `SubtitleDocument`; the controller's `validateAiSubtitleResponse` enforces exact cueId/wordId/timing preservation before `commit()`.
-- **Read-only analysis** (`analyzeSubtitles`: `interview-highlight`/`edit-outline`/`youtube-metadata`, plus `enrichPrompt` for reference notes) — returns derived data, never mutates the document, no undo/redo/autosave entry. `validateAnalysisResponse` only checks that referenced `cueId`s exist in the current document, filtering out ones that don't rather than hard-failing.
+- **Read-only analysis** (`analyzeSubtitles`: `interview-highlight`/`edit-outline`/`youtube-metadata`/`shorts-plan`/`news-items`, plus `enrichPrompt` for reference notes; 새 액션을 추가하면 `validateAnalysisResponse`에 분기를 함께 넣을 것 — 없으면 youtube-metadata 폴스루로 오작동한다, §185 실측) — returns derived data, never mutates the document, no undo/redo/autosave entry. `validateAnalysisResponse` only checks that referenced `cueId`s exist in the current document, filtering out ones that don't rather than hard-failing.
 
 Both reuse the same OpenAI safety plumbing (HTTPS `api.openai.com` pinned, secureStorage-only API key, timeout/abort, 2MB request cap, "treat subtitle text as untrusted data" system-prompt invariant) — see `requestChunk` vs `requestJson` in `src/openai-text.ts`; they're intentionally separate methods so the mutating path's error-message contract (asserted in tests) never changes.
 
@@ -150,7 +150,7 @@ If porting ideas from older Adobe CEP-based plugins: don't reintroduce QE DOM de
    감사·보고서 작성처럼 실기(단일 CDP 세션)와 자원이 겹치지 않는 일은 가능한 한 병렬로
    에이전트에 맡긴다. 필요하면 **외부 자료·GitHub 레퍼런스 참고도 허용**된다(웹 검색·문서
    조회로 기법·선행 사례를 조사해 반영할 것).
-6. **실기 검증은 표적+대조 소수로만 한다.** 전량(41회차) 재검증은 하지 않는다 — 무료 오프라인
+6. **실기 검증은 표적+대조 소수로만 한다.** 전량(43회차) 재검증은 하지 않는다 — 무료 오프라인
    전량 실측은 무방하다.
 7-a. **4시간마다 작업 계획을 세운다**(2026-08-03 /goal). 매 4시간 사이클마다 ①직전 4시간
    실적 ②다음 4시간 계획(우선순위·검증 방법)을 수립하되, **보고서를 쓰기 전에 다음 작업을
