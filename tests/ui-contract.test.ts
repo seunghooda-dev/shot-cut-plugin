@@ -961,9 +961,15 @@ describe("audio signoff cue contract (§152)", () => {
   });
 
   it("시퀀스 생성 시작 시 이전 배치 목록을 비운다(§184 감사 #13)", () => {
-    const at = indexSource.indexOf("nextNewsItemIndex(await listSequenceNames");
+    const at = indexSource.indexOf("const startIndex = nextNewsItemIndex(");
     assert.ok(at > 0);
-    assert.match(indexSource.slice(Math.max(0, at - 500), at), /newsCutCreatedNames = \[\];/u, "생성 시작 전에 이전 배치를 비워야 한다");
+    assert.match(indexSource.slice(Math.max(0, at - 700), at), /newsCutCreatedNames = \[\];/u, "생성 시작 전에 이전 배치를 비워야 한다");
+  });
+
+  it("생성 인덱스 조회 실패는 무음이 아니라 경고를 남긴다(§186-b)", () => {
+    const at = indexSource.indexOf("const existingNames = await listSequenceNames().catch(");
+    assert.ok(at > 0, "조회 실패 처리 블록이 있어야 한다");
+    assert.match(indexSource.slice(at, at + 400), /activity\.add\("warning"/u, "실패 시 경고 고지가 있어야 한다");
   });
 
   it("자동 편집은 저널 영속화 완료 후에 변경을 진행한다(§186 감사 #6)", () => {
