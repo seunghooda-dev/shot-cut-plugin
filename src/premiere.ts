@@ -2326,7 +2326,15 @@ export async function createNewsItemSequences(
     }
   }
   onProgress?.(items.length, items.length, "완료");
-  await project.setActiveSequence(source);
+  // 원본 재활성화 실패를 무성으로 두지 않는다(§186 감사 #10) — §50-b가 약속한 재활성화가
+  // 실패하면 자막 등 활성 시퀀스 의존 기능이 마지막 클론을 본다. 생성 자체는 성공했으므로
+  // 실패 목록에 항목으로 실어 호출부 고지에 합류시킨다.
+  if (await project.setActiveSequence(source) === false) {
+    const active = await project.getActiveSequence();
+    if (active !== source) {
+      failures.push({ name: String(source.name ?? "원본"), error: "생성 후 원본 시퀀스 재활성화에 실패했습니다 — 원본 시퀀스를 직접 선택해 주세요." });
+    }
+  }
   return { created, failures };
 }
 
