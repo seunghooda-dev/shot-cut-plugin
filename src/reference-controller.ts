@@ -111,7 +111,12 @@ export class ReferenceController {
       () => this.generateReferenceVideo(),
       "AI 영상 생성 실패",
     ));
-    bind("reference-type-select", "change", () => this.updateStagedUI());
+    // 다른 핸들러와 같은 guard 규약(§189 감사 #11) — updateStagedUI의 element() 접근이
+    // 던지면 유형 전환이 console에만 남고 사용자 채널로는 무고지였다.
+    bind("reference-type-select", "change", () => this.guard(
+      async () => { this.updateStagedUI(); },
+      "레퍼런스 유형 전환 실패",
+    ));
   }
 
   private async guard(task: () => Promise<void>, context: string): Promise<void> {

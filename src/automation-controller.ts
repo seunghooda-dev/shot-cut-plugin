@@ -523,11 +523,14 @@ export class AutomationController {
   }
 
   private async alignSafeZone(): Promise<void> {
+    // 형제 포트(onAddMarkers·onApply·onCreateSafeOverlay)와 같은 규약 — 포트가 빠지면
+    // 조용한 성공 위장 대신 명시적으로 실패한다(§189 감사 #8).
+    if (!this.options.onAlignSafeZone) throw new Error("Premiere Safe Zone 정렬 기능이 연결되지 않았습니다.");
     const platform = platformValue();
     const role = roleValue();
     const alignment = alignToSafeZone(currentElementRect(), platform, role);
     let result: void | SafeZoneApplyResult = undefined;
-    if (alignment.changed) result = await this.options.onAlignSafeZone?.(alignment, platform, role);
+    if (alignment.changed) result = await this.options.onAlignSafeZone(alignment, platform, role);
     setRange("safe-box-x-input", alignment.rect.x);
     setRange("safe-box-y-input", alignment.rect.y);
     setRange("safe-box-width-input", alignment.rect.width);
