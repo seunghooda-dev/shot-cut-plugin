@@ -424,6 +424,18 @@ describe("validateAiSubtitleResponse", () => {
     const request = { ...aiRequest("reflow"), maxChars: 4 };
     assert.throws(() => validateAiSubtitleResponse(sampleDocument(), request), /초과/u);
   });
+
+  it("rejects AI reflow that hides or disables a cue — maxChars 우회·SRT 무음 소실 차단(§185)", () => {
+    // 모델이 긴 큐에 hidden을 붙이면 maxChars 검사(보이는 큐만 셈)를 통과하고, 그 큐는
+    // SRT 내보내기에서 조용히 사라진다. 단어의 소속 큐 상태 보존으로 막는다.
+    const hiddenCue = sampleDocument();
+    hiddenCue.cues[0]!.hidden = true;
+    assert.throws(() => validateAiSubtitleResponse(hiddenCue, aiRequest("reflow")), /사용·숨김/u);
+
+    const disabledCue = sampleDocument();
+    disabledCue.cues[0]!.enabled = false;
+    assert.throws(() => validateAiSubtitleResponse(disabledCue, aiRequest("reflow")), /사용·숨김/u);
+  });
 });
 
 describe("SubtitleController initialization, rendering, and playhead", () => {

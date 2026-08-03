@@ -350,18 +350,29 @@ export function validateAiSubtitleResponse(
   if (request.action === "reflow") {
     const tooLong = normalized.cues.find((cue) => cue.enabled && !cue.hidden && cue.text.length > request.maxChars);
     if (tooLong) throw new Error(`AI 줄바꿈 결과에 ${request.maxChars}자를 초과한 큐가 있습니다.`);
-    const sourceWords = request.document.cues.flatMap((cue) => cue.words);
-    const resultWords = normalized.cues.flatMap((cue) => cue.words);
+    // 단어의 소속 큐 상태까지 대조한다(§185 감사) — reflow는 큐 분할·병합이 허용되므로 큐
+    // 1:1 대조는 불가하지만, 단어가 원본에서 보이는(enabled·비숨김) 큐에 있었다면 결과에서도
+    // 그래야 한다. 이 대조가 없던 시절, 모델이 긴 큐에 hidden/disabled를 붙이면 maxChars
+    // 검사(보이는 큐만 셈)와 검증을 모두 통과해 SRT 내보내기에서 조용히 사라졌다.
+    const sourceWords = request.document.cues.flatMap((cue) =>
+      cue.words.map((word) => ({ word, enabled: cue.enabled, hidden: cue.hidden })));
+    const resultWords = normalized.cues.flatMap((cue) =>
+      cue.words.map((word) => ({ word, enabled: cue.enabled, hidden: cue.hidden })));
     if (resultWords.length !== sourceWords.length) {
       throw new Error("AI 줄바꿈은 단어를 추가하거나 삭제할 수 없습니다.");
     }
-    resultWords.forEach((word, index) => {
-      const sourceWord = sourceWords[index];
+    resultWords.forEach(({ word, enabled, hidden }, index) => {
+      const source = sourceWords[index];
+      if (!source) throw new Error("AI 줄바꿈은 단어를 추가하거나 삭제할 수 없습니다.");
+      const sourceWord = source.word;
       if (
-        word.wordId !== sourceWord?.wordId || word.t !== sourceWord.t ||
+        word.wordId !== sourceWord.wordId || word.t !== sourceWord.t ||
         word.s !== sourceWord.s || word.e !== sourceWord.e || word.hidden !== sourceWord.hidden
       ) {
         throw new Error("AI 줄바꿈은 단어 ID, 순서, 내용 및 시간을 유지해야 합니다.");
+      }
+      if (enabled !== source.enabled || hidden !== source.hidden) {
+        throw new Error("AI 줄바꿈은 큐의 사용·숨김 상태를 변경할 수 없습니다.");
       }
     });
   }
