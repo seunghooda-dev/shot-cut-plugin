@@ -2246,8 +2246,11 @@ async function resolveNewsCutExportTargets(): Promise<{ presetFile: any; outputF
     const url = `file:${DEFAULT_EXPORT_OUTPUT_DIR.replace(/\\/gu, "/")}`;
     const entry = await lfs?.getEntryWithUrl?.(url);
     if (entry?.isFolder) outputFolder = entry;
-  } catch {
-    // 접근이 막히면 경로 셸로 진행 — 렌더 자체는 Host가 경로 문자열로 수행한다.
+  } catch (error) {
+    // 접근이 막히면 경로 셸로 진행 — 렌더 자체는 Host가 경로 문자열로 수행한다. 단 침묵하지
+    // 않는다(§183 감사 #1) — 셸 폴더에서는 쓰기 프로브·직접 렌더 안정화 폴링이 무력해지므로
+    // 사후 진단에 이 사실이 남아야 한다.
+    activity.add("warning", `기본 내보내기 폴더 접근 실패 — 경로 문자열로 진행합니다(사전 쓰기 점검·렌더 안정화 폴링 비활성): ${error instanceof Error ? error.message : String(error)}`);
   }
   return { presetFile, outputFolder };
 }
@@ -2270,12 +2273,16 @@ async function exportNewsSequencesWith(presetFile: any, outputFolder: any): Prom
   // 출력 폴더 기록 가능 사전 점검 — 분리된 드라이브·권한 문제를 렌더 N개 실패 전에 잡는다
   // (UXP엔 여유 공간 조회 API가 없어 용량까지는 확인 불가 — 쓰기 가능 여부만 검사).
   if (typeof outputFolder?.createFile === "function") {
+    // 프로브 파일은 finally에서 지운다(§183 감사 #3) — write 실패 시 .tmp가 출력 폴더에
+    // 잔존했고, delete만 실패한 경우를 "쓰기 불가"로 오진했다(쓰기는 이미 성공했는데).
+    let probe: any = null;
     try {
-      const probe = await outputFolder.createFile(`.sf_write_probe_${Date.now()}.tmp`, { overwrite: true });
+      probe = await outputFolder.createFile(`.sf_write_probe_${Date.now()}.tmp`, { overwrite: true });
       await probe.write("ok");
-      await probe.delete();
     } catch {
       throw new Error("출력 폴더에 쓸 수 없습니다 — 폴더가 존재하고 쓰기 가능한지(드라이브 연결·권한) 확인해 주세요.");
+    } finally {
+      try { await probe?.delete(); } catch { /* 프로브 정리 실패는 결과에 영향 없음 */ }
     }
   }
   if (!ameInstalled()) {
@@ -2290,7 +2297,15 @@ async function exportNewsSequencesWith(presetFile: any, outputFolder: any): Prom
       `뉴스 분할 직접 렌더 · 성공 ${result.queued.length} · 실패 ${result.failures.length}`,
     );
     result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
-    toast(`${result.queued.length}개를 내보냈습니다. 출력 폴더를 확인하세요.`, result.failures.length ? "warning" : "success", 6000);
+    // 실패 개수를 토스트에도 싣는다(§183 감사 #5) — 활동 로그를 안 여는 사용자가 전량
+    // 실패를 "0개를 내보냈습니다"라는 완료 문구로 읽었다.
+    toast(
+      result.failures.length
+        ? `내보내기 완료 — 성공 ${result.queued.length}개 · 실패 ${result.failures.length}개. 활동 로그를 확인하세요.`
+        : `${result.queued.length}개를 내보냈습니다. 출력 폴더를 확인하세요.`,
+      result.failures.length ? "warning" : "success",
+      6000,
+    );
     return;
   }
   const result = await busy.during(`AME 대기열에 ${newsCutCreatedNames.length}개 추가 중…`, () =>
@@ -2300,7 +2315,13 @@ async function exportNewsSequencesWith(presetFile: any, outputFolder: any): Prom
     `뉴스 분할 대기열 추가 · 성공 ${result.queued.length} · 실패 ${result.failures.length}`,
   );
   result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
-  toast(`${result.queued.length}개를 Media Encoder 대기열에 추가했습니다. AME에서 렌더를 시작하세요.`, result.failures.length ? "warning" : "success", 6000);
+  toast(
+    result.failures.length
+      ? `대기열 추가 — 성공 ${result.queued.length}개 · 실패 ${result.failures.length}개. 활동 로그를 확인하세요.`
+      : `${result.queued.length}개를 Media Encoder 대기열에 추가했습니다. AME에서 렌더를 시작하세요.`,
+    result.failures.length ? "warning" : "success",
+    6000,
+  );
 }
 
 // 이전 아이템 정리 — 프로젝트의 YYYYMMDD_news_NN 시퀀스를 일괄 삭제한다(2단계 확인).
@@ -3545,9 +3566,19 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     toast("분할이 끝났습니다. '일괄 내보내기'로 내보낼 수 있습니다.", "success", 6000);
     return;
   }
-  const targets = await resolveNewsCutExportTargets();
-  setNewsCutStep(5);
-  await exportNewsSequencesWith(targets.presetFile, targets.outputFolder);
+  // 내보내기 단계 실패는 분할 실패가 아니다(§183 감사 #5) — 시퀀스는 이미 생성돼 있고
+  // '일괄 내보내기'로 이어갈 수 있는데, 종전에는 "원클릭 분할 실패"로만 보고돼 성공한
+  // 분할이 실패로 읽혔다(프리셋 부재·폴더 문제 실측 유형).
+  try {
+    const targets = await resolveNewsCutExportTargets();
+    setNewsCutStep(5);
+    await exportNewsSequencesWith(targets.presetFile, targets.outputFolder);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    activity.add("warning", `분할은 완료됐으나 내보내기 단계에서 실패했습니다 — 시퀀스 ${newsCutCreatedNames.length}개는 생성돼 있어 '일괄 내보내기'로 이어갈 수 있습니다: ${message}`);
+    toast("분할 완료 · 내보내기 실패 — 설정 확인 후 '일괄 내보내기'를 누르세요.", "warning", 8000);
+    return;
+  }
   activity.add("success", "원클릭 분할 완료 — 출력 폴더를 확인하세요.");
 }
 

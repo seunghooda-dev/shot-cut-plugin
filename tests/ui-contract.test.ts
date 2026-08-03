@@ -924,6 +924,32 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(indexSource, /if \(verified\.length > 1 && !visionEnabled\) \{/u, "무료 전용 게이트가 없다");
   });
 
+  it("직접 렌더 파일명은 타임스탬프 규약을 쓴다 — 같은 날 재실행 무경고 덮어쓰기 방지(§183)", () => {
+    const premiereSource = readFileSync(path.join(ROOT, "src", "premiere.ts"), "utf8");
+    const at = premiereSource.indexOf("렌더 요청이 거부되었습니다");
+    assert.ok(at > 0, "직접 렌더 블록이 없다");
+    assert.match(premiereSource.slice(Math.max(0, at - 2200), at), /const filename = buildExportFilename\(name, extension\);/u, "직접 렌더가 타임스탬프 파일명을 써야 한다");
+  });
+
+  it("렌더 안정화 폴러는 실패 경로에서도 꺼진다 — finally 취소(§183 감사 #4)", () => {
+    const premiereSource = readFileSync(path.join(ROOT, "src", "premiere.ts"), "utf8");
+    const spots = [...premiereSource.matchAll(/awaitStableExportOutput\(/gu)].map((m) => m.index ?? 0).filter((at) => premiereSource.slice(at - 400, at).includes("Promise.race"));
+    assert.ok(spots.length >= 2, "레이스 호출부가 예상보다 적다");
+    for (const at of spots) {
+      assert.match(premiereSource.slice(at, at + 400), /\} finally \{/u, "레이스 뒤 finally 취소가 있어야 한다");
+    }
+  });
+
+  it("내보내기 부분 실패는 토스트에도 실패 개수를 싣는다(§183 감사 #5)", () => {
+    assert.match(indexSource, /내보내기 완료 — 성공 .{0,40}실패/u, "직접 렌더 실패 토스트가 없다");
+    assert.match(indexSource, /대기열 추가 — 성공 .{0,40}실패/u, "AME 실패 토스트가 없다");
+  });
+
+  it("원클릭의 내보내기 단계 실패는 '분할 실패'로 위장되지 않는다(§183 감사 #5)", () => {
+    assert.match(indexSource, /분할은 완료됐으나 내보내기 단계에서 실패/u, "후반 실패 고지가 없다");
+    assert.match(indexSource, /분할 완료 · 내보내기 실패/u, "후반 실패 토스트가 없다");
+  });
+
   it("칼럼 시작을 확정하면 그 블록 안의 회수분을 버린다 — 칼럼은 통째로 하나(§170-d)", () => {
     // 판정 자체는 news-visual-cut의 columnMidRescueDrops(단위 테스트 별도)로 추출됐다.
     // 여기서는 배선만 확인한다 — 인라인 재구현으로 되돌아가면 단위 테스트가 무력화된다.

@@ -2482,7 +2482,10 @@ export async function renderSequenceExportsByName(
       const sequence = byName.get(name);
       if (!sequence) throw new ShortFlowError("SEQUENCE_NOT_FOUND", "시퀀스를 찾지 못했습니다.");
       const extension = normalizeExportExtension(await ppro.EncoderManager.getExportFileExtension(sequence, presetPath));
-      const filename = sanitizeFileName(`${name}.${extension}`);
+      // 타임스탬프 파일명(§183 감사 #2) — AME 대기열 경로(buildExportFilename)와 규약을 맞춘다.
+      // 종전의 `${name}.${extension}`은 같은 날 재실행('이전 아이템 정리' 후 인덱스가 01부터
+      // 재시작)에서 이전 산출물을 무경고로 덮어썼다.
+      const filename = buildExportFilename(name, extension);
       const outputPath = joinNativePath(String(outputFolder.nativePath), filename);
       // 아이템 트림은 시퀀스 인/아웃으로 표현된다 — 전체(true)로 내보내면 원본 길이가 통째로 렌더된다.
       const renderStartedAt = Date.now();
@@ -2494,11 +2497,17 @@ export async function renderSequenceExportsByName(
         false,
       ));
       const pollCancel = { cancelled: false };
-      const success = await Promise.race([
-        exportPromise,
-        awaitStableExportOutput(outputFolder, filename, { startedAt: renderStartedAt, cancel: pollCancel }),
-      ]);
-      pollCancel.cancelled = true;
+      let success: unknown;
+      try {
+        success = await Promise.race([
+          exportPromise,
+          awaitStableExportOutput(outputFolder, filename, { startedAt: renderStartedAt, cancel: pollCancel }),
+        ]);
+      } finally {
+        // finally가 아니면(§183 감사 #4) exportPromise reject 시 진 폴러가 최대 30분 잔존하다
+        // unhandled rejection이 된다 — 안정화 감사 #8이 막으려던 잔존이 실패 경로에 남아 있었다.
+        pollCancel.cancelled = true;
+      }
       if (!success) throw new ShortFlowError("EXPORT_FAILED", "렌더 요청이 거부되었습니다.");
       queued.push(name);
     } catch (error) {
@@ -3414,11 +3423,15 @@ export async function exportVideo(options: ExportVideoOptions): Promise<string> 
     // Host 실측(runbook 40): 장시간 즉시 렌더에서 promise가 해소되지 않을 수 있어
     // 출력 파일 크기 안정화 폴링과 race한다. 짧은 렌더는 promise가 먼저 이겨 기존과 동일.
     const singleCancel = { cancelled: false };
-    success = await Promise.race([
-      exportPromise,
-      awaitStableExportOutput(options.outputFolder, filename, { startedAt: Date.now(), cancel: singleCancel }),
-    ]);
-    singleCancel.cancelled = true;
+    try {
+      success = await Promise.race([
+        exportPromise,
+        awaitStableExportOutput(options.outputFolder, filename, { startedAt: Date.now(), cancel: singleCancel }),
+      ]);
+    } finally {
+      // reject 경로에서도 폴러를 반드시 끈다(§183 감사 #4) — 잔존 시 30분 뒤 unhandled rejection.
+      singleCancel.cancelled = true;
+    }
     // promise가 이겼는데 실패(false)면 그대로 실패 처리, 폴링이 이기면 true.
   } else {
     success = await exportPromise;
