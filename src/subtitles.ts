@@ -83,6 +83,8 @@ export interface ParseSrtOptions {
   maxCueCount?: number;
   maxInputChars?: number;
   maxTotalTextChars?: number;
+  /** 타이밍 없음·역순 시각·빈 텍스트로 버려진 블록 수 통지(§185 감사 — 무음 폐기 방지). */
+  onDiscarded?: (count: number) => void;
 }
 
 export interface ReflowSubtitleOptions {
