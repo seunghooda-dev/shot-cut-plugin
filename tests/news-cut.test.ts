@@ -216,6 +216,14 @@ describe("newsItemName + describeNewsItem", () => {
   });
 });
 
+describe("nextNewsItemIndex — ' 2' 접미 고아 반영(§184 감사 #12)", () => {
+  it("' 2' 고아만 남아도 그 번호를 건너뛴다 — 동명 쌍 재발 방지", () => {
+    const date = new Date(2026, 6, 30);
+    assert.equal(nextNewsItemIndex(["20260730_news_03 2"], date), 4);
+    assert.equal(nextNewsItemIndex(["20260730_news_01", "20260730_news_03 2"], date), 4);
+  });
+});
+
 describe("NEWS_ITEM_SEQUENCE_PATTERN (§184)", () => {
   it("정상 아이템과 클론 재시도의 ' 2' 접미 고아를 모두 매치한다", () => {
     assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_news_00"), true);

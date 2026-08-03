@@ -78,8 +78,11 @@ export function nextNewsItemIndex(existingNames: readonly string[], date: Date):
   for (const name of existingNames) {
     if (typeof name !== "string" || !name.startsWith(prefix)) continue;
     const suffix = name.slice(prefix.length);
-    if (!/^\d{2,}$/.test(suffix)) continue;
-    next = Math.max(next, Number(suffix) + 1);
+    // " 2" 접미 고아도 카운터에 반영한다(§184 감사 #12) — 건너뛰면 `..._03 2`만 남은 날
+    // 카운터가 03을 다시 배정해 접미만 다른 동명 쌍이 재발한다.
+    const match = /^(\d{2,})(?: \d+)?$/u.exec(suffix);
+    if (!match) continue;
+    next = Math.max(next, Number(match[1]) + 1);
   }
   return next;
 }
