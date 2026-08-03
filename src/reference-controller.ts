@@ -127,10 +127,12 @@ export class ReferenceController {
       allowMultiple: true,
       types: REFERENCE_FILE_TYPES,
     });
-    if (!selection) return;
+    // 취소는 구현에 따라 null 또는 빈 배열로 온다 — 오류·부분 유실 고지 대상이 아니다.
+    if (!selection || (Array.isArray(selection) && selection.length === 0)) return;
 
     const requestedType = valueOf("reference-type-select");
-    const picked = (Array.isArray(selection) ? selection : [selection]).filter((entry) => {
+    const candidates = Array.isArray(selection) ? selection : [selection];
+    const picked = candidates.filter((entry) => {
       const kind = entryKind(entry);
       if (!kind) return false;
       if (requestedType === "image" || requestedType === "video") {
@@ -140,6 +142,10 @@ export class ReferenceController {
     });
 
     if (picked.length === 0) {
+      // 실패한 선택이 이전 스테이징을 가리키게 두지 않는다(§189 #7) — 남겨 두면 이후
+      // 입력한 메모·출처가 직전에 골랐던 엉뚱한 파일에 붙는다.
+      this.stagedEntries = [];
+      this.updateStagedUI();
       throw new Error(requestedType === "video"
         ? "동영상 레퍼런스 파일을 선택해 주세요."
         : "이미지 레퍼런스 파일을 선택해 주세요.");
@@ -147,7 +153,11 @@ export class ReferenceController {
 
     this.stagedEntries = picked;
     this.updateStagedUI();
-    this.options.onActivity?.(`${picked.length}개 레퍼런스 파일을 선택했습니다.`);
+    // 유형 불일치로 걸러진 파일은 무고지로 버리지 않는다(§185 부분 유실 고지 규약).
+    const dropped = candidates.length - picked.length;
+    this.options.onActivity?.(dropped > 0
+      ? `${picked.length}개 레퍼런스 파일을 선택했습니다 — ${dropped}개는 선택한 유형과 달라 제외했습니다.`
+      : `${picked.length}개 레퍼런스 파일을 선택했습니다.`);
   }
 
   private updateStagedUI(): void {

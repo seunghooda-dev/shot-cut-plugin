@@ -299,6 +299,120 @@ describe("ReferenceController 초기화 안전성", () => {
   });
 });
 
+describe("ReferenceController 파일 선택(§189 #7·#10)", () => {
+  function pickerHarness(dom: DomHandle): {
+    library: ReferenceLibrary;
+    setSelection(value: unknown): void;
+    activities: string[];
+    errors: string[];
+    make(): ReferenceController;
+  } {
+    dom.doc.register("choose-reference-btn", "button");
+    dom.doc.register("add-reference-btn", "button");
+    dom.doc.register("reference-type-select", "select");
+    const store = new Map<string, string>();
+    let selection: unknown = null;
+    const adapter = {
+      localFileSystem: {
+        getFileForOpening: async () => selection,
+        createPersistentToken: async () => "t-1",
+        getEntryForPersistentToken: async () => { throw new Error("nope"); },
+      },
+      storage: {
+        getItem: async (key: string) => store.get(key) ?? null,
+        setItem: async (key: string, value: string) => { store.set(key, value); },
+        removeItem: async () => undefined,
+      },
+      binaryFormat: "binary-format",
+    } as unknown as ReferenceLibraryAdapter;
+    const library = new ReferenceLibrary(adapter);
+    const activities: string[] = [];
+    const errors: string[] = [];
+    return {
+      library,
+      setSelection: (value) => { selection = value; },
+      activities,
+      errors,
+      make: () => new ReferenceController({
+        library,
+        onActivity: (message) => activities.push(message),
+        onError: (error) => errors.push(error instanceof Error ? error.message : String(error)),
+      }),
+    };
+  }
+
+  function mp4Entry(name: string): ReferenceFileEntry {
+    const nativePath = `C:\\References\\${name}`;
+    return {
+      name,
+      nativePath,
+      url: `file:///${nativePath.replace(/\\/gu, "/")}`,
+      isFile: true,
+      read: async () => Uint8Array.from([9, 9]),
+    } as unknown as ReferenceFileEntry;
+  }
+
+  it("유형 불일치로 걸러진 파일 수를 고지한다", async () => {
+    const dom = installDom();
+    try {
+      const harness = pickerHarness(dom);
+      dom.doc.getElementById("reference-type-select")!.value = "image";
+      const controller = harness.make();
+      await controller.initialize();
+      harness.setSelection([mockPngFile("keep.png"), mp4Entry("drop1.mp4"), mp4Entry("drop2.mp4")]);
+      dom.doc.getElementById("choose-reference-btn")!.dispatch("click");
+      await flush();
+      assert.equal(harness.errors.length, 0);
+      assert.ok(
+        harness.activities.some((message) => message.includes("1개 레퍼런스") && message.includes("2개는") && message.includes("제외")),
+        `수집된 활동: ${harness.activities.join(" | ")}`,
+      );
+    } finally {
+      dom.restore();
+    }
+  });
+
+  it("전량 불일치 선택은 이전 스테이징을 비우고 실패한다", async () => {
+    const dom = installDom();
+    try {
+      const harness = pickerHarness(dom);
+      dom.doc.getElementById("reference-type-select")!.value = "image";
+      const controller = harness.make();
+      await controller.initialize();
+      harness.setSelection([mockPngFile("first.png")]);
+      dom.doc.getElementById("choose-reference-btn")!.dispatch("click");
+      await flush();
+      const addButton = dom.doc.getElementById("add-reference-btn")!;
+      assert.equal(addButton.disabled, false);
+      // 두 번째 선택이 실패하면 버튼이 직전 파일(first.png)을 가리키면 안 된다 —
+      // 이후 입력한 메모·출처가 엉뚱한 파일에 붙는다.
+      harness.setSelection([mp4Entry("wrong.mp4")]);
+      dom.doc.getElementById("choose-reference-btn")!.dispatch("click");
+      await flush();
+      assert.equal(harness.errors.length, 1);
+      assert.equal(addButton.disabled, true);
+    } finally {
+      dom.restore();
+    }
+  });
+
+  it("피커 취소(빈 배열)는 오류도 고지도 없이 넘어간다", async () => {
+    const dom = installDom();
+    try {
+      const harness = pickerHarness(dom);
+      const controller = harness.make();
+      await controller.initialize();
+      harness.setSelection([]);
+      dom.doc.getElementById("choose-reference-btn")!.dispatch("click");
+      await flush();
+      assert.equal(harness.errors.length, 0);
+      assert.equal(harness.activities.length, 0);
+    } finally {
+      dom.restore();
+    }
+  });
+});
+
 describe("ReferenceController 만료 항목 회복(§189 #4)", () => {
   it("만료 레퍼런스는 선택 입력에서 배제돼 다음 호출이 자동 회복된다", async () => {
     const dom = installDom();
