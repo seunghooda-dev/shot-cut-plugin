@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   describeNewsItem,
   findShotSegments,
+  NEWS_ITEM_SEQUENCE_PATTERN,
   newsItemName,
   nextNewsItemIndex,
   normalizeNewsItems,
@@ -212,5 +213,19 @@ describe("newsItemName + describeNewsItem", () => {
       nextNewsItemIndex(["20260715_news_00", "20260715_news_09", "20260714_news_30", "20260715_news_ab", "기타"], date),
       10,
     );
+  });
+});
+
+describe("NEWS_ITEM_SEQUENCE_PATTERN (§184)", () => {
+  it("정상 아이템과 클론 재시도의 ' 2' 접미 고아를 모두 매치한다", () => {
+    assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_news_00"), true);
+    assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_news_03 2"), true);
+  });
+
+  it("사용자 시퀀스류는 매치하지 않는다 — 파괴적 정리의 오폭 방지", () => {
+    assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("내 편집본"), false);
+    assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_news_"), false);
+    assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_news_00_final"), false);
+    assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("x20260730_news_00"), false);
   });
 });

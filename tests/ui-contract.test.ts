@@ -950,6 +950,20 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(indexSource, /분할 완료 · 내보내기 실패/u, "후반 실패 토스트가 없다");
   });
 
+  it("정리 버튼의 개수 계산과 실제 삭제가 같은 패턴 상수를 쓴다(§184 감사 #1)", () => {
+    const premiereSource = readFileSync(path.join(ROOT, "src", "premiere.ts"), "utf8");
+    assert.match(indexSource, /NEWS_ITEM_SEQUENCE_PATTERN\.test\(name\)/u, "개수 계산이 공용 상수를 써야 한다");
+    assert.match(premiereSource, /NEWS_ITEM_SEQUENCE_PATTERN\.test\(String\(sequence\.name\)\)/u, "삭제가 공용 상수를 써야 한다");
+    const inline = [...indexSource.matchAll(/\^\d\{8\}_news_/gu)];
+    assert.equal(inline.length, 0, "index.ts에 인라인 아이템 정규식이 남아 있다");
+  });
+
+  it("시퀀스 생성 시작 시 이전 배치 목록을 비운다(§184 감사 #13)", () => {
+    const at = indexSource.indexOf("nextNewsItemIndex(await listSequenceNames");
+    assert.ok(at > 0);
+    assert.match(indexSource.slice(Math.max(0, at - 500), at), /newsCutCreatedNames = \[\];/u, "생성 시작 전에 이전 배치를 비워야 한다");
+  });
+
   it("칼럼 시작을 확정하면 그 블록 안의 회수분을 버린다 — 칼럼은 통째로 하나(§170-d)", () => {
     // 판정 자체는 news-visual-cut의 columnMidRescueDrops(단위 테스트 별도)로 추출됐다.
     // 여기서는 배선만 확인한다 — 인라인 재구현으로 되돌아가면 단위 테스트가 무력화된다.

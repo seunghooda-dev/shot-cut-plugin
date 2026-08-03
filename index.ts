@@ -117,6 +117,7 @@ import { planUploadPackage } from "./src/upload-package";
 import { loadSubtitleSnapshots, removeSubtitleSnapshot, saveSubtitleSnapshot } from "./src/subtitle-snapshots";
 import {
   NEWS_CUT_INTERIOR_SPLIT_MIN_SECONDS,
+  NEWS_ITEM_SEQUENCE_PATTERN,
   describeNewsItem,
   findShotSegments,
   mergeShortItemsForward,
@@ -2141,6 +2142,9 @@ async function handleNewsCutCreate(): Promise<void> {
     return;
   }
   await ensureNewsCutSourceActive();
+  // 시작 시 이전 배치 목록을 비운다(§184 감사 #13) — 생성 도중 예외가 나면 UI가 이전 배치
+  // 이름을 유지해 '일괄 내보내기'가 직전 배치를 내보냈다.
+  newsCutCreatedNames = [];
   const today = new Date();
   const startIndex = nextNewsItemIndex(await listSequenceNames().catch(() => []), today);
   const inputs = selected.map(({ item }, order) => ({
@@ -2159,7 +2163,13 @@ async function handleNewsCutCreate(): Promise<void> {
     `뉴스 분할 시퀀스 생성 · 성공 ${result.created.length} · 실패 ${result.failures.length}`,
   );
   result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
-  toast(`${result.created.length}개 아이템 시퀀스를 만들었습니다.`, result.failures.length ? "warning" : "success");
+  // 실패 개수를 토스트에도 싣는다(§184 감사 #15 — §183 감사 #5와 동일 결함의 생성 단계판).
+  toast(
+    result.failures.length
+      ? `시퀀스 생성 — 성공 ${result.created.length}개 · 실패 ${result.failures.length}개. 활동 로그를 확인하세요.`
+      : `${result.created.length}개 아이템 시퀀스를 만들었습니다.`,
+    result.failures.length ? "warning" : "success",
+  );
   await refreshStatus(true);
 }
 
@@ -2339,8 +2349,10 @@ function disarmNewsCutCleanup(): void {
 
 async function handleNewsCutCleanup(): Promise<void> {
   const button = optionalElement<HTMLButtonElement>("news-cut-cleanup-btn");
+  // 개수 계산은 삭제와 같은 패턴 상수를 쓴다(§184 감사 #1·#2) — 다른 정규식을 쓰던 시절
+  // " 2" 고아만 남으면 개수 0으로 조기 반환됐고, 확인 라벨의 개수도 실제 삭제 대상과 달랐다.
   const count = (await listSequenceNames().catch(() => []))
-    .filter((name) => /^\d{8}_news_\d{2,}$/u.test(name)).length;
+    .filter((name) => NEWS_ITEM_SEQUENCE_PATTERN.test(name)).length;
   if (count === 0) {
     disarmNewsCutCleanup();
     toast("정리할 아이템 시퀀스가 없습니다.", "info");
@@ -2361,7 +2373,7 @@ async function handleNewsCutCleanup(): Promise<void> {
   renderNewsCutList();
   activity.add(
     result.failures ? "warning" : "success",
-    `뉴스 분할 아이템 정리 · 삭제 ${result.deleted} · 실패 ${result.failures}`,
+    `뉴스 분할 아이템 정리 · 삭제 ${result.deleted} · 실패 ${result.failures}${result.failureNames.length ? ` (실패: ${result.failureNames.slice(0, 8).join(" ")})` : ""}`,
   );
   toast(`아이템 시퀀스 ${result.deleted}개를 정리했습니다.`, result.failures ? "warning" : "success");
   await refreshStatus(true);

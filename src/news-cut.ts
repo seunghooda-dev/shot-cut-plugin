@@ -56,6 +56,14 @@ export function normalizeNewsItems(
   return items.map((item, index) => ({ ...item, title: item.title || `아이템 ${index + 1}` }));
 }
 
+/**
+ * 아이템 시퀀스 판별 정규식 — 정리(삭제)와 정리 버튼의 개수 계산이 **반드시 같은 패턴**을
+ * 써야 한다(§184 감사 #1). 두 곳이 다른 정규식을 갖던 시절, " 2" 접미 고아만 남은 상태에서
+ * 개수 0으로 조기 반환돼 안정화 감사 #1의 " 2" 매치가 UI 경로로는 영영 도달 불가였다.
+ * `(?: \d+)?`는 클론 재시도의 uniqueSequenceName " 2" 접미를 흡수한다.
+ */
+export const NEWS_ITEM_SEQUENCE_PATTERN = /^\d{8}_news_\d{2,}(?: \d+)?$/u;
+
 /** 아이템 시퀀스·파일 이름 — 사용자 규칙 `YYYYMMDD_news_NN`(00부터). */
 export function newsItemName(date: Date, index: number): string {
   const pad = (value: number) => String(value).padStart(2, "0");

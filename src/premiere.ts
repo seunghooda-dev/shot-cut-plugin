@@ -30,6 +30,7 @@ import {
   type SafeZoneMargins,
   type SocialPlatform,
 } from "./safe-zone";
+import { NEWS_ITEM_SEQUENCE_PATTERN } from "./news-cut";
 import type {
   Action,
   AudioClipTrackItem,
@@ -2380,23 +2381,37 @@ export async function queueSequenceExportsByName(
  * 뉴스 분할 산출물 시퀀스(`YYYYMMDD_news_NN`)를 일괄 삭제한다 — 재분석 전에 이전
  * 아이템이 쌓이는 것을 정리하는 용도. 소스 시퀀스는 패턴이 달라 건드리지 않는다.
  */
-export async function deleteNewsItemSequences(): Promise<{ deleted: number; failures: number }> {
+export async function deleteNewsItemSequences(): Promise<{ deleted: number; failures: number; failureNames: string[] }> {
   const { project } = await getActiveContext();
+  const sequences = await project.getSequences();
+  // 패턴은 news-cut의 단일 상수를 쓴다(§184 감사 #1) — 정리 버튼의 개수 계산과 갈라지면
+  // " 2" 고아만 남은 상태에서 개수 0 조기 반환으로 정리가 도달 불가가 된다.
+  const targets = sequences.filter((sequence: any) => NEWS_ITEM_SEQUENCE_PATTERN.test(String(sequence.name)));
+  // 활성 시퀀스가 삭제 대상이면 비대상 시퀀스로 먼저 전환한다(§184 감사 #5) — 활성인 채
+  // 삭제하면 실패하거나 제거된 시퀀스가 활성으로 남는다. removeKnownClonedSequenceFromProject의
+  // 방어와 같은 원칙이며, 비대상이 하나도 없으면 그대로 진행한다(전환할 곳이 없다).
+  try {
+    const active = await project.getActiveSequence();
+    if (active && NEWS_ITEM_SEQUENCE_PATTERN.test(String(active.name))) {
+      const safe = sequences.find((sequence: any) => !NEWS_ITEM_SEQUENCE_PATTERN.test(String(sequence.name)));
+      if (safe) await project.setActiveSequence(safe);
+    }
+  } catch {
+    // 활성 전환 실패는 삭제 시도 자체를 막지 않는다 — 실패분은 failures로 드러난다.
+  }
   let deleted = 0;
-  let failures = 0;
-  for (const sequence of await project.getSequences()) {
-    // " 2" 접미까지 매치한다(안정화 감사 #1) — 클론 성공+인아웃 실패 재시도가
-    // uniqueSequenceName으로 " 2"를 붙인 이력이 있으면, 접미 없는 정규식은 고아만 남기고
-    // 진짜 아이템을 놓쳐 정리가 역작동한다.
-    if (!/^\d{8}_news_\d{2,}(?: \d+)?$/u.test(String(sequence.name))) continue;
+  const failureNames: string[] = [];
+  for (const sequence of targets) {
     try {
       await project.deleteSequence(sequence);
       deleted += 1;
     } catch {
-      failures += 1;
+      // 실패 이름을 남긴다(§184 감사 #4) — 개수만 반환하면 어느 시퀀스가 왜 남았는지
+      // 사후 추적이 불가능하다.
+      failureNames.push(String(sequence.name));
     }
   }
-  return { deleted, failures };
+  return { deleted, failures: failureNames.length, failureNames };
 }
 
 /** Adobe Media Encoder 설치 여부 — 미설치면 대기열 대신 직접 렌더로 폴백해야 한다. */
