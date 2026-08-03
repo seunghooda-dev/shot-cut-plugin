@@ -1268,13 +1268,17 @@ export class ThumbnailController {
       return thumbnailBytesToDataUrl(historyItem.bytes, "image/png");
     }
     if (/^data:image\//iu.test(record.url)) return record.url;
+    // blob: URL은 저장 SVG에 넣지 않는다(§187 감사 #17) — 세션 종료와 동시에 무효가 되는
+    // 임시 참조라, 임베드하면 저장된 .svg가 조용히 깨진 파일이 된다. 바이트 접근 수단이
+    // 없으면 깨진 파일을 만드는 대신 명확히 실패한다.
+    const nonSessionUrl = record.url && !record.url.startsWith("blob:") ? record.url : "";
     if (!record.token) {
-      if (record.url) return record.url;
-      throw new Error(`레이어 ${layer.id}의 SVG 이미지 경로를 찾지 못했습니다.`);
+      if (nonSessionUrl) return nonSessionUrl;
+      throw new Error(`레이어 ${layer.id}의 이미지가 세션 임시 URL뿐이라 저장 SVG에 포함할 수 없습니다.`);
     }
     const entry = await this.adapter.localFileSystem.getEntryForPersistentToken(record.token);
     if (!isUsableFileEntry(entry) || typeof entry.read !== "function") {
-      if (record.url) return record.url;
+      if (nonSessionUrl) return nonSessionUrl;
       throw new Error(`${record.name} 파일을 SVG에 포함할 수 없습니다.`);
     }
     const bytes = normalizeBytes(await entry.read({ format: this.adapter.binaryFormat }), MAX_THUMBNAIL_SOURCE_BYTES);
