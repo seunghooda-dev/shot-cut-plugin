@@ -442,6 +442,27 @@ export function validateAnalysisResponse(
     return { action: "shorts-plan", shorts };
   }
 
+  // news-items 분기(§185 감사) — 없던 시절 youtube-metadata 폴스루로 떨어져 "제목이
+  // 없습니다"로 오작동했다. 다른 분석과 같은 원칙: 존재하지 않는 cueId를 참조하는 항목은
+  // 하드 실패 대신 걸러낸다.
+  if (request.action === "news-items") {
+    const raw = Array.isArray(payload.items) ? payload.items : [];
+    const items: NewsItemSpan[] = [];
+    for (const entry of raw) {
+      if (!isRecord(entry)) continue;
+      const startCueId = typeof entry.startCueId === "string" ? entry.startCueId : "";
+      const endCueId = typeof entry.endCueId === "string" ? entry.endCueId : "";
+      if (!cueIds.has(startCueId) || !cueIds.has(endCueId)) continue;
+      items.push({
+        startCueId,
+        endCueId,
+        title: (typeof entry.title === "string" ? entry.title.trim().slice(0, 100) : "") || `아이템 ${items.length + 1}`,
+      });
+      if (items.length >= 60) break;
+    }
+    return { action: "news-items", items };
+  }
+
   const title = typeof payload.title === "string" ? payload.title.trim().slice(0, 100) : "";
   const description = typeof payload.description === "string" ? payload.description.trim().slice(0, 5_000) : "";
   const tags = Array.isArray(payload.tags)

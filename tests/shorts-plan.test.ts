@@ -154,3 +154,29 @@ describe("snapSegmentsToSilence", () => {
     assert.deepEqual(s, original);
   });
 });
+
+describe("validateAnalysisResponse (news-items, §185)", () => {
+  const request: SubtitleAnalysisRequest = { action: "news-items", document: doc(6) };
+
+  it("유효한 cueId 쌍만 통과시키고 유령 참조 항목은 걸러낸다", () => {
+    const result = validateAnalysisResponse({
+      items: [
+        { startCueId: "c0", endCueId: "c2", title: "첫 보도" },
+        { startCueId: "ghost", endCueId: "c3", title: "버려질 항목" },
+        { startCueId: "c4", endCueId: "ghost", title: "버려질 항목 2" },
+      ],
+    }, request);
+    assert.equal(result.action, "news-items");
+    if (result.action !== "news-items") return;
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0]!.startCueId, "c0");
+    assert.equal(result.items[0]!.title, "첫 보도");
+  });
+
+  it("youtube-metadata 폴스루로 떨어지지 않는다 — 제목 없는 응답도 news-items로 처리(§185 감사)", () => {
+    // 분기가 없던 시절 '제목이 없습니다'로 오작동하던 사례.
+    const result = validateAnalysisResponse({ items: [{ startCueId: "c1", endCueId: "c2", title: "" }] }, request);
+    if (result.action !== "news-items") throw new Error("news-items로 처리돼야 한다");
+    assert.ok(result.items[0]!.title.length > 0, "빈 제목은 기본값을 받아야 한다");
+  });
+});
