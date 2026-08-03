@@ -413,6 +413,60 @@ describe("ReferenceController 파일 선택(§189 #7·#10)", () => {
   });
 });
 
+describe("ReferenceController 드래그 재정렬(§189 커버리지 공백)", () => {
+  it("dragstart→drop이 라이브러리 순서를 바꾼다", async () => {
+    const dom = installDom();
+    try {
+      const store = new Map<string, string>();
+      const entriesByToken = new Map<string, ReferenceFileEntry>();
+      let tokenCount = 0;
+      const adapter = {
+        localFileSystem: {
+          getFileForOpening: async () => null,
+          createPersistentToken: async (entry: ReferenceFileEntry) => {
+            tokenCount += 1;
+            const token = `token-${tokenCount}`;
+            entriesByToken.set(token, entry);
+            return token;
+          },
+          getEntryForPersistentToken: async (token: string) => {
+            const entry = entriesByToken.get(token);
+            if (!entry) throw new Error(`expired token: ${token}`);
+            return entry;
+          },
+        },
+        storage: {
+          getItem: async (key: string) => store.get(key) ?? null,
+          setItem: async (key: string, value: string) => { store.set(key, value); },
+          removeItem: async (key: string) => { store.delete(key); },
+        },
+        binaryFormat: "binary-format",
+      } as unknown as ReferenceLibraryAdapter;
+      let nextId = 0;
+      const library = new ReferenceLibrary(adapter, { idFactory: () => `ref-${++nextId}`, now: () => 1 });
+      await library.addEntries([mockPngFile("a.png")], "메모A", { source: "s", tags: "" });
+      await library.addEntries([mockPngFile("b.png")], "메모B", { source: "s", tags: "" });
+      const controller = new ReferenceController({ library });
+      await controller.initialize();
+      const cards = dom.list.children;
+      assert.equal(cards.length, 2);
+      const dataStore = new Map<string, string>();
+      const dataTransfer = {
+        setData: (key: string, value: string) => { dataStore.set(key, value); },
+        getData: (key: string) => dataStore.get(key) ?? "",
+        effectAllowed: "",
+        dropEffect: "",
+      };
+      cards[0]!.dispatch("dragstart", { dataTransfer } as never);
+      cards[1]!.dispatch("drop", { dataTransfer } as never);
+      await flush();
+      assert.deepEqual(library.items.map((item) => item.name), ["b.png", "a.png"]);
+    } finally {
+      dom.restore();
+    }
+  });
+});
+
 describe("ReferenceController 만료 항목 회복(§189 #4)", () => {
   it("만료 레퍼런스는 선택 입력에서 배제돼 다음 호출이 자동 회복된다", async () => {
     const dom = installDom();
