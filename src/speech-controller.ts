@@ -411,6 +411,12 @@ export class SpeechController {
    */
   async transcribeMediaBytes(media: { bytes: Uint8Array; name: string }): Promise<void> {
     if (this.disposed) return;
+    // 실행 중 검사를 상태 변경보다 먼저 한다(§185 감사) — 종전에는 source·결과 textarea를
+    // 먼저 덮어쓴 뒤 runStt의 무음 return에 걸려, 진행 중이던 실행의 상태만 파괴되고 새
+    // 전사는 시작되지 않은 채 "성공"처럼 끝났다(원고가 비는 실사용 결함).
+    if (this.sttRunning) {
+      throw new Error("STT가 이미 실행 중입니다 — 완료된 뒤 다시 시도해 주세요.");
+    }
     const extension = classifySttInput(media.name);
     if (!extension) {
       throw new Error("추출한 오디오 형식을 STT 입력으로 인식하지 못했습니다.");
@@ -576,7 +582,12 @@ export class SpeechController {
   }
 
   private async runStt(): Promise<void> {
-    if (this.disposed || this.sttRunning) return;
+    if (this.disposed) return;
+    if (this.sttRunning) {
+      // 무음 return이던 시절(§185 감사) 자동 흐름이 빈 원고로 조용히 끝났다 — 최소한 고지한다.
+      this.options.onWarning?.("STT가 이미 실행 중이라 새 요청을 건너뜁니다.");
+      return;
+    }
     if (!this.source) throw new Error("먼저 STT 음성·영상 파일을 선택해 주세요.");
     this.sttRunning = true;
     const lifecycleRevision = this.lifecycleRevision;
