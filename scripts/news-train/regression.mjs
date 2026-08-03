@@ -3,11 +3,16 @@
 import { listEpisodes, loadEpisode, loadMatcherBanks, routeMatcher, loadCurrentModel, predictItemStarts, boundaryF1, loadBandProbes, applyQuoteBandFilter } from "./lib.mjs";
 
 // 스냅샷(2026-07-21 확정) — 평일·일요일 평일형·신형 커버, 전부 F1 100 기대.
+// 2026-08-03(§177): 8월 초 분포 2회차 추가 — 7/30(평일)·8/2(일요일 단축판, 654초·7아이템).
+// 무료 경로가 결정적으로 100인 회차만 골라 기준 1.0으로 고정한다(둘 다 홀드아웃 — 학습이
+// 삼킬 수 없어 게이트가 신규 분포의 후보 생성 회귀를 계속 감시한다).
 const SNAPSHOT = [
   ["Train_KBC_20260512_Tue", 1.0],
   ["Train_KBC_20260607_Sun", 1.0],
   ["Train_KBC_20260720_Mon", 1.0],
   ["Train_KBC_20260719_Sun", 0.9],
+  ["Train_KBC_20260730_Thu", 1.0],
+  ["Train_KBC_20260802_Sun", 1.0],
 ];
 
 const banks = await loadMatcherBanks();
