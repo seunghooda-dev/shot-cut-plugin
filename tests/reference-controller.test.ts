@@ -413,6 +413,37 @@ describe("ReferenceController 파일 선택(§189 #7·#10)", () => {
   });
 });
 
+describe("ReferenceController 삭제 경로(§189 커버리지 공백)", () => {
+  it("삭제 버튼이 항목·선택 상태를 함께 정리하고 고지한다", async () => {
+    const dom = installDom();
+    try {
+      const { library, seed } = createSeededLibrary();
+      await seed("메모");
+      const activities: string[] = [];
+      const selections: Array<readonly string[]> = [];
+      const controller = new ReferenceController({
+        library,
+        onActivity: (message) => activities.push(message),
+        onSelectionChange: (ids) => selections.push(ids),
+      });
+      await controller.initialize();
+      const checkbox = aiCheckboxes(dom.list)[0]!;
+      checkbox.checked = true;
+      checkbox.dispatch("change");
+      assert.equal(controller.selectedIds.length, 1);
+      const removeButton = dom.list.querySelectorAll(".reference-remove-btn")[0]!;
+      removeButton.dispatch("click");
+      await flush();
+      assert.equal(library.items.length, 0);
+      assert.equal(controller.selectedIds.length, 0, "삭제된 항목은 선택 집합에서도 빠져야 한다");
+      assert.deepEqual(selections.at(-1), []);
+      assert.ok(activities.some((message) => /삭제했습니다/u.test(message)), `수집된 활동: ${activities.join(" | ")}`);
+    } finally {
+      dom.restore();
+    }
+  });
+});
+
 describe("ReferenceController 드래그 재정렬(§189 커버리지 공백)", () => {
   it("dragstart→drop이 라이브러리 순서를 바꾼다", async () => {
     const dom = installDom();
