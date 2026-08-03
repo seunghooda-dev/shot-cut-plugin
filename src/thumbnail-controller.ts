@@ -546,8 +546,16 @@ export class ThumbnailController {
     try {
       await this.renderCanvas();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error ?? "알 수 없는 오류");
-      this.setCanvasLimited(message);
+      // 진짜 렌더 오류를 "Canvas 제한"으로 오분류하지 않는다(§187 감사 #21) — renderCanvas는
+      // 제한을 사전 판별해 조기 반환하므로 여기 도달한 예외는 이미지 디코딩 실패 같은 실제
+      // 버그다. 제한이 재확인될 때만 제한 처리하고, 아니면 오류로 보고한다.
+      const limit = this.detectCanvasLimit();
+      if (limit) {
+        this.setCanvasLimited(limit);
+      } else {
+        this.options.onError?.(error, "썸네일 초기 렌더 실패");
+        if (!this.options.onError) console.error("썸네일 초기 렌더 실패", error);
+      }
     }
   }
 
