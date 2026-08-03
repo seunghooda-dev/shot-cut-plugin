@@ -280,6 +280,36 @@ describe("pause, progress, confirmation, and cancellation", () => {
     await queue.waitFor(job.id);
   });
 
+  it("ignores a confirmed flag smuggled into the request payload", async () => {
+    let calls = 0;
+    const queue = new JobQueue(async () => { calls += 1; return {}; }, {
+      budget: { confirmationThresholdUnits: 5 },
+    });
+    const smuggled = { ...request(1, { estimateUnits: 6 }), confirmed: true } as JobRequest;
+    const job = queue.enqueue(smuggled);
+    await turn();
+    assert.equal(calls, 0);
+    assert.equal(queue.get(job.id)?.confirmed, false);
+    queue.confirm(job.id);
+    assert.equal((await queue.waitFor(job.id)).state, "succeeded");
+  });
+
+  it("re-requires approval when the threshold drops below queued auto-confirmed work", async () => {
+    let calls = 0;
+    const queue = new JobQueue(async () => { calls += 1; return {}; });
+    queue.pause();
+    const job = queue.enqueue(request(1, { estimateUnits: 6 }));
+    assert.equal(queue.get(job.id)?.confirmed, true);
+    queue.setBudget({ confirmationThresholdUnits: 5 });
+    assert.equal(queue.get(job.id)?.confirmRequired, true);
+    assert.equal(queue.get(job.id)?.confirmed, false);
+    queue.resume();
+    await turn();
+    assert.equal(calls, 0);
+    queue.confirm(job.id);
+    assert.equal((await queue.waitFor(job.id)).state, "succeeded");
+  });
+
   it("cancels queued work without executing it", async () => {
     let calls = 0;
     const queue = new JobQueue(async () => { calls += 1; return {}; });
@@ -659,6 +689,43 @@ describe("events, redaction, persistence, and restore", () => {
     assert.equal(queued?.recovered, true);
     restored.resume();
     assert.equal((await restored.waitFor(original.id)).state, "succeeded");
+  });
+
+  it("re-requires approval for restored jobs instead of trusting the stored confirmed flag", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(JOB_QUEUE_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      paused: true,
+      jobs: [{
+        id: "job-tampered-1",
+        hash: "feed0123deadbeef",
+        kind: "image",
+        content: { id: 9 },
+        state: "queued",
+        progress: 0,
+        attempt: 0,
+        maxRetries: 1,
+        estimateUnits: 50,
+        confirmRequired: true,
+        confirmed: true,
+        fromCache: false,
+        recovered: false,
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+      cache: [],
+      usage: { day: "2026-08-04", requests: 0, costUnits: 0 },
+      budget: { confirmationThresholdUnits: 5 },
+    }));
+    let calls = 0;
+    const queue = new JobQueue(async () => { calls += 1; return {}; }, { storage });
+    await queue.restore();
+    queue.resume();
+    await turn();
+    assert.equal(calls, 0);
+    assert.equal(queue.get("job-tampered-1")?.confirmed, false);
+    queue.confirm("job-tampered-1");
+    assert.equal((await queue.waitFor("job-tampered-1")).state, "succeeded");
   });
 
   it("rejects corrupt serialized state with a safe error", async () => {

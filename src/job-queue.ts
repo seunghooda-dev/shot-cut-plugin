@@ -17,7 +17,6 @@ export interface JobRequest {
   options?: unknown;
   estimateUnits?: number;
   confirmRequired?: boolean;
-  confirmed?: boolean;
   maxRetries?: number;
   cacheTtlMs?: number;
 }
@@ -511,7 +510,8 @@ export class JobQueue {
       maxRetries: integerInRange(request.maxRetries, this.defaultMaxRetries, 0, 10),
       estimateUnits,
       confirmRequired,
-      confirmed: request.confirmed === true || !confirmRequired,
+      // 승인이 필요한 작업은 confirm() 경유로만 승인된다 — 요청 페이로드로 우회 불가.
+      confirmed: !confirmRequired,
       fromCache: Boolean(cached),
       recovered: false,
       createdAt: timestamp,
@@ -592,6 +592,19 @@ export class JobQueue {
 
   setBudget(budget: DailyBudget): void {
     this.budget = this.normalizeBudget(budget);
+    // 임계 인하 시 대기 중 자동승인 작업 재평가 — 사용자 승인으로 통과한 작업(confirmRequired
+    // true였던 것)은 건드리지 않고, 자동 통과분만 승인 대기로 되돌린다.
+    const threshold = this.budget.confirmationThresholdUnits;
+    if (threshold !== undefined) {
+      for (const job of this.jobs.values()) {
+        if (job.state === "queued" && !job.confirmRequired && job.estimateUnits > threshold) {
+          job.confirmRequired = true;
+          job.confirmed = false;
+          job.updatedAt = this.now();
+          this.emit("job-updated", job);
+        }
+      }
+    }
     this.emit("budget-updated");
     this.persist();
     this.scheduleDrain();
@@ -667,6 +680,8 @@ export class JobQueue {
           job.completedAt = timestamp;
           job.error = "보안을 위해 저장하지 않은 작업 입력이 있어 자동 복구를 취소했습니다.";
         }
+        // 저장소의 confirmed는 신뢰하지 않는다 — 승인 필요 작업은 재시작 후 재승인을 받는다.
+        if (!this.isTerminal(job.state) && job.confirmRequired) job.confirmed = false;
         this.jobs.set(job.id, job);
         if (!this.isTerminal(job.state) || job.state === "succeeded") this.hashes.set(job.hash, job.id);
         this.sequence += 1;
