@@ -351,6 +351,45 @@ describe("pause, progress, confirmation, and cancellation", () => {
     assert.notEqual(outcome, "timeout");
     assert.equal(typeof outcome === "string" ? outcome : outcome.state, "cancelled");
   });
+
+  it("keeps the conservative estimate on the ledger when a cancelled run completes late", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const queue = new JobQueue(async () => {
+      await gate;
+      return { value: "done", costUnits: 3 };
+    });
+    const job = queue.enqueue(request(1, { estimateUnits: 5 }));
+    await waitUntil(() => queue.get(job.id)?.state === "running");
+    assert.equal(queue.cancel(job.id), true);
+    release?.();
+    assert.equal((await queue.waitFor(job.id)).state, "cancelled");
+    // 취소가 결과보다 먼저 확정되면 실비용(3)은 버려지고 예상(5)이 원장에 남는다 —
+    // 한도를 이르게 닫는 방향의 보수적 기본(§187 #4 주석의 명세화). 실비용 정산 분기는
+    // 결과 확정과 취소가 같은 마이크로태스크 틈에 겹친 창에서만 탄다.
+    await turn();
+    assert.equal(queue.getUsage().costUnits, 5);
+  });
+
+  it("fails only the affected job when AbortController construction throws", async () => {
+    const OriginalAbortController = globalThis.AbortController;
+    try {
+      (globalThis as { AbortController: unknown }).AbortController = function brokenAbortController() {
+        throw new Error("AbortController unavailable");
+      };
+      const queue = new JobQueue(successExecutor());
+      const broken = queue.enqueue(request(1));
+      const done = await queue.waitFor(broken.id);
+      assert.equal(done.state, "failed");
+      assert.equal(queue.runningCount, 0);
+      (globalThis as { AbortController: unknown }).AbortController = OriginalAbortController;
+      // 런타임이 복구되면 같은 큐가 새 작업을 정상 처리한다 — 카운터 누수·큐 정지 없음.
+      const next = await queue.waitFor(queue.enqueue(request(2)).id);
+      assert.equal(next.state, "succeeded");
+    } finally {
+      (globalThis as { AbortController: unknown }).AbortController = OriginalAbortController;
+    }
+  });
 });
 
 describe("transient retry", () => {

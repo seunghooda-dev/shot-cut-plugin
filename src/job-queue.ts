@@ -780,7 +780,14 @@ export class JobQueue {
       // AbortController 생성을 카운터 증가보다 먼저 한다(§187 감사 #8) — 순서가 반대면
       // AbortController 부재 런타임에서 예외가 drain 밖으로 새며 activeCount가 영구
       // 누수돼 큐가 정지한다(403행의 queueMicrotask 부재와 같은 UXP 방어 계열).
-      job.controller = new AbortController();
+      // 생성 실패는 해당 작업만 실패시키고 drain은 계속한다 — 마이크로태스크 안 uncaught로
+      // 패널 전체가 죽는 것을 막는다(#8 완결).
+      try {
+        job.controller = new AbortController();
+      } catch (error) {
+        this.transitionTerminal(job, "failed", error);
+        continue;
+      }
       this.activeCount += 1;
       job.state = "running";
       job.startedAt = this.now();
@@ -814,6 +821,8 @@ export class JobQueue {
           // 실행이 끝난 뒤의 취소는 비용이 이미 발생했다(§187 감사 #4) — 실제 비용을 원장에
           // 반영하고 취소한다. 결과 값이 없거나 실행 중 중단된 취소는 예상분을 그대로 두는
           // 것이 보수적이다(한도를 이르게 닫는 방향이 안전).
+          // 이 분기는 runExecutorWithAbort의 결과 확정과 취소가 같은 마이크로태스크 틈에
+          // 겹친 창에서만 탄다(abort가 먼저면 reject 경로) — 결정론적 재현 불가라 무테스트.
           this.adjustActualCost(job.estimateUnits, result?.costUnits, reservedDay);
           this.transitionTerminal(job, "cancelled", new JobQueueError("CANCELLED", "사용자가 작업을 취소했습니다."));
           return;

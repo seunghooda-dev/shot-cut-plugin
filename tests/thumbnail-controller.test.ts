@@ -1336,6 +1336,97 @@ describe("ThumbnailController deeper layer, restore, and capability coverage", (
     });
   });
 
+  it("gives same-second exports distinct millisecond filenames", async () => {
+    const dom = controllerDom(false).document;
+    const fileSystem = new FakeLocalFileSystem();
+    fileSystem.selection = sourceEntry("named.png");
+    const storage = new MemoryStorage();
+    const errors: string[] = [];
+    let now = Date.UTC(2026, 6, 12, 1, 2, 3, 100);
+    await withDocument(dom, async () => {
+      const controller = new ThumbnailController({
+        adapter: adapter(fileSystem, storage),
+        now: () => now,
+        imageFactory: loadedImage,
+        onError: (error, context) =>
+          errors.push(`${context}: ${error instanceof Error ? error.message : String(error)}`),
+      });
+      await controller.initialize();
+      dom.getElementById("thumbnail-source-btn")!.emit("click");
+      await waitUntil(() => controller.state.layers.length === 1);
+      dom.getElementById("thumb-export-svg-btn")!.emit("click");
+      await waitUntil(() => fileSystem.output.files.length === 1);
+      // 같은 초, 다른 밀리초 — 초 단위 이름이었다면 overwrite:false 충돌로 두 번째가 실패한다(§187 #14).
+      now = Date.UTC(2026, 6, 12, 1, 2, 3, 500);
+      dom.getElementById("thumb-export-svg-btn")!.emit("click");
+      await waitUntil(() => fileSystem.output.files.length === 2);
+      const names = fileSystem.output.files.map((file) => file.name);
+      assert.notEqual(names[0], names[1]);
+      assert.match(names[0] ?? "", /^ShortFlow_Thumbnail_\d{17}\.svg$/u);
+      assert.equal(errors.length, 0);
+      await controller.dispose();
+    });
+  });
+
+  it("refuses to embed a session blob URL in the SVG fallback", async () => {
+    const dom = controllerDom(false).document;
+    const fileSystem = new FakeLocalFileSystem();
+    // url이 없는 원본 — resolveEntryUrl이 바이트를 읽어 세션 objectURL(blob:)을 만든다.
+    fileSystem.selection = {
+      name: "bloburl.png",
+      isFile: true,
+      read: () => Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 9, 8, 7]),
+    };
+    const storage = new MemoryStorage();
+    const errors: string[] = [];
+    await withDocument(dom, async () => {
+      const controller = createController(dom, fileSystem, storage, errors);
+      await controller.initialize();
+      dom.getElementById("thumbnail-source-btn")!.emit("click");
+      await waitUntil(() => controller.state.layers.length === 1);
+      // 토큰 항목이 읽기 권한을 잃으면 폴백이 레코드 URL로 내려온다 — blob:이면 거부해야 한다(§187 #17).
+      fileSystem.entries.set("token:bloburl.png", {
+        name: "bloburl.png",
+        isFile: true,
+      });
+      dom.getElementById("thumb-export-svg-btn")!.emit("click");
+      await waitUntil(() => errors.some((message) => /SVG에 포함할 수 없습니다/u.test(message)));
+      assert.equal(fileSystem.output.files.length, 0, "깨질 blob 참조를 담은 SVG를 저장하면 안 됩니다.");
+      await controller.dispose();
+    });
+  });
+
+  it("applies a saved variant back to the live state and persists it", async () => {
+    const dom = controllerDom(false).document;
+    dom.add("thumb-variants", "div");
+    const fileSystem = new FakeLocalFileSystem();
+    fileSystem.selection = sourceEntry("base.png");
+    const storage = new MemoryStorage();
+    await withDocument(dom, async () => {
+      const controller = createController(dom, fileSystem, storage);
+      await controller.initialize();
+      dom.getElementById("thumbnail-source-btn")!.emit("click");
+      await waitUntil(() => controller.state.layers.length === 1);
+      dom.getElementById("thumb-save-variant-btn")!.emit("click");
+      await waitUntil(() => dom.getElementById("thumb-variants")!.children.length === 1);
+      // 변형 저장 뒤 상태를 바꾼다 — 레이어 하나 추가.
+      fileSystem.selection = sourceEntry("second.png");
+      dom.getElementById("thumbnail-source-btn")!.emit("click");
+      await waitUntil(() => controller.state.layers.length === 2);
+      // 카드의 "이 변형 사용" 버튼이 유일한 제품 진입점이다(§187 #22).
+      const card = dom.getElementById("thumb-variants")!.children[0]!;
+      const actions = card.children[2]!;
+      const useButton = actions.children[0]!;
+      assert.equal(useButton.textContent, "이 변형 사용");
+      useButton.emit("click");
+      await waitUntil(() => controller.state.layers.length === 1);
+      await controller.dispose();
+    });
+    // 적용 결과가 영속됐는지 — 재시작 유실이 #22의 결함이었다.
+    const saved = JSON.parse(storage.values.get(THUMBNAIL_STORAGE_KEY) ?? "{}") as { layers?: unknown[] };
+    assert.equal(saved.layers?.length, 1);
+  });
+
   it("keeps AI retouch disabled when the run button is disabled", async () => {
     const dom = controllerDom(false).document;
     const fileSystem = new FakeLocalFileSystem();
