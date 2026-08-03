@@ -413,6 +413,25 @@ describe("ReferenceController 파일 선택(§189 #7·#10)", () => {
   });
 });
 
+describe("ReferenceController 출처 편집 경로(§189 커버리지 공백)", () => {
+  it("출처 에디터 변경이 라이브러리 메타데이터에 저장된다", async () => {
+    const dom = installDom();
+    try {
+      const { library, seed } = createSeededLibrary();
+      await seed("메모");
+      const controller = new ReferenceController({ library });
+      await controller.initialize();
+      const sourceEditor = dom.list.querySelectorAll(".reference-source-editor")[0]!;
+      sourceEditor.value = "KBC 뉴스 캡처";
+      sourceEditor.dispatch("change");
+      await flush();
+      assert.equal(library.items[0]?.source, "KBC 뉴스 캡처");
+    } finally {
+      dom.restore();
+    }
+  });
+});
+
 describe("ReferenceController 삭제 경로(§189 커버리지 공백)", () => {
   it("삭제 버튼이 항목·선택 상태를 함께 정리하고 고지한다", async () => {
     const dom = installDom();
