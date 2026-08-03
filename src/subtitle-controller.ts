@@ -540,6 +540,9 @@ function closestWithData(
   return null;
 }
 
+// 스테일 가드 식별용 고정 메시지 — planAutoCuts의 폴백 분기가 이 오류만은 삼키지 않아야 한다(§186-b).
+const AI_REQUEST_STALE_MESSAGE = "AI 작업 중 자막 문서가 변경되어 이전 결과를 적용하지 않았습니다.";
+
 export class SubtitleController {
   private readonly dom: SubtitleDomDocument;
   private readonly storage: SubtitleStorageAdapter | null;
@@ -958,7 +961,10 @@ export class SubtitleController {
         if (planResult.action === "shorts-plan" && planResult.shorts.length > 0) {
           plan = segmentsFromModelPlan(document, planResult.shorts, options);
         }
-      } catch {
+      } catch (error) {
+        // 스테일 가드는 폴백으로 가리지 않는다(§186-b) — 문서가 이미 바뀐 것을 알면서
+        // 하이라이트·아웃라인 요청 2회를 더 보내는 비용 낭비였다(폴백의 assert가 결국 던진다).
+        if (error instanceof Error && error.message === AI_REQUEST_STALE_MESSAGE) throw error;
         this.options.onActivity?.("AI 숏폼 플랜을 건너뛰고 하이라이트 기반으로 대체합니다.");
       }
       // 2) 폴백: 하이라이트+아웃라인 휴리스틱(항상 안전망).
@@ -1219,7 +1225,7 @@ export class SubtitleController {
       loadGeneration !== this.projectLoadGeneration ||
       projectKey !== this.projectKey
     ) {
-      throw new Error("AI 작업 중 자막 문서가 변경되어 이전 결과를 적용하지 않았습니다.");
+      throw new Error(AI_REQUEST_STALE_MESSAGE);
     }
   }
 

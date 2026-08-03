@@ -1120,6 +1120,46 @@ describe("SubtitleController SRT, autosave, and provider boundaries", () => {
     assert.equal(dom.getElementById("subtitle-undo-btn")?.disabled, true);
   });
 
+  it("planAutoCuts: 빈 shorts-plan이면 하이라이트·아웃라인 폴백으로 이어진다(§185 공백)", async () => {
+    const actions: string[] = [];
+    const controller = new SubtitleController({
+      dom: editorDom(),
+      storage: null,
+      analysisProvider: (request) => {
+        actions.push(request.action);
+        if (request.action === "shorts-plan") return { shorts: [] };
+        if (request.action === "interview-highlight") return { highlights: [{ cueId: "cue-1", reason: "핵심" }] };
+        return { segments: [] };
+      },
+    });
+    await controller.initialize();
+    controller.setDocument(sampleDocument());
+    const plan = await controller.planAutoCuts();
+    assert.deepEqual(actions, ["shorts-plan", "interview-highlight", "edit-outline"]);
+    assert.ok(Array.isArray(plan));
+  });
+
+  it("planAutoCuts: 스테일 가드 오류는 폴백으로 가리지 않고 즉시 중단한다(§186-b)", async () => {
+    const actions: string[] = [];
+    let controllerRef: SubtitleController | null = null;
+    const controller = new SubtitleController({
+      dom: editorDom(),
+      storage: null,
+      analysisProvider: (request) => {
+        actions.push(request.action);
+        // 응답이 도착하기 전에 문서가 바뀌었다 — 이전에는 이 스테일 오류를 catch{}가 삼켜
+        // 하이라이트·아웃라인 요청 2회가 추가로 나갔다.
+        controllerRef?.setDocument(sampleDocument());
+        return { shorts: [] };
+      },
+    });
+    controllerRef = controller;
+    await controller.initialize();
+    controller.setDocument(sampleDocument());
+    await assert.rejects(() => controller.planAutoCuts(), /문서가 변경되어/u);
+    assert.deepEqual(actions, ["shorts-plan"], "스테일 확정 후 추가 provider 호출이 없어야 한다");
+  });
+
   it("seeks to a cue when an analysis result button is clicked via panel delegation", async () => {
     const dom = editorDom();
     const seeks: string[] = [];
