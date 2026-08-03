@@ -729,7 +729,7 @@ export class JobQueue {
     if (this.usage.day !== today) this.usage = { day: today, requests: 0, costUnits: 0 };
   }
 
-  private reserveBudget(estimateUnits: number): void {
+  private reserveBudget(estimateUnits: number): string {
     this.rollUsageDay();
     if (this.budget.requestLimit !== undefined && this.usage.requests + 1 > this.budget.requestLimit) {
       throw new JobQueueError("BUDGET_EXCEEDED", "오늘의 AI 요청 한도에 도달했습니다.");
@@ -739,21 +739,27 @@ export class JobQueue {
     }
     this.usage.requests += 1;
     this.usage.costUnits += estimateUnits;
+    return this.usage.day;
   }
 
-  private adjustActualCost(estimateUnits: number, actualUnits: unknown): void {
+  private adjustActualCost(estimateUnits: number, actualUnits: unknown, reservedDay: string): void {
     if (typeof actualUnits !== "number" || !Number.isFinite(actualUnits) || actualUnits < 0) return;
-    this.usage.costUnits = Math.max(0, this.usage.costUnits + actualUnits - estimateUnits);
+    this.rollUsageDay();
+    // 자정을 넘긴 정산(§187 감사 #3) — 예상분은 전날 원장에 예약됐으므로 오늘 원장에서
+    // 빼지 않는다(빼면 자정 이후 다른 작업의 비용을 깎는다). 실제 비용은 완료한 날에 귀속.
+    const reserveOffset = this.usage.day === reservedDay ? estimateUnits : 0;
+    this.usage.costUnits = Math.max(0, this.usage.costUnits + actualUnits - reserveOffset);
   }
 
   /**
    * 재시도 예정인 실패 시도의 비용 예상분 환불(§187 감사 #2) — reserveBudget이 시도마다
    * 예약하므로 환불이 없으면 실패 시도의 예상 비용이 원장에 영구 잔류해, 재시도 많은 날
    * 실제보다 이르게 한도에 닿는다. 요청 수는 실제로 API 요청이 나갔으므로 되돌리지 않고,
-   * 자정을 넘긴 경우는 새 날 원장에서 음수가 되지 않게만 한다(과환불 없음).
+   * 자정을 넘긴 경우는 예약이 전날 원장에 있으므로 오늘 원장을 건드리지 않는다(§187 #3).
    */
-  private refundEstimate(estimateUnits: number): void {
+  private refundEstimate(estimateUnits: number, reservedDay: string): void {
     this.rollUsageDay();
+    if (this.usage.day !== reservedDay) return;
     this.usage.costUnits = Math.max(0, this.usage.costUnits - estimateUnits);
   }
 
@@ -792,6 +798,7 @@ export class JobQueue {
   private async run(job: InternalJob): Promise<void> {
     const controller = job.controller;
     if (!controller) return;
+    let reservedDay = "";
     while (job.attempt <= job.maxRetries) {
       if (controller.signal.aborted) {
         this.transitionTerminal(job, "cancelled", new JobQueueError("CANCELLED", "사용자가 작업을 취소했습니다."));
@@ -801,17 +808,17 @@ export class JobQueue {
       job.updatedAt = this.now();
       this.emit("job-updated", job);
       try {
-        this.reserveBudget(job.estimateUnits);
+        reservedDay = this.reserveBudget(job.estimateUnits);
         const result = await this.runExecutorWithAbort(job, controller);
         if (controller.signal.aborted) {
           // 실행이 끝난 뒤의 취소는 비용이 이미 발생했다(§187 감사 #4) — 실제 비용을 원장에
           // 반영하고 취소한다. 결과 값이 없거나 실행 중 중단된 취소는 예상분을 그대로 두는
           // 것이 보수적이다(한도를 이르게 닫는 방향이 안전).
-          this.adjustActualCost(job.estimateUnits, result?.costUnits);
+          this.adjustActualCost(job.estimateUnits, result?.costUnits, reservedDay);
           this.transitionTerminal(job, "cancelled", new JobQueueError("CANCELLED", "사용자가 작업을 취소했습니다."));
           return;
         }
-        this.adjustActualCost(job.estimateUnits, result?.costUnits);
+        this.adjustActualCost(job.estimateUnits, result?.costUnits, reservedDay);
         job.result = result?.value;
         job.progress = 1;
         this.storeCache(job, result);
@@ -830,7 +837,7 @@ export class JobQueue {
         // 다음 시도가 다시 예약하므로 이번 시도의 예상분은 환불한다(§187 감사 #2).
         // 한도 초과(BUDGET_EXCEEDED)는 예약 전에 던져지므로 여기 도달 시 예약은 항상 1회분이다.
         if (!(error instanceof JobQueueError && error.code === "BUDGET_EXCEEDED")) {
-          this.refundEstimate(job.estimateUnits);
+          this.refundEstimate(job.estimateUnits, reservedDay);
         }
         const delay = this.retryDelay(job.attempt);
         try {

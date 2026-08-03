@@ -572,6 +572,47 @@ describe("daily provider-unit budgets", () => {
     assert.equal(second.state, "succeeded");
     assert.equal(queue.getUsage().requests, 1);
   });
+
+  it("books actual cost on the completion day without deducting the prior-day reservation", async () => {
+    let now = new Date(2026, 7, 3, 23, 59, 0).getTime();
+    const queue = new JobQueue(async () => {
+      now = new Date(2026, 7, 4, 0, 1, 0).getTime();
+      return { value: "ok", costUnits: 5 };
+    }, { now: () => now });
+    await queue.waitFor(queue.enqueue(request(1, { estimateUnits: 5 })).id);
+    assert.equal(queue.getUsage().costUnits, 5);
+  });
+
+  it("does not refund a prior-day reservation out of the new day's ledger", async () => {
+    let now = new Date(2026, 7, 3, 23, 59, 0).getTime();
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let slowAttempts = 0;
+    const queue = new JobQueue(async (job) => {
+      if ((job.content as { id: unknown }).id === "slow") {
+        slowAttempts += 1;
+        if (slowAttempts === 1) {
+          await gate;
+          throw new Error("transient failure");
+        }
+        return { value: "ok", costUnits: 5 };
+      }
+      return { value: "ok", costUnits: 2 };
+    }, {
+      now: () => now,
+      concurrency: 2,
+      isTransientError: () => true,
+      sleep: async () => undefined,
+    });
+    const slow = queue.enqueue(request("slow", { estimateUnits: 5 }));
+    await waitUntil(() => queue.get(slow.id)?.state === "running");
+    now = new Date(2026, 7, 4, 0, 1, 0).getTime();
+    await queue.waitFor(queue.enqueue(request("fast", { estimateUnits: 2 })).id);
+    release?.();
+    await queue.waitFor(slow.id);
+    // 어제 예약된 5의 환불이 오늘 원장(fast의 2)을 깎으면 5가 된다 — 정답은 2 + 5 = 7.
+    assert.equal(queue.getUsage().costUnits, 7);
+  });
 });
 
 describe("events, redaction, persistence, and restore", () => {
