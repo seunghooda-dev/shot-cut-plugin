@@ -331,39 +331,46 @@ export class AutomationController {
 
   private renderPlan(): void {
     if (!this.planValue) return;
-    const summary = element<HTMLElement>("auto-plan-summary");
-    const values = summary.querySelectorAll<HTMLElement>("strong");
+    // invalidatePlan과 같은 optionalElement 규약(§189 감사 #15) — element()가 던지면
+    // analyze의 상태 커밋 뒤라 "분석 실패" 고지와 유효 plan이 공존하고, 버튼 상태가
+    // 직전 분석 기준으로 남는다(현재 DOM에는 전부 존재 — 회귀 취약점 정합화).
+    const summary = optionalElement<HTMLElement>("auto-plan-summary");
+    const values = summary?.querySelectorAll<HTMLElement>("strong") ?? [];
     if (values[0]) values[0].textContent = `${this.planValue.removedDuration.toFixed(2)}초`;
     if (values[1]) values[1].textContent = seconds(this.planValue.outputDuration);
     if (values[2]) values[2].textContent = `${this.cuesValue.length}개`;
 
-    const target = element<HTMLElement>("auto-cut-list");
-    clearChildren(target);
     const rows: Array<{ type: "CUT" | "ZOOM"; start: number; end: number; label: string }> = [
       ...this.planValue.cuts.map((cut) => ({ type: "CUT" as const, start: cut.start, end: cut.end, label: `무음 ${cut.duration.toFixed(2)}초 제거` })),
       ...this.cuesValue.map((cue) => ({ type: "ZOOM" as const, start: cue.start, end: cue.end, label: `${cue.scale}% · ${cue.reason}` })),
     ].sort((left, right) => left.start - right.start);
-    if (rows.length === 0) {
-      const empty = document.createElement("p");
-      empty.className = "action-note";
-      empty.textContent = this.planValue.warnings.join(" ") || "추천할 변경이 없습니다.";
-      target.append(empty);
-    } else {
-      rows.forEach((row) => {
-        const item = document.createElement("div");
-        item.className = "automation-cut-item";
-        const badge = document.createElement("strong");
-        badge.textContent = row.type;
-        const label = document.createElement("span");
-        label.textContent = row.label;
-        const time = document.createElement("time");
-        time.textContent = `${seconds(row.start)}–${seconds(row.end)}`;
-        item.append(badge, label, time);
-        target.append(item);
-      });
+    const target = optionalElement<HTMLElement>("auto-cut-list");
+    if (target) {
+      clearChildren(target);
+      if (rows.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "action-note";
+        empty.textContent = this.planValue.warnings.join(" ") || "추천할 변경이 없습니다.";
+        target.append(empty);
+      } else {
+        rows.forEach((row) => {
+          const item = document.createElement("div");
+          item.className = "automation-cut-item";
+          const badge = document.createElement("strong");
+          badge.textContent = row.type;
+          const label = document.createElement("span");
+          label.textContent = row.label;
+          const time = document.createElement("time");
+          time.textContent = `${seconds(row.start)}–${seconds(row.end)}`;
+          item.append(badge, label, time);
+          target.append(item);
+        });
+      }
     }
-    element<HTMLButtonElement>("auto-markers-btn").disabled = rows.length === 0;
-    element<HTMLButtonElement>("auto-apply-btn").disabled = rows.length === 0;
+    const markersButton = optionalElement<HTMLButtonElement>("auto-markers-btn");
+    if (markersButton) markersButton.disabled = rows.length === 0;
+    const applyButton = optionalElement<HTMLButtonElement>("auto-apply-btn");
+    if (applyButton) applyButton.disabled = rows.length === 0;
     this.renderAutomationControls();
   }
 
