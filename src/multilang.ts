@@ -100,7 +100,7 @@ export function validateTranslatedCuesForExport(payload: unknown, original: Subt
   if (!Array.isArray(cues) || cues.length !== original.cues.length) {
     throw new Error("번역 응답의 큐 개수가 원본과 다릅니다.");
   }
-  return original.cues.map((originalCue, index) => {
+  const mapped = original.cues.map((originalCue, index) => {
     const cue = cues[index];
     if (!cue || typeof cue !== "object") throw new Error(`번역 큐 ${index + 1}이 객체가 아닙니다.`);
     const record = cue as Record<string, unknown>;
@@ -114,6 +114,12 @@ export function validateTranslatedCuesForExport(payload: unknown, original: Subt
     const text = typeof record.text === "string" ? record.text.trim() : "";
     if (!text) throw new Error(`번역 큐 ${index + 1}의 텍스트가 비어 있습니다.`);
     return { start: originalCue.start, end: originalCue.end, text: text.slice(0, MAX_TRANSLATED_TEXT_CHARS) };
+  });
+  // 한국어 SRT(buildSrt)와 같은 필터를 적용한다(§185 감사) — 숨김·비활성 큐를 포함하면
+  // 두 언어의 SRT 큐 집합이 어긋나 번호·타이밍이 서로 맞지 않는 파일이 나간다.
+  return mapped.filter((_, index) => {
+    const source = original.cues[index]!;
+    return source.enabled && !source.hidden;
   });
 }
 

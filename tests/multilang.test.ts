@@ -63,6 +63,21 @@ describe("validateTranslatedCuesForExport + translatedCuesToSrt", () => {
     },
   });
 
+  it("excludes hidden and disabled cues to match the Korean SRT filter (§185)", () => {
+    // buildSrt는 숨김·비활성 큐를 빼는데 번역 SRT가 전부 포함하면 두 언어의 큐 집합이 어긋난다.
+    const withHidden: SubtitleDocument = {
+      version: 1,
+      projectKey: "ml-test",
+      cues: [
+        { ...original.cues[0]!, hidden: true },
+        original.cues[1]!,
+      ],
+    };
+    const result = validateTranslatedCuesForExport(translated().document, withHidden);
+    assert.equal(result.length, 1);
+    assert.equal(result[0]!.text, "点検班を編成しました");
+  });
+
   it("accepts word-less translated cues and preserves original timings (ja/zh 대응)", () => {
     const direct = validateTranslatedCuesForExport(translated().document, original);
     const wrappedJson = validateTranslatedCuesForExport(JSON.stringify(translated()), original);
