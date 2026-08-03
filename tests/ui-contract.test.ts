@@ -966,6 +966,12 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(indexSource.slice(Math.max(0, at - 500), at), /newsCutCreatedNames = \[\];/u, "생성 시작 전에 이전 배치를 비워야 한다");
   });
 
+  it("자동 편집은 저널 영속화 완료 후에 변경을 진행한다(§186 감사 #6)", () => {
+    const at = indexSource.indexOf("operationId = entry.operationId;");
+    assert.ok(at > 0);
+    assert.match(indexSource.slice(at, at + 500), /await recoveryManager\.flushPersistence\(\);/u, "begin 직후 영속화 대기가 있어야 한다");
+  });
+
   it("복구 저널 복원 실패 시 추적을 끄지 않고 백업 후 재시작한다(§186 감사 #15)", () => {
     const at = indexSource.indexOf("복구 기록 초기화 실패");
     assert.ok(at > 0);

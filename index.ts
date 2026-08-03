@@ -4292,6 +4292,10 @@ async function bootstrap(): Promise<void> {
                 },
               });
               operationId = entry.operationId;
+              // 저널이 디스크에 앉은 뒤에 변경을 진행한다(§186 감사 #6) — persist가
+              // fire-and-forget이라 begin() 반환만으로는 "clone-before-mutation 기록 후 변경"
+              // 불변식이 보장되지 않았다(기록 전 크래시 시 저널 무흔적).
+              await recoveryManager.flushPersistence();
             },
           });
           if (operationId) {
