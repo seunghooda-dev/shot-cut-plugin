@@ -745,11 +745,14 @@ export class JobQueue {
     while (this.activeCount < this.concurrency) {
       const job = [...this.jobs.values()].find((candidate) => candidate.state === "queued" && candidate.confirmed);
       if (!job) return;
+      // AbortController 생성을 카운터 증가보다 먼저 한다(§187 감사 #8) — 순서가 반대면
+      // AbortController 부재 런타임에서 예외가 drain 밖으로 새며 activeCount가 영구
+      // 누수돼 큐가 정지한다(403행의 queueMicrotask 부재와 같은 UXP 방어 계열).
+      job.controller = new AbortController();
       this.activeCount += 1;
       job.state = "running";
       job.startedAt = this.now();
       job.updatedAt = job.startedAt;
-      job.controller = new AbortController();
       this.emit("job-updated", job);
       this.persist();
       void this.run(job).finally(() => {

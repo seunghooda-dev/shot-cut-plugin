@@ -247,7 +247,10 @@ function timestampName(now: number, format: ThumbnailExportFormat): string {
     date.getMinutes(),
     date.getSeconds(),
   ].map((value, index) => String(value).padStart(index === 0 ? 4 : 2, "0"));
-  return `ShortFlow_Thumbnail_${parts.join("")}.${format === "jpg" ? "jpg" : "png"}`;
+  // 밀리초 포함(§187 감사 #14) — 초 단위 이름은 같은 초의 2회 내보내기에서 overwrite:false
+  // 충돌을 내고, 그 실패 처리(모든 오류에서 토큰 폐기)가 출력 폴더 권한까지 날렸다.
+  const millis = String(date.getMilliseconds()).padStart(3, "0");
+  return `ShortFlow_Thumbnail_${parts.join("")}${millis}.${format === "jpg" ? "jpg" : "png"}`;
 }
 
 function timestampSvgName(now: number): string {
