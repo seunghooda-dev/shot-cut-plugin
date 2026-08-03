@@ -789,6 +789,10 @@ export class JobQueue {
         this.reserveBudget(job.estimateUnits);
         const result = await this.runExecutorWithAbort(job, controller);
         if (controller.signal.aborted) {
+          // 실행이 끝난 뒤의 취소는 비용이 이미 발생했다(§187 감사 #4) — 실제 비용을 원장에
+          // 반영하고 취소한다. 결과 값이 없거나 실행 중 중단된 취소는 예상분을 그대로 두는
+          // 것이 보수적이다(한도를 이르게 닫는 방향이 안전).
+          this.adjustActualCost(job.estimateUnits, result?.costUnits);
           this.transitionTerminal(job, "cancelled", new JobQueueError("CANCELLED", "사용자가 작업을 취소했습니다."));
           return;
         }
