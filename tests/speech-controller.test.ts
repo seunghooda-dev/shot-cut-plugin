@@ -534,6 +534,24 @@ describe("SpeechController request snapshots and Mock Host", () => {
     assert.ok(last.start > 10, `마지막 세그먼트 시작이 청크 오프셋을 반영해야 한다: ${last.start}`);
   });
 
+  it("손상 WAV는 경고를 남기고 단일 요청으로 전사한다(§185 #11)", async () => {
+    const activities: string[] = [];
+    const requests: SttRequest[] = [];
+    const { controller, dom, files } = controllerHarness({
+      runStt: (request) => { requests.push(request); return Promise.resolve(sttResult("BROKEN")); },
+      onActivity: (message) => activities.push(message),
+    });
+    await controller.initialize();
+    dom.getElementById("stt-output-format-select")!.value = "text";
+    dom.getElementById("stt-import-checkbox")!.checked = false;
+    files.sttFolder = folder("stt", "STT-BROKEN");
+    await internals(controller).chooseFolder("stt");
+    await controller.transcribeMediaBytes({ bytes: Uint8Array.from([1, 2, 3, 4]), name: "broken.wav" });
+    // 종전에는 무음 폴백이라, 긴 손상 WAV가 25MB 상한에서 죽어도 원인 단서가 없었다.
+    assert.equal(requests.length, 1);
+    assert.ok(activities.some((message) => message.includes("WAV 형식을 해석하지 못해")), `수집된 활동: ${activities.join(" | ")}`);
+  });
+
   it("빈 원고 폴백은 whisper-1로 고착돼 이후 청크가 재시도를 반복하지 않는다(§185 #6)", async () => {
     const models: Array<string | undefined> = [];
     let failedOnce = false;

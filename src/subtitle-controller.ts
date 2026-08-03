@@ -261,7 +261,22 @@ function enforceDocumentLimits(document: SubtitleDocument, maximum: number): Sub
 }
 
 function parseAiPayload(payload: unknown): unknown {
-  if (typeof payload !== "string") return payload;
+  if (typeof payload !== "string") {
+    // 사전 파싱된 객체도 캡을 우회하지 못한다(§185 심층 방어) — 제품 provider는 파싱된
+    // 객체를 돌려주므로 문자열 한정 캡은 실사용에서 한 번도 돌지 않았다.
+    if (payload !== null && typeof payload === "object") {
+      let serialized = "";
+      try {
+        serialized = JSON.stringify(payload) ?? "";
+      } catch {
+        throw new Error("AI 자막 응답을 크기 검사용으로 직렬화하지 못했습니다.");
+      }
+      if (serialized.length > MAX_SUBTITLE_AI_JSON_BYTES) {
+        throw new Error("AI 자막 응답이 2MB 안전 제한을 초과했습니다.");
+      }
+    }
+    return payload;
+  }
   let bytes = 0;
   for (let index = 0; index < payload.length; index += 1) {
     const code = payload.charCodeAt(index);

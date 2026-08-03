@@ -632,6 +632,9 @@ export class SpeechController {
           pcm = { samples: parsed.samples, sampleRate: parsed.sampleRate };
         } catch {
           pcm = null; // WAV 파싱 실패는 단일 요청 경로로
+          // 무음 폴백에 흔적을 남긴다(§185 심층 방어) — 긴 손상 WAV가 청크를 건너뛰고
+          // 단일 요청으로 가 25MB 상한에서 죽으면 이 로그가 유일한 원인 단서다.
+          this.options.onActivity?.("WAV 형식을 해석하지 못해 분할 없이 단일 요청으로 전사합니다.");
         }
         if (pcm && pcm.sampleRate > 0) {
           const duration = pcm.samples.length / pcm.sampleRate;

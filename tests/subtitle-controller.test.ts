@@ -388,6 +388,12 @@ describe("validateAiSubtitleResponse", () => {
     assert.throws(() => validateAiSubtitleResponse(oversized, aiRequest("reflow")), /2MB/u);
   });
 
+  it("rejects an oversized pre-parsed object payload too (§185 심층 방어)", () => {
+    // 제품 provider는 파싱된 객체를 돌려준다 — 문자열 한정 캡이면 실사용에서 캡이 한 번도 안 돈다.
+    const oversized = { cues: [], padding: "a".repeat(MAX_SUBTITLE_AI_JSON_BYTES + 10) };
+    assert.throws(() => validateAiSubtitleResponse(oversized, aiRequest("reflow")), /2MB/u);
+  });
+
   it("rejects project-key replacement and invalid cue data", () => {
     assert.throws(() => validateAiSubtitleResponse(sampleDocument("other"), aiRequest("review")), /프로젝트 키/u);
     const invalid = sampleDocument();

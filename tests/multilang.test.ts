@@ -63,6 +63,15 @@ describe("validateTranslatedCuesForExport + translatedCuesToSrt", () => {
     },
   });
 
+  it("caps a runaway translated cue at 2,000 characters (§185 심층 방어 명세)", () => {
+    // 모델이 폭주해 초장문을 돌려줘도 SRT 큐가 무제한으로 커지지 않는다 — 절단은 의도된 동작.
+    const runaway = validateTranslatedCuesForExport(translated([
+      { cueId: "c1", start: 40, end: 46, text: "あ".repeat(2_500) },
+      { cueId: "c2", start: 60, end: 66, text: "点検" },
+    ]).document, original);
+    assert.equal(runaway[0]!.text.length, 2_000);
+  });
+
   it("excludes hidden and disabled cues to match the Korean SRT filter (§185)", () => {
     // buildSrt는 숨김·비활성 큐를 빼는데 번역 SRT가 전부 포함하면 두 언어의 큐 집합이 어긋난다.
     const withHidden: SubtitleDocument = {
