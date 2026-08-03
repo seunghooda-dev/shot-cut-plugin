@@ -2146,7 +2146,12 @@ async function handleNewsCutCreate(): Promise<void> {
   // 이름을 유지해 '일괄 내보내기'가 직전 배치를 내보냈다.
   newsCutCreatedNames = [];
   const today = new Date();
-  const startIndex = nextNewsItemIndex(await listSequenceNames().catch(() => []), today);
+  // 조회 실패를 무음으로 삼키면 번호가 01부터 다시 시작해 규약이 어긋난다(§183) — 고지하고 진행.
+  const existingNames = await listSequenceNames().catch(() => {
+    activity.add("warning", "기존 시퀀스 목록을 읽지 못해 아이템 번호를 01부터 다시 셉니다 — 중복 이름에는 자동 접미가 붙습니다.");
+    return [] as string[];
+  });
+  const startIndex = nextNewsItemIndex(existingNames, today);
   const inputs = selected.map(({ item }, order) => ({
     start: item.start,
     end: item.end,
@@ -2351,8 +2356,15 @@ async function handleNewsCutCleanup(): Promise<void> {
   const button = optionalElement<HTMLButtonElement>("news-cut-cleanup-btn");
   // 개수 계산은 삭제와 같은 패턴 상수를 쓴다(§184 감사 #1·#2) — 다른 정규식을 쓰던 시절
   // " 2" 고아만 남으면 개수 0으로 조기 반환됐고, 확인 라벨의 개수도 실제 삭제 대상과 달랐다.
-  const count = (await listSequenceNames().catch(() => []))
-    .filter((name) => NEWS_ITEM_SEQUENCE_PATTERN.test(name)).length;
+  // 조회 실패를 "정리 대상 없음"으로 위장하지 않는다(§183) — 파괴적 동작의 전제가 불확실하면 중단.
+  let cleanupNames: string[];
+  try {
+    cleanupNames = await listSequenceNames();
+  } catch {
+    toast("시퀀스 목록을 읽지 못해 정리를 진행할 수 없습니다. 잠시 후 다시 시도해 주세요.", "warning");
+    return;
+  }
+  const count = cleanupNames.filter((name) => NEWS_ITEM_SEQUENCE_PATTERN.test(name)).length;
   if (count === 0) {
     disarmNewsCutCleanup();
     toast("정리할 아이템 시퀀스가 없습니다.", "info");
@@ -4207,15 +4219,18 @@ async function bootstrap(): Promise<void> {
     brandKitController = null;
     reportError(error, "브랜드 키트 초기화 실패");
   }
+  // 정상 초기화와 손상 저널 재초기화가 같은 구독을 공유한다 — 재초기화 경로만 렌더 전용
+  // 콜백을 쓰면 persistence-error 고지가 빠져, 손상 저널 세션의 저장 실패가 무고지가 된다.
+  const handleRecoveryEvent: Parameters<RecoveryManager["subscribe"]>[0] = (event) => {
+    recoveryPanel.render();
+    if (event.type === "persistence-error") {
+      activity.add("warning", event.message ?? "복구 기록을 저장하지 못했습니다.");
+    }
+  };
   try {
     const browserStorage = (globalThis as unknown as { localStorage?: Storage }).localStorage;
     recoveryManager = new RecoveryManager(browserStorage ? { storage: browserStorage } : {});
-    recoveryManager.subscribe((event) => {
-      recoveryPanel.render();
-      if (event.type === "persistence-error") {
-        activity.add("warning", event.message ?? "복구 기록을 저장하지 못했습니다.");
-      }
-    });
+    recoveryManager.subscribe(handleRecoveryEvent);
     const interrupted = await recoveryManager.restore();
     if (interrupted > 0) {
       activity.add("warning", `이전 세션에서 중단된 비파괴 작업 ${interrupted}개를 복구 목록에 표시했습니다.`);
@@ -4236,7 +4251,9 @@ async function bootstrap(): Promise<void> {
           browserStorage.removeItem(RECOVERY_STORAGE_KEY);
         }
         recoveryManager = new RecoveryManager({ storage: browserStorage });
-        recoveryManager.subscribe(() => recoveryPanel.render());
+        // 정상 경로와 같은 핸들러를 쓴다 — 재초기화 세션에서 저널 쓰기 실패(persistence-error)
+        // 고지가 빠지면 손상 저널 세션이 무고지로 추적을 잃는다.
+        recoveryManager.subscribe(handleRecoveryEvent);
         activity.add("warning", "복구 저널이 손상돼 백업 키(.corrupt)에 보존하고 빈 저널로 다시 시작했습니다 — 이후 작업의 복구 추적은 유지됩니다.");
       }
     } catch {
