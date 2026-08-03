@@ -457,6 +457,57 @@ describe("SpeechController request snapshots and Mock Host", () => {
     assert.equal(called, false);
   });
 
+  it("transcribeMediaBytes: STT 실행 중이면 진행 상태를 파괴하지 않고 거부한다(§185)", async () => {
+    const stt = deferred<SttResult>();
+    const requests: SttRequest[] = [];
+    const { controller, dom, files } = controllerHarness({
+      runStt: (request) => { requests.push(request); return stt.promise; },
+    });
+    await controller.initialize();
+    dom.getElementById("stt-output-format-select")!.value = "text";
+    dom.getElementById("stt-import-checkbox")!.checked = false;
+    files.sttFolder = folder("stt", "STT-GUARD");
+    await internals(controller).chooseFolder("stt");
+    const first = controller.transcribeMediaBytes({ bytes: Uint8Array.from([1]), name: "first.wav" });
+    for (let spin = 0; spin < 100 && requests.length === 0; spin += 1) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+    assert.equal(requests.length, 1);
+    // 종전 결함(§185): 가드 전에 source·결과 textarea를 덮어써 진행 중 실행만 파괴됐다.
+    await assert.rejects(
+      controller.transcribeMediaBytes({ bytes: Uint8Array.from([2]), name: "second.wav" }),
+      /이미 실행 중/u,
+    );
+    assert.match(dom.getElementById("stt-source-name")?.textContent ?? "", /first\.wav/u);
+    stt.resolve(sttResult("OK"));
+    await first;
+    assert.equal(requests.length, 1);
+  });
+
+  it("runStt: 실행 중 중복 호출은 무음이 아니라 경고를 남기고 건너뛴다(§185)", async () => {
+    const stt = deferred<SttResult>();
+    const warnings: string[] = [];
+    const requests: SttRequest[] = [];
+    const { controller, dom, files } = controllerHarness({
+      runStt: (request) => { requests.push(request); return stt.promise; },
+      onWarning: (message) => warnings.push(message),
+    });
+    files.selectedSources.push(source("A.wav", 1));
+    await controller.initialize();
+    await internals(controller).chooseSttSource();
+    dom.getElementById("stt-output-format-select")!.value = "text";
+    dom.getElementById("stt-import-checkbox")!.checked = false;
+    files.sttFolder = folder("stt", "STT-DUP");
+    await internals(controller).chooseFolder("stt");
+    const first = internals(controller).runStt();
+    const duplicate = internals(controller).runStt();
+    await duplicate;
+    assert.ok(warnings.some((message) => message.includes("이미 실행 중")), `수집된 경고: ${warnings.join(" | ")}`);
+    stt.resolve(sttResult("OK"));
+    await first;
+    assert.equal(requests.length, 1);
+  });
+
   it("does not import or publish A while a B source picker is still pending", async () => {
     const stt = deferred<SttResult>();
     const picker = deferred<SpeechInputFile>();

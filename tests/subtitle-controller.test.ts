@@ -689,6 +689,29 @@ describe("SubtitleController SRT, autosave, and provider boundaries", () => {
     assert.equal(exported[0]?.name, "News_Project_subtitles.srt");
   });
 
+  it("reports discarded SRT blocks on import instead of counting only successes (§185)", async () => {
+    const dom = editorDom();
+    const activities: string[] = [];
+    const controller = new SubtitleController({
+      dom,
+      storage: null,
+      onActivity: (message) => activities.push(message),
+      // 두 번째 블록은 역순 타임코드라 parseSrt가 버린다 — 종전에는 성공 개수만 고지됐다.
+      onImportSrt: () => [
+        "1\n00:00:01,000 --> 00:00:02,000\n첫 자막\n",
+        "2\n00:00:05,000 --> 00:00:03,000\n버려질 자막\n",
+      ].join("\n"),
+    });
+    await controller.initialize();
+    dom.getElementById("subtitle-import-btn")!.emit("click");
+    await settle();
+    assert.equal(controller.document.cues.length, 1);
+    assert.ok(
+      activities.some((message) => /건너뛰었습니다/u.test(message) && message.includes("1개")),
+      `수집된 활동: ${activities.join(" | ")}`,
+    );
+  });
+
   it("imports UTF-8 Whisper JSON into the editor without losing measured word timestamps", async () => {
     const controller = new SubtitleController({ dom: editorDom(), storage: null });
     await controller.initialize();
