@@ -656,8 +656,9 @@ export class SubtitleController {
     let restoredCueCount = 0;
     let restoreError: unknown = null;
     if (this.storage) {
+      let raw: unknown = null;
       try {
-        const raw = await this.storage.getItem(subtitleAutosaveKey(clean));
+        raw = await this.storage.getItem(subtitleAutosaveKey(clean));
         if (generation !== this.projectLoadGeneration) return;
         if (typeof raw === "string" && raw.trim()) {
           next = enforceDocumentLimits(deserializeSubtitleAutosave(raw, clean), this.maximumCues);
@@ -666,6 +667,17 @@ export class SubtitleController {
       } catch (error) {
         if (generation !== this.projectLoadGeneration) return;
         restoreError = error;
+        // 손상본 보존(§185 감사) — 복원 실패 후 빈 문서로 진행하면 첫 편집의 자동 저장이
+        // 손상됐지만 복구 가능한 원문을 빈 문서로 덮어쓴다. 역직렬화에 실패한 원문을 백업
+        // 키로 옮겨 두면 원본 키가 덮여도 수동 복구의 길이 남는다.
+        if (typeof raw === "string" && raw.trim()) {
+          try {
+            await this.storage.setItem(`${subtitleAutosaveKey(clean)}.corrupt`, raw);
+            this.options.onActivity?.("복원 실패한 자동 저장 원문을 백업 키(.corrupt)에 보존했습니다.");
+          } catch {
+            // 백업 실패는 복원 오류 보고로 충분하다 — 이중 오류로 덮지 않는다.
+          }
+        }
       }
     }
     if (generation !== this.projectLoadGeneration) return;

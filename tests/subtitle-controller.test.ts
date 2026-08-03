@@ -843,6 +843,29 @@ describe("SubtitleController SRT, autosave, and provider boundaries", () => {
     assert.equal(controller.projectKey, "project-B");
   });
 
+  it("preserves a damaged autosave in a .corrupt backup so later edits cannot destroy it (§185)", async () => {
+    // 복원 실패 후 빈 문서로 진행하면 첫 편집의 자동 저장이 원본 키를 덮어쓴다 — 백업 키가
+    // 없던 시절 손상됐지만 복구 가능한 원문이 그 순간 소실됐다.
+    const dom = editorDom();
+    const storage = new MemoryStorage();
+    const validTarget = serializeSubtitleAutosave(sampleDocument("project-C"));
+    const damaged = JSON.parse(validTarget) as { document: SubtitleDocument };
+    damaged.document.cues[0]!.words.reverse();
+    const damagedRaw = JSON.stringify(damaged);
+    storage.values.set(subtitleAutosaveKey("project-C"), damagedRaw);
+    const controller = new SubtitleController({ dom, storage, onError: () => undefined });
+    await controller.initialize();
+
+    await controller.loadProject("project-C");
+    assert.equal(storage.values.get(`${subtitleAutosaveKey("project-C")}.corrupt`), damagedRaw);
+
+    // 이후 편집·자동 저장이 원본 키를 덮어써도 백업은 남아야 한다.
+    controller.setDocument(sampleDocument("project-C"), true);
+    await controller.flushAutosave();
+    assert.notEqual(storage.values.get(subtitleAutosaveKey("project-C")), damagedRaw);
+    assert.equal(storage.values.get(`${subtitleAutosaveKey("project-C")}.corrupt`), damagedRaw);
+  });
+
   it("recovers the serialized autosave queue after a failed write", async () => {
     const values = new Map<string, string>();
     let attempts = 0;
