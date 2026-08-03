@@ -2443,8 +2443,11 @@ async function runVisionBatch<T>(label: string, frameCount: number, task: () => 
 async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
   const api = frameDataFolderApi();
   if (!api) throw new Error("프레임 내보내기 API를 사용할 수 없습니다.");
-  // 화질 선택 유효성 선검증(HEVC×AME 미설치 등) — 스캔 15분 뒤가 아니라 클릭 시점에 바로 알린다.
-  if (exportAfter) selectedNewsCutPresetPath();
+  // 클릭 시점 전체 선검증(§183·§189 후속) — 화질 선택 유효성(HEVC×AME)에 더해 프리셋 파일
+  // 실재·폴더 토큰 복원까지 확인해, 수십 분 스캔과 AI 비용을 쓴 뒤 내보내기 단계에서 처음
+  // 실패하는 일을 막는다. 결과는 버리고 내보내기 직전에 재해석한다(장시간 스캔 동안 폴더가
+  // 사라지는 스테일 방지 — 검사와 사용 시점을 분리).
+  if (exportAfter) await resolveNewsCutExportTargets();
   const status = await readSequenceStatus();
   const duration = Number(status.sequenceEnd) || 0;
   if (!(duration > 60)) throw new Error("활성 시퀀스가 없거나 너무 짧습니다 — 1분 이상 뉴스 방송 시퀀스를 활성화해 주세요.");

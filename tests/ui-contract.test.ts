@@ -984,6 +984,17 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(indexSource.slice(at, at + 300), /activity\.add\("warning"/u, "무고지 건너뜀이면 안 된다");
   });
 
+  it("원클릭 분할은 스캔 전에 내보내기 전제를 전체 선검증한다(§183)", () => {
+    const at = indexSource.indexOf("async function runNewsCutAutoFlow");
+    assert.ok(at > 0);
+    // 프리셋 파일 실재·폴더 토큰까지 클릭 시점에 확인해야 스캔·AI 비용 낭비를 막는다.
+    assert.match(
+      indexSource.slice(at, at + 900),
+      /if \(exportAfter\) await resolveNewsCutExportTargets\(\);/u,
+      "스캔 전에 resolveNewsCutExportTargets 선검증이 있어야 한다",
+    );
+  });
+
   it("자동 편집은 저널 영속화 완료 후에 변경을 진행한다(§186 감사 #6)", () => {
     const at = indexSource.indexOf("operationId = entry.operationId;");
     assert.ok(at > 0);
