@@ -665,9 +665,12 @@ export function splitSubtitleCue(
   const rightId = derivedCueId(cue.cueId, "split", document.cues);
   const left: SubtitleCue = { ...cue, end: boundary, text: leftText, words: leftWords };
   const right: SubtitleCue = { ...cue, cueId: rightId, start: boundary, text: rightText, words: rightWords };
+  // start 기준 안정 재정렬(§185 감사) — 다음 큐와 겹치는 큐를 나누면 right.start가 다음
+  // 큐의 start보다 뒤인데 위치는 앞이라 커밋의 정렬 검증(UNSORTED_CUES)이 실패했다.
   return {
     ...document,
-    cues: [...document.cues.slice(0, cueIndex), left, right, ...document.cues.slice(cueIndex + 1)],
+    cues: [...document.cues.slice(0, cueIndex), left, right, ...document.cues.slice(cueIndex + 1)]
+      .sort((a, b) => a.start - b.start || a.end - b.end),
   };
 }
 
@@ -687,10 +690,14 @@ export function mergeSubtitleCues(
     throw new Error("표시 상태가 다른 자막 큐는 합칠 수 없습니다. 먼저 두 큐의 활성 및 숨김 상태를 같게 맞춰 주세요.");
   }
   const usedWordIds = new Set<string>();
-  const words = [...left.words, ...right.words].map((word) => ({
-    ...word,
-    wordId: uniqueId(word.wordId, usedWordIds),
-  }));
+  // 시각 기준 안정 정렬(§185 감사) — 겹치는 큐(파싱된 SRT에서 정상 발생)를 합치면 단순
+  // 연결로는 단어 시각이 역전돼 커밋의 정렬 검증(UNSORTED_WORDS)이 정체불명 오류로 실패했다.
+  const words = [...left.words, ...right.words]
+    .sort((a, b) => a.s - b.s || a.e - b.e)
+    .map((word) => ({
+      ...word,
+      wordId: uniqueId(word.wordId, usedWordIds),
+    }));
   const merged: SubtitleCue = {
     cueId: left.cueId,
     start: Math.min(left.start, right.start),

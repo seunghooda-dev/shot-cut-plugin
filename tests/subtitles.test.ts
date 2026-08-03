@@ -235,6 +235,42 @@ describe("immutable word and cue editing", () => {
 });
 
 describe("cue split, merge, and max-character reflow", () => {
+  it("merges overlapping cues with time-sorted words so commit validation passes (§185)", () => {
+    // 겹치는 큐는 파싱된 SRT에서 정상 발생한다 — 단순 연결이던 시절 단어 시각 역전으로
+    // 커밋의 UNSORTED_WORDS 검증이 정체불명 오류를 냈다.
+    const left = cue({
+      cueId: "cue-1",
+      start: 0,
+      end: 6,
+      text: "왼쪽",
+      words: [{ wordId: "w-l", s: 3, e: 6, t: "왼쪽", hidden: false }],
+    });
+    const right = cue({
+      cueId: "cue-2",
+      start: 2,
+      end: 5,
+      text: "오른쪽",
+      words: [{ wordId: "w-r", s: 2, e: 4, t: "오른쪽", hidden: false }],
+    });
+    const merged = mergeSubtitleCues(documentWith(left, right), "cue-1", "cue-2");
+    assert.deepEqual(merged.cues[0]?.words.map((word) => word.wordId), ["w-r", "w-l"]);
+    assert.ok(merged.cues[0]!.words.every((word, index, list) => index === 0 || list[index - 1]!.s <= word.s));
+  });
+
+  it("splits a cue that overlaps the next one and keeps cues start-sorted (§185)", () => {
+    const wide = cue({ cueId: "cue-1", start: 0, end: 10, text: "안녕하세요 반갑습니다", words: [
+      { wordId: "word-1", s: 0, e: 4, t: "안녕하세요", hidden: false },
+      { wordId: "word-2", s: 6, e: 10, t: "반갑습니다", hidden: false },
+    ] });
+    const next = cue({ cueId: "cue-2", start: 3, end: 12, text: "다음", words: [
+      { wordId: "w-n", s: 3, e: 12, t: "다음", hidden: false },
+    ] });
+    const result = splitSubtitleCue(documentWith(wide, next), "cue-1", "word-2");
+    // right(start 6)가 next(start 3)보다 뒤이므로 재정렬돼야 커밋 검증(UNSORTED_CUES)을 통과한다.
+    assert.ok(result.cues.every((entry, index, list) => index === 0 || list[index - 1]!.start <= entry.start));
+    assert.equal(result.cues.length, 3);
+  });
+
   it("splits at the selected word's measured timestamp", () => {
     const result = splitSubtitleCue(documentWith(cue()), "cue-1", "word-2");
     assert.equal(result.cues.length, 2);
