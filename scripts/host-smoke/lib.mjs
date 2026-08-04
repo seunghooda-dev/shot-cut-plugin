@@ -73,7 +73,9 @@ export async function connectPanel({ session, distPath, reload = false } = {}) {
   // clientId는 서비스에 접속이 생길 때마다 증가한다 — 스모크 러너 자신도 접속을 소비하므로
   // 장시간 세션에서는 앱 clientId가 6을 훌쩍 넘는다(2026-07-27 실측: UDT 재로드 후 1~6 스캔 실패).
   let appClientId = null;
-  for (let candidate = 1; candidate <= 60 && appClientId === null; candidate += 1) {
+  // 300까지 훑는다(2026-08-04 실측: 하루 세션에서 앱 clientId가 100까지 밀렸다) — 진단
+  // 접속·재연결이 반복될수록 번호가 올라가므로, 범위가 좁으면 살아 있는 패널을 "없음"으로 오진한다.
+  for (let candidate = 1; candidate <= 300 && appClientId === null; candidate += 1) {
     const reply = await clientReq(candidate, { command: "App", action: "info" }, 1200);
     if (reply && reply.appId) appClientId = candidate;
   }
