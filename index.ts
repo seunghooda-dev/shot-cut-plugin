@@ -2675,6 +2675,10 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             }
           }
           if (missing.length > 0) {
+            // 재수집 전 지연(§190-d) — §190-b와 같은 원리로, 순간 부하에서는 즉시 재수집도
+            // 함께 죽는다. 1/06 실측: §132 재수집이 있는데도 292가 3/3으로 남아 배제 표
+            // 미달 FP가 됐다(유실이 회수 FN뿐 아니라 검증 FP도 만든다).
+            await new Promise((resolve) => setTimeout(resolve, 1000));
             activity.add("info", `비전 검증 · 프레임 부족 후보 ${new Set(missing.map((entry) => entry.time)).size}개의 ${missing.length}장을 재수집합니다.`);
             for (const [index, entry] of missing.entries()) {
               setText("busy-message", `비전 검증 · 부족분 재수집 ${index + 1}/${missing.length}…`);
