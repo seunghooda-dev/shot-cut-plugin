@@ -337,13 +337,38 @@ export const VISUAL_RUN_SPLIT_MAX_DIST = 0.085;
  * 완전 무료 앵커 확정 — 자동 임계 긴 샷(주 앵커) + 강한 저거리 런(숨은 단신 리드)을 합친다.
  * 외부 API 없이 화면 매칭만 쓴다. 임계를 넘는 약한 런은 채택하지 않는다(오탐 방지 우선).
  */
-export function freeAnchorTimes(candidates: readonly AnchorCandidate[]): number[] {
+export interface FreeAnchorOptions {
+  /**
+   * 자동 임계와 **합집합**으로 채택할 참조 거리 상한(kind 무관). 자동 임계(§58)는 후보 거리가
+   * 잘 갈리는 회차를 전제로 "가장 큰 간극"을 찾는데, 앵커샷이 20개를 넘고 거리가 촘촘한
+   * 회차에서는 분리점이 초반에 잡혀 대부분이 잘린다(모닝와이드 7/28 실측: 정답 23개 중 6개만
+   * 확정, 잘린 후보들의 거리는 0.038~0.078로 오히려 양호했다). 상한을 하나 더 두고 합치면
+   * 그 회차만 구제되고 다른 회차는 그대로다 — 오프라인 6회차 실측: 전체 P 92.5 → 93.6,
+   * R 77.5 → 92.8(7/28 6/23 → 23/23, 나머지 회차 FP 증가 0).
+   * 지정하지 않으면 종전과 완전히 같다(8뉴스 경로 불변).
+   */
+  unionMaxRefDist?: number;
+}
+
+export function freeAnchorTimes(
+  candidates: readonly AnchorCandidate[],
+  options: FreeAnchorOptions = {},
+): number[] {
   const mains = fallbackAnchorTimes(candidates);
   const accepted = [...mains];
   for (const candidate of candidates) {
     if (candidate.kind !== "run" || candidate.refDist >= VISUAL_RUN_SPLIT_MAX_DIST) continue;
     if (accepted.some((time) => Math.abs(time - candidate.time) <= 8)) continue;
     accepted.push(candidate.time);
+  }
+  const unionCap = options.unionMaxRefDist;
+  if (unionCap !== undefined) {
+    // 가까운 후보부터 넣어 같은 블록에서 더 좋은 프레임이 선택되게 한다.
+    for (const candidate of [...candidates].sort((left, right) => left.refDist - right.refDist)) {
+      if (candidate.refDist >= unionCap) continue;
+      if (accepted.some((time) => Math.abs(time - candidate.time) <= 8)) continue;
+      accepted.push(candidate.time);
+    }
   }
   return accepted.sort((left, right) => left - right);
 }
@@ -399,8 +424,12 @@ export function detectModelStarts(
 }
 
 /** 하이브리드 확정 — 현행 무료 결정(freeAnchorTimes)에 학습 모델 고신뢰 검출을 합친다(±8s 중복 제거). */
-export function hybridAnchorTimes(candidates: readonly AnchorCandidate[], modelStarts: readonly number[]): number[] {
-  const accepted = freeAnchorTimes(candidates);
+export function hybridAnchorTimes(
+  candidates: readonly AnchorCandidate[],
+  modelStarts: readonly number[],
+  options: FreeAnchorOptions = {},
+): number[] {
+  const accepted = freeAnchorTimes(candidates, options);
   for (const start of modelStarts) {
     if (!accepted.some((time) => Math.abs(time - start) <= 8)) accepted.push(start);
   }

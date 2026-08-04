@@ -2501,6 +2501,13 @@ async function runVisionBatch<T>(label: string, frameCount: number, task: () => 
 // 8뉴스 경로는 기본값이라 기존 호출·동작이 그대로다(morning-wide-split.plan.md §3).
 type NewsCutProgram = "news8" | "morningwide";
 
+/**
+ * 모닝와이드 확정 합집합 상한 — 오프라인 6회차 스윕에서 0.08이 최적이었다(P 92.5 → 93.6 ·
+ * R 77.5 → 92.8, 다른 회차 FP 증가 0). 0.09 이상은 재현율이 조금 더 오르지만 오검출이
+ * 함께 늘어 정밀도가 떨어진다(0.09: P 91.3 · 0.10: P 82.9).
+ */
+const MORNING_WIDE_UNION_MAX_REF_DIST = 0.08;
+
 async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram = "news8"): Promise<void> {
   const api = frameDataFolderApi();
   if (!api) throw new Error("프레임 내보내기 API를 사용할 수 없습니다.");
@@ -2631,7 +2638,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
       program === "news8" ? NEWS_ANCHOR_MODEL_BIAS : 0,
     );
     const modelStarts = detectModelStarts(samples, probabilities);
-    const accepted = hybridAnchorTimes(candidates, modelStarts);
+    // 모닝와이드는 아이템이 20개를 넘고 후보 거리가 촘촘해 자동 임계만으로는 대부분이 잘린다
+    // (7/28 실측: 정답 23개 중 6개 확정). 거리 상한 합집합을 함께 쓴다 — 8뉴스는 미지정이라 불변.
+    const accepted = hybridAnchorTimes(
+      candidates,
+      modelStarts,
+      program === "morningwide" ? { unionMaxRefDist: MORNING_WIDE_UNION_MAX_REF_DIST } : {},
+    );
     if (accepted.length === 0) throw new Error("앵커 샷을 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
     activity.add("info", `원클릭 분할 · 앵커 ${accepted.length}개(화면 매칭 후보 ${candidates.length} · 학습 모델 ${modelStarts.length})`);
     // 실행간 비결정성 진단용(§92) — 확정 후보 시각을 남겨 비전 배제와 후보 누락을 구분한다.
