@@ -154,6 +154,7 @@ import {
   NEWS_ANCHOR_REFERENCE_GRIDS,
   NEWS_ANCHOR_REFERENCE_GRIDS_SUNDAY_NEW,
 } from "./src/news-anchor-reference-grids";
+import { MORNING_WIDE_REFERENCE_GRIDS } from "./src/morning-wide-reference-grids";
 import { NEWS_ANCHOR_MODEL_BIAS, NEWS_ANCHOR_MODEL_WEIGHTS } from "./src/news-anchor-model";
 import { base64ToBytes, bytesToBase64, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
 import { LICENSE_CLOCK_KEY, LICENSE_STORAGE_KEY, licenseFailureMessage, verifyLicenseKey } from "./src/license";
@@ -2493,7 +2494,11 @@ async function runVisionBatch<T>(label: string, frameCount: number, task: () => 
   );
 }
 
-async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
+// 분할 대상 프로그램 — 프로필(뱅크·모델·프롬프트 단서·띠/사인오프 규칙)만 갈아 끼우고 엔진은 공유한다.
+// 8뉴스 경로는 기본값이라 기존 호출·동작이 그대로다(morning-wide-split.plan.md §3).
+type NewsCutProgram = "news8" | "morningwide";
+
+async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram = "news8"): Promise<void> {
   const api = frameDataFolderApi();
   if (!api) throw new Error("프레임 내보내기 API를 사용할 수 없습니다.");
   // 클릭 시점 전체 선검증(§183·§189 후속) — 화질 선택 유효성(HEVC×AME)에 더해 프리셋 파일
@@ -2589,10 +2594,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
       band: bandCache.get(Math.round(sample.time * 100)) ?? null,
     })));
     // 2/4 후보 도출(무료 화면 매칭) + 아웃트로(구독 범퍼) 검출 — 포맷 라우팅(평일·레터박스·신형 중 최근접 뱅크)
-    const matcher = selectAnchorMatcher(samples, [
-      buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS),
-      buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS_SUNDAY_NEW),
-    ]);
+    const matcher = selectAnchorMatcher(samples, program === "morningwide"
+      ? [buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS)]
+      : [
+        buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS),
+        buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS_SUNDAY_NEW),
+      ]);
     // 학습 범위 밖 경고(§100) — 뱅크가 이 회차 앵커샷을 못 알아보면 후보와 학습 모델이 함께
     // 약해져 아이템이 조용히 적게 나온다(7/23 실측: 정답 12개 중 4개). 검출을 바꾸지는 않고,
     // 사용자가 결과를 그대로 믿지 않도록 미리 알린다.
@@ -2604,7 +2611,14 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     if (candidates.length === 0) throw new Error("앵커 샷 후보를 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
     const tailStart = detectStaticTailStart(samples);
     // 앵커 확정 — 완전 무료(외부 API 0회): 자동 임계 주 앵커 + 강한 런 + 학습 모델 고신뢰 검출
-    const probabilities = scoreAnchorSamples(samples, matcher, NEWS_ANCHOR_MODEL_WEIGHTS, NEWS_ANCHOR_MODEL_BIAS);
+    // 모닝와이드는 학습 모델이 아직 없다(P5 예정) — 빈 가중치는 scoreAnchorSamples가 전부 0을
+    // 반환하는 설계된 무해 경로라, 후보는 뱅크 매칭(무료 경로)만으로 나온다.
+    const probabilities = scoreAnchorSamples(
+      samples,
+      matcher,
+      program === "news8" ? NEWS_ANCHOR_MODEL_WEIGHTS : [],
+      program === "news8" ? NEWS_ANCHOR_MODEL_BIAS : 0,
+    );
     const modelStarts = detectModelStarts(samples, probabilities);
     const accepted = hybridAnchorTimes(candidates, modelStarts);
     if (accepted.length === 0) throw new Error("앵커 샷을 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
@@ -2640,6 +2654,15 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
     // 검증 단계의 한도 도달을 회수 단계까지 전파한다(§182 감사 #3) — try 안 지역 변수로만
     // 두면 회수 블록이 그대로 진입해 같은 한도 실패를 프레임 내보내기 비용까지 치르며 반복한다.
     let verifyBudgetStopped = false;
+    // 프로그램별 판정 단서 — 8뉴스의 착석·왼쪽 데스크 실측 규칙(§139·§168-b)을 모닝와이드에
+    // 적용하면 진짜 앵커를 지운다(모닝와이드 앵커는 서서 진행·분할 구도). 모닝와이드는 전용
+    // 프롬프트 단서(program 필드)로 판정한다.
+    const verifyPromptExtras = program === "news8"
+      ? { seatedAtDesk: true as const }
+      : { program: "morningwide" as const };
+    const rescuePromptExtras = program === "news8"
+      ? { anchorLeftDesk: true as const, seatedAtDesk: true as const }
+      : { program: "morningwide" as const };
     if (visionEnabled) {
       try {
         // 유료 호출의 시작 시점을 로그에 남긴다 — 진행 표시(busy-message)는 사라지므로,
@@ -2737,10 +2760,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
             }
           }
         }
-        const references = loadAnchorExemplars()
-          .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
-          .filter((reference) => looksCompleteImage(reference.bytes, "png"))
-          .slice(0, 5);
+        // 비전 참조 예시 코퍼스는 8뉴스 앵커샷 기반 — 모닝와이드 판정에 넣으면 오히려 오도한다(프로필 분리).
+        const references = program === "news8"
+          ? loadAnchorExemplars()
+            .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
+            .filter((reference) => looksCompleteImage(reference.bytes, "png"))
+            .slice(0, 5)
+          : [];
         const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
         const rejected = new Set<number>();
         const rejectionVotes = new Map<number, number>();
@@ -2779,7 +2805,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                   // "서 있으면 앵커가 아니다"가 진짜 앵커를 지울 수 없다. 회수 경로만 켰을
                   // 때(§168) 남은 결손이 전부 이 경로에서 나왔다 — 7/29 334를 수락해 FP,
                   // 296은 배제해 FN. 대조 회차로 오배제 0을 확인하고 반영한다.
-                  { seatedAtDesk: true },
+                  verifyPromptExtras,
                 ),
               );
               const received = new Set<number>();
@@ -2862,7 +2888,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                   candidateFrames.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" as const })),
                   references,
                   {},
-                  { seatedAtDesk: true }, // §168-b — 재투표도 같은 정의로 판단해야 일관된다.
+                  verifyPromptExtras, // §168-b — 재투표도 같은 정의로 판단해야 일관된다.
                 ),
               );
               let revotes = 0;
@@ -2959,7 +2985,11 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         // 띠 이벤트 시각은 "띠가 바뀐 직후 표본"이라 보통은 새 아이템 리드 안 — 그대로 프로브로 쓴다.
         // 그 전제가 깨지는 경우(짧은 앵커 블록 + 늦은 배너)는 되짚기 2차 라운드가 맡는다(§123).
         const bandProbeTimes: number[] = [];
-        for (const eventTime of bandEvents) {
+        // §110 띠 이벤트는 8뉴스 하단 띠 실측 기반이다. 모닝와이드는 띠 헤드라인이 한 아이템
+        // 안에서 여러 번 바뀌어(7/24 실측 5회) 이 신호를 쓰면 과분할된다 — P3에서 좌상단 태그
+        // 기반으로 재설계하기 전까지 잠근다(plan §7-b).
+        const bandEventCandidates = program === "news8" ? bandEvents : [];
+        for (const eventTime of bandEventCandidates) {
           const nearVerified = verified.some((existing) => Math.abs(existing - eventTime) <= 8);
           const nearProbe = plan.times.some((existing) => Math.abs(existing - eventTime) <= 2);
           if (!nearVerified && !nearProbe && eventTime < (tailStart ?? duration) - 5) {
@@ -2973,6 +3003,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
         // 흔들리지 않아 §126 변동에 대한 보험이 된다. 창은 이미 뽑아 둔 프로브 지점 직전만 보고,
         // 후보는 회수 프로브 목록에 합류시켜 기존 비전 판정·병합·재스냅을 그대로 통과시킨다.
         const signoffProbeCount = await (async (): Promise<number> => {
+          // §152 사인오프 창·패턴은 8뉴스 실측 기반 — 모닝와이드는 P5에서 재실측 후 개통한다.
+          if (program !== "news8") return 0;
           if (plan.times.length === 0) return 0;
           const windows = planSignoffWindows(plan.times, verified, tailStart ?? duration);
           if (windows.length === 0) return 0;
@@ -3099,9 +3131,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           }
           const rescueRefs = [
             ...sameEpisodeRefs,
-            ...loadAnchorExemplars()
-              .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
-              .filter((reference) => looksCompleteImage(reference.bytes, "png")),
+            // 코퍼스 예시는 8뉴스 앵커샷 기반 — 모닝와이드는 같은 회차 참조만 쓴다(프로필 분리).
+            ...(program === "news8"
+              ? loadAnchorExemplars()
+                .map((exemplar) => ({ bytes: base64ToBytes(exemplar.pngBase64), mimeType: "image/png" as const }))
+                .filter((reference) => looksCompleteImage(reference.bytes, "png"))
+              : []),
           ].slice(0, 5);
           const rescueClient = new OpenAITextClient({ endpoint: settings.aiEndpoint });
           const found: number[] = [];
@@ -3144,7 +3179,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                     chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
                     rescueRefs,
                     {},
-                    { anchorLeftDesk: true, seatedAtDesk: true },
+                    rescuePromptExtras,
                   ),
                 );
                 const received = new Set<number>();
@@ -3241,7 +3276,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
                         [{ bytes: secondBytes!, mimeType: "image/png" as const }],
                         rescueRefs,
                         {},
-                        { anchorLeftDesk: true, seatedAtDesk: true },
+                        rescuePromptExtras,
                       ),
                     );
                     const vote = votes[0];
@@ -3476,7 +3511,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
           // FP는 사라졌지만 **시작점도 함께 잃었다**(7/29 294.3). 배제된 후보에만 세 번째 질문
           // ("스튜디오 안에서 서서 진행하는가")을 던져, 한 블록의 **첫 등장만** 되살린다.
           // 두 번째 이후는 같은 칼럼의 연속이므로 살리지 않는다 — 그게 FP의 원인이었다.
-          if (visionRejectedTimes.length > 0) {
+          // §170 칼럼 회수는 8뉴스 데스크 칼럼 구조 전용 — 모닝와이드는 서서 진행이 기본이라
+          // 이 질문("스튜디오 안에서 서서 진행하는가")이 경계 신호가 되지 못한다(프로필 분리).
+          if (program === "news8" && visionRejectedTimes.length > 0) {
             try {
               const grabStanding = async (time: number): Promise<Uint8Array | null> => {
                 // 내보내기 재시도(§121-b와 동일) — 중간점 확인(§172-a)이 이 헬퍼에 걸리므로
@@ -3600,7 +3637,10 @@ async function runNewsCutAutoFlow(exportAfter: boolean): Promise<void> {
       };
       const kept: number[] = [verified[0]!];
       const rejected: number[] = [];
-      for (const [checkIndex, time] of verified.slice(1).entries()) {
+      // 인용 띠 기하(§141)는 8뉴스 실측 — 모닝와이드 무료 경로는 필터 없이 전원 유지한다(P5 재실측 전).
+      const bandCheckTargets = program === "news8" ? verified.slice(1) : [];
+      if (program !== "news8") kept.push(...verified.slice(1));
+      for (const [checkIndex, time] of bandCheckTargets.entries()) {
         setText("busy-message", `하단 띠 검사 ${checkIndex + 1}/${verified.length - 1}…`);
         // 프로브가 후보와 같은 샷일 때만 그 판정을 믿는다(§135) — 앵커 리드가 4초보다 짧으면
         // +2s·+4s가 **다음 꼭지**에 떨어져 그 화면의 잔글씨를 인용 띠로 오인한다. 1/28 687이
@@ -3699,6 +3739,14 @@ async function handleNewsCutAuto(): Promise<void> {
 
 async function handleNewsCutSplitOnly(): Promise<void> {
   await runNewsCutAutoFlow(false);
+}
+
+async function handleMorningCutAuto(): Promise<void> {
+  await runNewsCutAutoFlow(true, "morningwide");
+}
+
+async function handleMorningCutSplitOnly(): Promise<void> {
+  await runNewsCutAutoFlow(false, "morningwide");
 }
 
 // 업로드 패키지 내보내기 — 자막 SRT·유튜브 메타·썸네일 SVG·권리 리포트를 폴더 하나로 묶는다(로드맵 18).
@@ -4165,6 +4213,8 @@ function bindCoreEvents(): void {
   bind("multilang-export-btn", "click", guarded(handleMultilangExport, "다국어 SRT 내보내기 실패"));
   bind("news-cut-auto-btn", "click", guarded(handleNewsCutAuto, "원클릭 분할 실패"));
   bind("news-cut-split-btn", "click", guarded(handleNewsCutSplitOnly, "분할 실패"));
+  bind("news-cut-mw-auto-btn", "click", guarded(handleMorningCutAuto, "모닝와이드 원클릭 분할 실패"));
+  bind("news-cut-mw-split-btn", "click", guarded(handleMorningCutSplitOnly, "모닝와이드 분할 실패"));
   bind("news-cut-analyze-btn", "click", guarded(handleNewsCutAnalyze, "뉴스 분할 분석 실패"));
   bind("news-cut-create-btn", "click", guarded(handleNewsCutCreate, "뉴스 분할 시퀀스 생성 실패"));
   bind("news-cut-export-btn", "click", guarded(handleNewsCutExport, "뉴스 분할 내보내기 실패"));

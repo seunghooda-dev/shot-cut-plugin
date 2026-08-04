@@ -679,5 +679,21 @@ describe("classifyAnchorShots — §139 위치 단서 계약", () => {
     assert.equal(instruction().includes("TWO-LINE QUOTATION"), true);
     assert.equal(instruction().includes("plain single-colour backdrop"), true);
   });
+
+  it("program=morningwide면 분할 구도·서서 진행 단서가 들어간다 (morning-wide-split P4)", async () => {
+    const { fetcher, instruction } = capture();
+    await client(fetcher).classifyAnchorShots([frame(10)], [], {}, { program: "morningwide" });
+    assert.equal(instruction().includes("SPLIT layout"), true);
+    assert.equal(instruction().includes("The anchor may be STANDING"), true);
+    // 8뉴스 전용 착석·왼쪽 데스크 단서는 함께 켜지지 않는다 — 프로필 분리.
+    assert.equal(instruction().includes("always SEATED"), false);
+    assert.equal(instruction().includes("LEFT side of the frame at the news desk"), false);
+  });
+
+  it("기본(8뉴스) 호출에는 모닝와이드 단서가 없다 — 8뉴스 경로 동결", async () => {
+    const { fetcher, instruction } = capture();
+    await client(fetcher).classifyAnchorShots([frame(10)], [], {}, { seatedAtDesk: true });
+    assert.equal(instruction().includes("SPLIT layout"), false);
+  });
 });
 

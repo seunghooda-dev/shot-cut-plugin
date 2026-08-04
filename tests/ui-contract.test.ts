@@ -471,6 +471,13 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /onSourceChange:\s*\(\)\s*=>\s*\{[\s\S]{0,240}?automationController\?\.setTranscript\(resolveAutomationTranscript\(speechController\?\.transcript, subtitleController\?\.document \?\? null\)\);[\s\S]{0,80}?\}/);
   assert.match(source, /onTranscript:\s*\(transcript\)\s*=>\s*\{[\s\S]{0,500}?automationController\?\.setTranscript\(resolveAutomationTranscript\(transcript, null\)\);/);
   assert.match(source, /onChange:\s*\(document\)\s*=>\s*\{[\s\S]{0,420}?automationController\?\.setTranscript\(resolveAutomationTranscript\(speechController\?\.transcript, document\)\);/);
+  // 모닝와이드 프로필 분기(morning-wide-split P4) — 8뉴스 기본값 동결 + 전용 버튼 + 8뉴스
+  // 전용 신호(§110 띠·§152 사인오프)의 프로그램 게이트를 계약으로 고정한다.
+  assert.match(source, /async function runNewsCutAutoFlow\(exportAfter: boolean, program: NewsCutProgram = "news8"\)/);
+  assert.match(source, /bind\("news-cut-mw-auto-btn", "click", guarded\(handleMorningCutAuto, "모닝와이드 원클릭 분할 실패"\)\)/);
+  assert.match(source, /bind\("news-cut-mw-split-btn", "click", guarded\(handleMorningCutSplitOnly, "모닝와이드 분할 실패"\)\)/);
+  assert.match(source, /const bandEventCandidates = program === "news8" \? bandEvents : \[\];/);
+  assert.match(source, /if \(program !== "news8"\) return 0;/);
   // §189 #2(사용자 확정): 자동 편집 적용은 시퀀스 길이 대조 포트와 불일치 확인 모달이 배선돼야 한다.
   assert.match(source, /getSequenceDurationSeconds:\s*async \(\) => \{[\s\S]{0,240}?includeSelection: false, includePlayerPosition: false[\s\S]{0,80}?sequenceEnd/);
   assert.match(source, /confirmTimeBaseMismatch:\s*\(details\) => requestAutomationTimeBaseConfirmation\(details\)/);
