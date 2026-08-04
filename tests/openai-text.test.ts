@@ -680,20 +680,15 @@ describe("classifyAnchorShots — §139 위치 단서 계약", () => {
     assert.equal(instruction().includes("plain single-colour backdrop"), true);
   });
 
-  it("program=morningwide면 분할 구도·서서 진행 단서가 들어간다 (morning-wide-split P4)", async () => {
-    const { fetcher, instruction } = capture();
-    await client(fetcher).classifyAnchorShots([frame(10)], [], {}, { program: "morningwide" });
-    assert.equal(instruction().includes("SPLIT layout"), true);
-    assert.equal(instruction().includes("The anchor may be STANDING"), true);
-    // 8뉴스 전용 착석·왼쪽 데스크 단서는 함께 켜지지 않는다 — 프로필 분리.
-    assert.equal(instruction().includes("always SEATED"), false);
-    assert.equal(instruction().includes("LEFT side of the frame at the news desk"), false);
-  });
-
-  it("기본(8뉴스) 호출에는 모닝와이드 단서가 없다 — 8뉴스 경로 동결", async () => {
+  // 2026-08-04 실측 기각 — "서 있어도 앵커"라는 모닝와이드 전용 문장이 데스크 칼럼
+  // 진행자를 앵커로 인정해 7/30이 F1 45.0으로 무너졌다(FP 11건이 전부 칼럼 내부).
+  // 두 프로그램의 앵커는 똑같이 데스크에 앉아 있으므로 판정 규칙을 공유한다.
+  it("어떤 호출에도 '서 있어도 앵커' 류의 예외 문장이 들어가지 않는다 — 칼럼 FP 방지", async () => {
     const { fetcher, instruction } = capture();
     await client(fetcher).classifyAnchorShots([frame(10)], [], {}, { seatedAtDesk: true });
+    assert.equal(instruction().includes("may be STANDING"), false);
     assert.equal(instruction().includes("SPLIT layout"), false);
+    assert.equal(instruction().includes("always SEATED"), true);
   });
 });
 

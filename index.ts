@@ -2663,15 +2663,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
     // 검증 단계의 한도 도달을 회수 단계까지 전파한다(§182 감사 #3) — try 안 지역 변수로만
     // 두면 회수 블록이 그대로 진입해 같은 한도 실패를 프레임 내보내기 비용까지 치르며 반복한다.
     let verifyBudgetStopped = false;
-    // 프로그램별 판정 단서 — 8뉴스의 착석·왼쪽 데스크 실측 규칙(§139·§168-b)을 모닝와이드에
-    // 적용하면 진짜 앵커를 지운다(모닝와이드 앵커는 서서 진행·분할 구도). 모닝와이드는 전용
-    // 프롬프트 단서(program 필드)로 판정한다.
-    const verifyPromptExtras = program === "news8"
-      ? { seatedAtDesk: true as const }
-      : { program: "morningwide" as const };
-    const rescuePromptExtras = program === "news8"
-      ? { anchorLeftDesk: true as const, seatedAtDesk: true as const }
-      : { program: "morningwide" as const };
     if (visionEnabled) {
       try {
         // 유료 호출의 시작 시점을 로그에 남긴다 — 진행 표시(busy-message)는 사라지므로,
@@ -2814,7 +2805,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
                   // "서 있으면 앵커가 아니다"가 진짜 앵커를 지울 수 없다. 회수 경로만 켰을
                   // 때(§168) 남은 결손이 전부 이 경로에서 나왔다 — 7/29 334를 수락해 FP,
                   // 296은 배제해 FN. 대조 회차로 오배제 0을 확인하고 반영한다.
-                  verifyPromptExtras,
+                  // 모닝와이드도 같은 단서를 쓴다 — 앵커가 데스크에 앉아 있는 것이 두 프로그램
+                  // 공통이고, 서서 진행하는 것은 칼럼 진행자뿐임을 고해상 실측으로 확인했다.
+                  { seatedAtDesk: true },
                 ),
               );
               const received = new Set<number>();
@@ -2897,7 +2890,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
                   candidateFrames.map((frame) => ({ bytes: frame.bytes, mimeType: "image/png" as const })),
                   references,
                   {},
-                  verifyPromptExtras, // §168-b — 재투표도 같은 정의로 판단해야 일관된다.
+                  { seatedAtDesk: true }, // §168-b — 재투표도 같은 정의로 판단해야 일관된다.
                 ),
               );
               let revotes = 0;
@@ -3188,7 +3181,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
                     chunk.map((probe) => ({ bytes: probe.bytes, mimeType: "image/png" as const })),
                     rescueRefs,
                     {},
-                    rescuePromptExtras,
+                    { anchorLeftDesk: true, seatedAtDesk: true },
                   ),
                 );
                 const received = new Set<number>();
@@ -3285,7 +3278,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
                         [{ bytes: secondBytes!, mimeType: "image/png" as const }],
                         rescueRefs,
                         {},
-                        rescuePromptExtras,
+                        { anchorLeftDesk: true, seatedAtDesk: true },
                       ),
                     );
                     const vote = votes[0];
@@ -3520,9 +3513,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
           // FP는 사라졌지만 **시작점도 함께 잃었다**(7/29 294.3). 배제된 후보에만 세 번째 질문
           // ("스튜디오 안에서 서서 진행하는가")을 던져, 한 블록의 **첫 등장만** 되살린다.
           // 두 번째 이후는 같은 칼럼의 연속이므로 살리지 않는다 — 그게 FP의 원인이었다.
-          // §170 칼럼 회수는 8뉴스 데스크 칼럼 구조 전용 — 모닝와이드는 서서 진행이 기본이라
-          // 이 질문("스튜디오 안에서 서서 진행하는가")이 경계 신호가 되지 못한다(프로필 분리).
-          if (program === "news8" && visionRejectedTimes.length > 0) {
+          // §170 칼럼 회수는 두 프로그램 공용이다 — 모닝와이드 7/30에도 같은 구조의
+          // 「데스크 칼럼」(보도국장이 대형 스크린 앞에 서서 235초 진행)이 실재한다.
+          if (visionRejectedTimes.length > 0) {
             try {
               const grabStanding = async (time: number): Promise<Uint8Array | null> => {
                 // 내보내기 재시도(§121-b와 동일) — 중간점 확인(§172-a)이 이 헬퍼에 걸리므로
