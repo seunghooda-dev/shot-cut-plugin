@@ -182,7 +182,10 @@ export async function readActivityLog(panel, pattern, limit = 4) {
       const rows = [];
       for (const child of list.children) {
         const text = String(child.textContent || '').trim().replace(/[ ]+/g, ' ');
-        if (new RegExp(${JSON.stringify(pattern)}).test(text)) rows.push(text.slice(0, 140));
+        // 640자 — 140자는 아이템이 20개를 넘는 회차에서 "최종 아이템 시작:" 줄을 잘라
+        // **채점이 잘린 산출물을 읽는** 측정 사고를 냈다(2026-08-04 실측: 모닝와이드 7/28
+        // 23개 산출이 20개로 읽힘). 8뉴스는 11~14개라 140자 안에 들어가 드러나지 않았다.
+        if (new RegExp(${JSON.stringify(pattern)}).test(text)) rows.push(text.slice(0, 640));
         if (rows.length >= ${Number(limit)}) break;
       }
       return rows;
