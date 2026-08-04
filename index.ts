@@ -154,7 +154,10 @@ import {
   NEWS_ANCHOR_REFERENCE_GRIDS,
   NEWS_ANCHOR_REFERENCE_GRIDS_SUNDAY_NEW,
 } from "./src/news-anchor-reference-grids";
-import { MORNING_WIDE_REFERENCE_GRIDS } from "./src/morning-wide-reference-grids";
+import {
+  MORNING_WIDE_REFERENCE_GRIDS,
+  MORNING_WIDE_REFERENCE_GRIDS_FULLSHOT,
+} from "./src/morning-wide-reference-grids";
 import { NEWS_ANCHOR_MODEL_BIAS, NEWS_ANCHOR_MODEL_WEIGHTS } from "./src/news-anchor-model";
 import { base64ToBytes, bytesToBase64, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
 import { LICENSE_CLOCK_KEY, LICENSE_STORAGE_KEY, licenseFailureMessage, verifyLicenseKey } from "./src/license";
@@ -2594,8 +2597,14 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
       band: bandCache.get(Math.round(sample.time * 100)) ?? null,
     })));
     // 2/4 후보 도출(무료 화면 매칭) + 아웃트로(구독 범퍼) 검출 — 포맷 라우팅(평일·레터박스·신형 중 최근접 뱅크)
+    // 모닝와이드도 8뉴스와 같은 포맷 라우팅을 쓴다 — 회차마다 구도가 통째로 바뀌는데
+    // (7/28 전량 분할·7/29 전량 풀샷) 한 매처에 섞으면 분산이 커져 변별력이 떨어진다
+    // (A/B 실측: 합본 27장에서 7/24가 97.3 → 88.2).
     const matcher = selectAnchorMatcher(samples, program === "morningwide"
-      ? [buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS)]
+      ? [
+        buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS),
+        buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS_FULLSHOT),
+      ]
       : [
         buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS),
         buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS_SUNDAY_NEW),
