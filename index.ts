@@ -157,6 +157,7 @@ import {
 import {
   MORNING_WIDE_REFERENCE_GRIDS,
   MORNING_WIDE_REFERENCE_GRIDS_FULLSHOT,
+  MORNING_WIDE_REFERENCE_GRIDS_LIGHT,
 } from "./src/morning-wide-reference-grids";
 import { NEWS_ANCHOR_MODEL_BIAS, NEWS_ANCHOR_MODEL_WEIGHTS } from "./src/news-anchor-model";
 import { base64ToBytes, bytesToBase64, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
@@ -2502,11 +2503,13 @@ async function runVisionBatch<T>(label: string, frameCount: number, task: () => 
 type NewsCutProgram = "news8" | "morningwide";
 
 /**
- * 모닝와이드 확정 합집합 상한 — 오프라인 6회차 스윕에서 0.08이 최적이었다(P 92.5 → 93.6 ·
- * R 77.5 → 92.8, 다른 회차 FP 증가 0). 0.09 이상은 재현율이 조금 더 오르지만 오검출이
- * 함께 늘어 정밀도가 떨어진다(0.09: P 91.3 · 0.10: P 82.9).
+ * 모닝와이드 확정 합집합 상한 — 오프라인 8회차·3계열 뱅크 스윕에서 0.09가 최적이다
+ * (P 93.1 · R 94.4 · F1 93.7). 뱅크가 2계열이던 때의 최적은 0.08이었는데(F1 88.5),
+ * 밝은 재킷 계열을 더해 회차별 거리가 전반적으로 줄면서 최적점이 이동했다 —
+ * **문턱은 뱅크 구성에 종속되므로 뱅크를 바꾸면 함께 다시 잰다.**
+ * 0.10 이상은 재현율 이득보다 오검출 증가가 커진다(0.10: P 86.2 · 0.11: P 81.3).
  */
-const MORNING_WIDE_UNION_MAX_REF_DIST = 0.08;
+const MORNING_WIDE_UNION_MAX_REF_DIST = 0.09;
 
 async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram = "news8"): Promise<void> {
   const api = frameDataFolderApi();
@@ -2613,6 +2616,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
       ? selectAnchorMatcher(samples, [
         buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS),
         buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS_FULLSHOT),
+        buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS_LIGHT),
       ], { preferPrimary: false })
       : selectAnchorMatcher(samples, [
         buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS),

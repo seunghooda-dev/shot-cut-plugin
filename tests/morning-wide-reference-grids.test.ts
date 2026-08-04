@@ -5,12 +5,14 @@ import { describe, it } from "node:test";
 import {
   MORNING_WIDE_REFERENCE_GRIDS,
   MORNING_WIDE_REFERENCE_GRIDS_FULLSHOT,
+  MORNING_WIDE_REFERENCE_GRIDS_LIGHT,
 } from "../src/morning-wide-reference-grids";
 import { buildAnchorMatcher, freeAnchorTimes } from "../src/news-visual-cut";
 
 const BANKS: Array<[string, ReadonlyArray<readonly number[]>]> = [
   ["분할 구도", MORNING_WIDE_REFERENCE_GRIDS],
   ["풀샷 구도", MORNING_WIDE_REFERENCE_GRIDS_FULLSHOT],
+  ["밝은 재킷", MORNING_WIDE_REFERENCE_GRIDS_LIGHT],
 ];
 
 describe("MORNING_WIDE_REFERENCE_GRIDS", () => {
