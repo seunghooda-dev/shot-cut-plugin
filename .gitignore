@@ -31,3 +31,8 @@ training-data/news-anchor/*
 !training-data/news-anchor/*.items.json
 !training-data/news-anchor/*.items.corrected.json
 !training-data/news-anchor/NewsCut_KBC_20260715.json
+
+# 모닝와이드 학습 데이터 — 같은 규칙(스캔 캐시 제외, 라벨만 커밋). 코퍼스·지표는 8뉴스와 분리한다.
+training-data/morning-wide/*
+!training-data/morning-wide/*.items.json
+!training-data/morning-wide/*.items.tile.json
