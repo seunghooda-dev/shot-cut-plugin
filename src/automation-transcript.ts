@@ -3,6 +3,9 @@ import type { SpeechControllerTranscript } from "./speech-controller";
 import type { SubtitleCue, SubtitleDocument, SubtitleWord } from "./subtitles";
 
 export const SUBTITLE_AUTOMATION_TRANSCRIPT_PREFIX = "자막";
+// §189 #3(사용자 확정): 자동 편집 원고가 어느 소스 기준인지 상태줄에서 드러나야 한다 —
+// STT가 있는 동안 자막 편집이 반영되지 않는 규칙을 이 라벨이 사용자에게 설명한다.
+export const STT_AUTOMATION_TRANSCRIPT_PREFIX = "STT 원본";
 
 function visibleWords(cue: SubtitleCue): SubtitleWord[] {
   return cue.words.filter((word) => !word.hidden && word.t.trim());
@@ -39,7 +42,7 @@ export function speechControllerTranscriptToAutomationTranscript(
   transcript: SpeechControllerTranscript,
 ): AutomationTranscript {
   return {
-    name: transcript.name,
+    name: `${STT_AUTOMATION_TRANSCRIPT_PREFIX}: ${transcript.name}`,
     duration: transcript.duration,
     segments: transcript.result.segments,
   };

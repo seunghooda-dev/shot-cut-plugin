@@ -149,6 +149,12 @@ const OPERATIONAL_UI_IDS = [
   "recovery-confirm-label",
   "recovery-confirm-cancel-btn",
   "recovery-confirm-approve-btn",
+  "automation-timebase-dialog",
+  "automation-timebase-title",
+  "automation-timebase-description",
+  "automation-timebase-label",
+  "automation-timebase-cancel-btn",
+  "automation-timebase-approve-btn",
   "run-diagnostics-btn",
   "export-diagnostics-btn",
   "diagnostics-summary",
@@ -403,6 +409,10 @@ function assertOperationalUiContracts(document: StaticDocument): void {
   assert.equal(recoveryDialog.tag, "dialog");
   assert.equal(recoveryDialog.attributes["aria-labelledby"], "recovery-confirm-title");
   assert.equal(recoveryDialog.attributes["aria-describedby"], "recovery-confirm-description");
+  const timeBaseDialog = elementById(document, "automation-timebase-dialog");
+  assert.equal(timeBaseDialog.tag, "dialog");
+  assert.equal(timeBaseDialog.attributes["aria-labelledby"], "automation-timebase-title");
+  assert.equal(timeBaseDialog.attributes["aria-describedby"], "automation-timebase-description");
 
   const runButton = elementById(document, "run-diagnostics-btn");
   const exportButton = elementById(document, "export-diagnostics-btn");
@@ -456,8 +466,14 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /ensureAiConsent\("썸네일 AI"\)/);
   assert.match(source, /ensureAiConsent:\s*\(\)\s*=>\s*ensureAiConsent\("TTS\/STT"\)/);
   assert.match(source, /onWarning:\s*\(message\)\s*=>\s*activity\.add\("warning", message\)/);
-  assert.match(source, /onSourceChange:\s*\(\)\s*=>\s*\{[\s\S]{0,240}?automationController\?\.setTranscript\(null\);[\s\S]{0,80}?\}/);
-  assert.match(source, /onTranscript:\s*\(transcript\)\s*=>\s*\{[\s\S]{0,500}?automationController\?\.setTranscript\(/);
+  // §189 #3(사용자 확정): 모든 push가 pull과 같은 STT 우선 resolve를 거쳐야 한다 —
+  // 자막 편집 직후와 분석 시점의 원고가 뒤집히던 불일치(조용한 편집 폐기)를 계약으로 고정한다.
+  assert.match(source, /onSourceChange:\s*\(\)\s*=>\s*\{[\s\S]{0,240}?automationController\?\.setTranscript\(resolveAutomationTranscript\(speechController\?\.transcript, subtitleController\?\.document \?\? null\)\);[\s\S]{0,80}?\}/);
+  assert.match(source, /onTranscript:\s*\(transcript\)\s*=>\s*\{[\s\S]{0,500}?automationController\?\.setTranscript\(resolveAutomationTranscript\(transcript, null\)\);/);
+  assert.match(source, /onChange:\s*\(document\)\s*=>\s*\{[\s\S]{0,420}?automationController\?\.setTranscript\(resolveAutomationTranscript\(speechController\?\.transcript, document\)\);/);
+  // §189 #2(사용자 확정): 자동 편집 적용은 시퀀스 길이 대조 포트와 불일치 확인 모달이 배선돼야 한다.
+  assert.match(source, /getSequenceDurationSeconds:\s*async \(\) => \{[\s\S]{0,240}?includeSelection: false, includePlayerPosition: false[\s\S]{0,80}?sequenceEnd/);
+  assert.match(source, /confirmTimeBaseMismatch:\s*\(details\) => requestAutomationTimeBaseConfirmation\(details\)/);
   assert.match(source, /controller\.cueCount === 0/);
   assert.match(source, /const generation = \+\+statusRefreshGeneration;[\s\S]*?controller\.projectKey !== projectKey[\s\S]*?await controller\.loadProject\(projectKey\)/);
   assert.match(source, /subtitleController\.setDocument\(createSubtitleDocument\([\s\S]{1,1600}?\), true\);/);

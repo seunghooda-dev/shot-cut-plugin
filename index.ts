@@ -70,7 +70,7 @@ import {
   type ThumbnailController,
 } from "./src/thumbnail-controller";
 import { SpeechController } from "./src/speech-controller";
-import { AutomationController } from "./src/automation-controller";
+import { AutomationController, type AutomationTimeBaseMismatch } from "./src/automation-controller";
 import { BrandKitController } from "./src/brand-kit-controller";
 import { AIQueueController } from "./src/ai-queue-controller";
 import { deterministicHash } from "./src/job-queue";
@@ -110,7 +110,7 @@ import {
   translatedCuesToSrt,
   validateTranslatedCuesForExport,
 } from "./src/multilang";
-import { resolveAutomationTranscript, subtitleDocumentToAutomationTranscript } from "./src/automation-transcript";
+import { resolveAutomationTranscript } from "./src/automation-transcript";
 import { buildSrt, createSubtitleDocument, parseSrt, type SubtitleDocument } from "./src/subtitles";
 import { buildPremiereTranscript } from "./src/transcript-export";
 import { planUploadPackage } from "./src/upload-package";
@@ -225,6 +225,49 @@ let subtitleController: SubtitleController | null = null;
 let subtitlePlayheadTimer: ReturnType<typeof setInterval> | null = null;
 let statusRefreshGeneration = 0;
 let recoveryManager: RecoveryManager | null = null;
+
+// §189 #2: 원고·시퀀스 길이 불일치 확인 모달 — 복구 패널과 같은 fail-closed 규약이라
+// 다이얼로그를 열 수 없으면 승인 없이 진행하지 않는다(false = 취소).
+interface UxpTimeBaseDialogElement extends HTMLDialogElement {
+  uxpShowModal?: (options: {
+    title: string;
+    resize: "none";
+    size: { width: number; height: number };
+  }) => Promise<unknown>;
+}
+
+function automationMinutesLabel(value: number): string {
+  const safe = Math.max(0, Number.isFinite(value) ? value : 0);
+  return `${Math.floor(safe / 60)}분 ${Math.round(safe % 60)}초`;
+}
+
+async function requestAutomationTimeBaseConfirmation(details: AutomationTimeBaseMismatch): Promise<boolean> {
+  const dialog = optionalElement<UxpTimeBaseDialogElement>("automation-timebase-dialog");
+  const label = optionalElement<HTMLElement>("automation-timebase-label");
+  const approve = optionalElement<HTMLButtonElement>("automation-timebase-approve-btn");
+  const cancel = optionalElement<HTMLButtonElement>("automation-timebase-cancel-btn");
+  if (!dialog || !label || !approve || !cancel || typeof dialog.uxpShowModal !== "function") return false;
+  label.textContent =
+    `${details.transcriptName || "자동 편집 원고"} · 원고 ${automationMinutesLabel(details.transcriptDuration)}` +
+    ` vs 활성 시퀀스 ${automationMinutesLabel(details.sequenceDuration)}`;
+  const approveHandler = (): void => dialog.close("confirm");
+  const cancelHandler = (): void => dialog.close("cancel");
+  approve.addEventListener("click", approveHandler);
+  cancel.addEventListener("click", cancelHandler);
+  try {
+    const result = await dialog.uxpShowModal({
+      title: "ShortFlow Studio · 원고·시퀀스 길이 불일치",
+      resize: "none",
+      size: { width: 420, height: 300 },
+    });
+    return result === "confirm";
+  } catch {
+    return false;
+  } finally {
+    approve.removeEventListener("click", approveHandler);
+    cancel.removeEventListener("click", cancelHandler);
+  }
+}
 
 function reportError(error: unknown, context: string): void {
   const message = errorMessage(error);
@@ -4310,6 +4353,16 @@ async function bootstrap(): Promise<void> {
       getTranscript: () => {
         return resolveAutomationTranscript(speechController?.transcript, subtitleController?.document);
       },
+      // §189 #2: 적용 직전 시간 기준 대조용 시퀀스 길이. 읽기 실패는 null — 검사가 적용을
+      // 막는 새 실패 지점이 되지 않게 한다(검사 불가 시 기존 동작 유지).
+      getSequenceDurationSeconds: async () => {
+        try {
+          return (await readSequenceStatus(undefined, { includeSelection: false, includePlayerPosition: false })).sequenceEnd;
+        } catch {
+          return null;
+        }
+      },
+      confirmTimeBaseMismatch: (details) => requestAutomationTimeBaseConfirmation(details),
       onActivity: (message) => activity.add("success", message),
       onError: (error, context) => reportError(error, context),
       getSourceContextKey: readActiveContextKey,
@@ -4410,7 +4463,10 @@ async function bootstrap(): Promise<void> {
       aiProvider: runSubtitleAI,
       analysisProvider: runSubtitleAnalysis,
       onChange: (document) => {
-        automationController?.setTranscript(subtitleDocumentToAutomationTranscript(document));
+        // §189 #3(사용자 확정): STT 원본이 있는 동안 자막 편집은 자동 편집 원고를 바꾸지
+        // 않는다 — 무음 컷은 물리 발화 기준이 안전하고, 편집 직후와 분석 시점의 원고가
+        // 뒤집히던 요동(push 자막 → pull STT)을 없앤다. 규칙은 pull과 같은 resolve 한 곳이다.
+        automationController?.setTranscript(resolveAutomationTranscript(speechController?.transcript, document));
       },
       onActivity: (message) => activity.add("success", message),
       onError: (error, context) => reportError(error, context),
@@ -4441,7 +4497,8 @@ async function bootstrap(): Promise<void> {
       onError: (error, context) => reportError(error, context),
       pluginFolderPath: () => pluginFolderPathValue,
       onSourceChange: () => {
-        automationController?.setTranscript(null);
+        // STT 소스가 바뀌면 원고는 이미 비워진 상태다 — 자막 문서가 있으면 그쪽으로 복귀한다(§189 #3).
+        automationController?.setTranscript(resolveAutomationTranscript(speechController?.transcript, subtitleController?.document ?? null));
       },
       onTtsOutput: async (output, request, result) => {
         try {
@@ -4461,9 +4518,8 @@ async function bootstrap(): Promise<void> {
         }
       },
       onTranscript: (transcript) => {
-        if (!subtitleController) {
-          automationController?.setTranscript(resolveAutomationTranscript(transcript, null));
-        }
+        // §189 #3: 새 STT는 자막 문서 유무와 무관하게 즉시 자동 편집 원고가 된다(STT 우선).
+        automationController?.setTranscript(resolveAutomationTranscript(transcript, null));
         // 타임코드 구간이 없으면 자막 문서를 만들 수 없다 — 무고지로 건너뛰지 않는다(§186-b).
         // 원고 자체는 speechController.transcript로 남아 자동 편집(getTranscript)이 쓸 수 있다.
         if (subtitleController && transcript.result.segments.length === 0) {

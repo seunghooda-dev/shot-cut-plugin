@@ -31,6 +31,10 @@ export interface AutomationTranscript {
 export interface AutomationControllerOptions {
   getTranscript?: () => AutomationTranscript | null | Promise<AutomationTranscript | null>;
   getSourceContextKey?: () => string | null | undefined | Promise<string | null | undefined>;
+  /** 활성 시퀀스 길이(초). 읽기 실패는 null — 시간 기준 검사를 건너뛴다(§189 #2). */
+  getSequenceDurationSeconds?: () => number | null | undefined | Promise<number | null | undefined>;
+  /** 원고·시퀀스 길이가 크게 다를 때 사용자 확인. true를 반환해야 적용을 계속한다(§189 #2). */
+  confirmTimeBaseMismatch?: (details: AutomationTimeBaseMismatch) => boolean | Promise<boolean>;
   onActivity?: (message: string) => void;
   onError?: (error: unknown, context: string) => void;
   onAddMarkers?: (
@@ -62,6 +66,18 @@ export interface AutomationAnalysisGuard {
   readonly fingerprint: string;
   readonly sourceContextKey: string;
 }
+
+export interface AutomationTimeBaseMismatch {
+  readonly transcriptName: string;
+  readonly transcriptDuration: number;
+  readonly sequenceDuration: number;
+}
+
+// §189 #2(사용자 확정): 원고가 시퀀스보다 이만큼 길면 다른 파일의 시간축이 확실시된다(발화가
+// 시퀀스 끝을 넘는다). 짧은 쪽은 후미 무음·자막 기반 duration(마지막 발화 끝)이 정상적으로
+// 만드는 차이가 있어 더 관대하게 잡는다.
+export const AUTOMATION_TIME_BASE_OVERRUN_TOLERANCE_SECONDS = 5;
+export const AUTOMATION_TIME_BASE_UNDERRUN_TOLERANCE_SECONDS = 60;
 
 const STALE_ANALYSIS_MESSAGE = "자동 편집 원고·설정 또는 활성 Premiere context가 변경되었습니다. 다시 분석해 주세요.";
 
@@ -452,16 +468,56 @@ export class AutomationController {
     if (safeOverlay) safeOverlay.disabled = this.isBusy;
   }
 
+  /**
+   * §189 #2(사용자 확정): 원고 시간축이 활성 시퀀스와 크게 다르면 적용 전에 확인을 받는다 —
+   * 임의 파일 STT의 타임코드가 시퀀스 좌표로 쓰여 컷·마커가 무관한 위치에 떨어지는 것을 막는다.
+   */
+  private async checkTimeBase(plan: SilenceCutPlan): Promise<"clean" | "confirmed" | "cancelled"> {
+    if (!this.options.getSequenceDurationSeconds) return "clean";
+    const raw = await this.options.getSequenceDurationSeconds();
+    const sequenceDuration = typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
+    if (sequenceDuration === null) return "clean";
+    const transcriptDuration = plan.sourceDuration;
+    const overrun = transcriptDuration > sequenceDuration + AUTOMATION_TIME_BASE_OVERRUN_TOLERANCE_SECONDS;
+    const underrun = transcriptDuration < sequenceDuration - AUTOMATION_TIME_BASE_UNDERRUN_TOLERANCE_SECONDS;
+    if (!overrun && !underrun) return "clean";
+    if (!this.options.confirmTimeBaseMismatch) {
+      throw new Error(
+        `원고 길이(${seconds(transcriptDuration)})와 활성 시퀀스 길이(${seconds(sequenceDuration)})가 크게 다릅니다 — ` +
+        "다른 파일의 STT일 수 있어 적용을 중단했습니다. 시퀀스 오디오로 STT를 다시 만들어 주세요.",
+      );
+    }
+    const approved = await this.options.confirmTimeBaseMismatch({
+      transcriptName: this.transcript?.name ?? "",
+      transcriptDuration,
+      sequenceDuration,
+    });
+    return approved ? "confirmed" : "cancelled";
+  }
+
   private async addMarkers(): Promise<void> {
     if (!this.options.onAddMarkers) throw new Error("Premiere 추천 마커 기능이 연결되지 않았습니다.");
     const current = await this.requireCurrentAnalysis();
-    await this.options.onAddMarkers(current.plan, current.cues, current.guard);
+    const verdict = await this.checkTimeBase(current.plan);
+    if (verdict === "cancelled") {
+      this.options.onActivity?.("원고·시퀀스 길이 불일치 확인에서 추천 마커 추가를 취소했습니다.");
+      return;
+    }
+    // 확인창을 기다리는 동안 원고·설정·context가 바뀔 수 있다 — 승인 후 현재성 재검증.
+    const fresh = verdict === "confirmed" ? await this.requireCurrentAnalysis() : current;
+    await this.options.onAddMarkers(fresh.plan, fresh.cues, fresh.guard);
   }
 
   private async apply(): Promise<void> {
     if (!this.options.onApply) throw new Error("Premiere 자동 편집 적용 기능이 연결되지 않았습니다.");
     const current = await this.requireCurrentAnalysis();
-    await this.options.onApply(current.plan, current.cues, current.guard);
+    const verdict = await this.checkTimeBase(current.plan);
+    if (verdict === "cancelled") {
+      this.options.onActivity?.("원고·시퀀스 길이 불일치 확인에서 자동 편집 적용을 취소했습니다.");
+      return;
+    }
+    const fresh = verdict === "confirmed" ? await this.requireCurrentAnalysis() : current;
+    await this.options.onApply(fresh.plan, fresh.cues, fresh.guard);
   }
 
   private syncRangeLabels(): void {

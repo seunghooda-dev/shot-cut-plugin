@@ -566,3 +566,182 @@ describe("AutomationController transcript and busy safety", () => {
     });
   });
 });
+
+// §189 #2(사용자 확정): 원고 시간축과 활성 시퀀스 길이가 크게 다르면 적용 전에 확인을 받는다.
+describe("AutomationController time base guard (§189 #2)", () => {
+  it("applies without confirmation when transcript and sequence durations agree", async () => {
+    const dom = controllerDom();
+    let confirmCalls = 0;
+    let applyCalls = 0;
+    await withFakeDocument(dom, async () => {
+      const controller = new AutomationController({
+        getTranscript: () => transcript(),
+        getSourceContextKey: () => "ctx-project-A",
+        getSequenceDurationSeconds: () => 30,
+        confirmTimeBaseMismatch: () => { confirmCalls += 1; return true; },
+        onApply: () => { applyCalls += 1; },
+      });
+      await controller.initialize();
+      dom.getElementById("auto-analyze-btn")!.emit("click");
+      await settle();
+      dom.getElementById("auto-apply-btn")!.emit("click");
+      await settle();
+      assert.equal(confirmCalls, 0);
+      assert.equal(applyCalls, 1);
+    });
+  });
+
+  it("cancels the apply and keeps the plan when the mismatch confirmation is declined", async () => {
+    const dom = controllerDom();
+    const activities: string[] = [];
+    let applyCalls = 0;
+    let confirmCalls = 0;
+    await withFakeDocument(dom, async () => {
+      const controller = new AutomationController({
+        getTranscript: () => transcript(),
+        getSourceContextKey: () => "ctx-project-A",
+        getSequenceDurationSeconds: () => 120,
+        confirmTimeBaseMismatch: (details) => {
+          confirmCalls += 1;
+          assert.equal(details.transcriptDuration, 4);
+          assert.equal(details.sequenceDuration, 120);
+          assert.equal(details.transcriptName, "Transcript A");
+          return false;
+        },
+        onApply: () => { applyCalls += 1; },
+        onActivity: (message) => activities.push(message),
+      });
+      await controller.initialize();
+      dom.getElementById("auto-analyze-btn")!.emit("click");
+      await settle();
+      assert.ok(controller.plan);
+      dom.getElementById("auto-apply-btn")!.emit("click");
+      await settle();
+      assert.equal(confirmCalls, 1);
+      assert.equal(applyCalls, 0);
+      assert.match(activities.at(-1) ?? "", /길이 불일치.*적용을 취소/u);
+      assert.ok(controller.plan, "취소는 분석안을 파기하지 않는다");
+    });
+  });
+
+  it("cancels marker insertion through the same guard", async () => {
+    const dom = controllerDom();
+    const activities: string[] = [];
+    let markerCalls = 0;
+    await withFakeDocument(dom, async () => {
+      const controller = new AutomationController({
+        getTranscript: () => transcript(),
+        getSourceContextKey: () => "ctx-project-A",
+        getSequenceDurationSeconds: () => 120,
+        confirmTimeBaseMismatch: () => false,
+        onAddMarkers: () => { markerCalls += 1; },
+        onActivity: (message) => activities.push(message),
+      });
+      await controller.initialize();
+      dom.getElementById("auto-analyze-btn")!.emit("click");
+      await settle();
+      dom.getElementById("auto-markers-btn")!.emit("click");
+      await settle();
+      assert.equal(markerCalls, 0);
+      assert.match(activities.at(-1) ?? "", /길이 불일치.*추천 마커 추가를 취소/u);
+    });
+  });
+
+  it("re-validates currency and applies when the mismatch is explicitly approved", async () => {
+    const dom = controllerDom();
+    let contextReads = 0;
+    let applyCalls = 0;
+    await withFakeDocument(dom, async () => {
+      const controller = new AutomationController({
+        getTranscript: () => transcript(),
+        getSourceContextKey: () => { contextReads += 1; return "ctx-project-A"; },
+        // 언더런 불일치(4 < 120 - 60)를 사용자가 승인하는 경로.
+        getSequenceDurationSeconds: () => 120,
+        confirmTimeBaseMismatch: () => true,
+        onApply: () => { applyCalls += 1; },
+      });
+      await controller.initialize();
+      dom.getElementById("auto-analyze-btn")!.emit("click");
+      await settle();
+      const readsAfterAnalyze = contextReads;
+      dom.getElementById("auto-apply-btn")!.emit("click");
+      await waitUntil(() => applyCalls === 1);
+      // 승인 경로는 확인창 대기 동안의 변경을 막기 위해 현재성 검증을 한 번 더 거친다.
+      assert.ok(contextReads >= readsAfterAnalyze + 2, `context validations: ${contextReads}`);
+    });
+  });
+
+  it("blocks the apply when a transcript overruns the sequence end", async () => {
+    const dom = controllerDom();
+    let confirmCalls = 0;
+    let applyCalls = 0;
+    const long: AutomationTranscript = {
+      name: "Overrun",
+      duration: 20,
+      segments: [
+        { start: 0.5, end: 6, text: "첫 발화" },
+        { start: 12, end: 19, text: "끝 발화" },
+      ],
+    };
+    await withFakeDocument(dom, async () => {
+      const controller = new AutomationController({
+        getTranscript: () => long,
+        getSourceContextKey: () => "ctx-project-A",
+        getSequenceDurationSeconds: () => 10,
+        confirmTimeBaseMismatch: () => { confirmCalls += 1; return false; },
+        onApply: () => { applyCalls += 1; },
+      });
+      await controller.initialize();
+      dom.getElementById("auto-analyze-btn")!.emit("click");
+      await settle();
+      dom.getElementById("auto-apply-btn")!.emit("click");
+      await settle();
+      assert.equal(confirmCalls, 1);
+      assert.equal(applyCalls, 0);
+    });
+  });
+
+  it("fails closed when a mismatch is found and no confirmation port exists", async () => {
+    const dom = controllerDom();
+    const errors: string[] = [];
+    let applyCalls = 0;
+    await withFakeDocument(dom, async () => {
+      const controller = new AutomationController({
+        getTranscript: () => transcript(),
+        getSourceContextKey: () => "ctx-project-A",
+        getSequenceDurationSeconds: () => 120,
+        onApply: () => { applyCalls += 1; },
+        onError: (error, context) => errors.push(`${context}: ${error instanceof Error ? error.message : String(error)}`),
+      });
+      await controller.initialize();
+      dom.getElementById("auto-analyze-btn")!.emit("click");
+      await settle();
+      dom.getElementById("auto-apply-btn")!.emit("click");
+      await settle();
+      assert.equal(applyCalls, 0);
+      assert.match(errors.at(-1) ?? "", /크게 다릅니다.*중단/u);
+    });
+  });
+
+  it("skips the check when the sequence duration cannot be read", async () => {
+    const dom = controllerDom();
+    let confirmCalls = 0;
+    let applyCalls = 0;
+    await withFakeDocument(dom, async () => {
+      const controller = new AutomationController({
+        getTranscript: () => transcript(),
+        getSourceContextKey: () => "ctx-project-A",
+        getSequenceDurationSeconds: () => null,
+        confirmTimeBaseMismatch: () => { confirmCalls += 1; return false; },
+        onApply: () => { applyCalls += 1; },
+      });
+      await controller.initialize();
+      dom.getElementById("auto-analyze-btn")!.emit("click");
+      await settle();
+      dom.getElementById("auto-apply-btn")!.emit("click");
+      await settle();
+      assert.equal(confirmCalls, 0);
+      assert.equal(applyCalls, 1);
+    });
+  });
+});

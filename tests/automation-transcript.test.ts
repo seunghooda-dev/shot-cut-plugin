@@ -158,13 +158,14 @@ describe("resolveAutomationTranscript", () => {
         segments: [{ start: 1, end: 2, text: "라이브 STT" }],
       },
     };
+    // §189 #3: 상태줄이 "어느 소스 기준인지"를 드러내야 한다 — STT 우선 규칙의 사용자 고지.
     assert.deepEqual(speechControllerTranscriptToAutomationTranscript(speech), {
-      name: "live-stt",
+      name: "STT 원본: live-stt",
       duration: 9,
       segments: [{ start: 1, end: 2, text: "라이브 STT" }],
     });
     assert.deepEqual(resolveAutomationTranscript(speech, documentFixture()), {
-      name: "live-stt",
+      name: "STT 원본: live-stt",
       duration: 9,
       segments: [{ start: 1, end: 2, text: "라이브 STT" }],
     });

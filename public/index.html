@@ -2340,6 +2340,20 @@
       </div>
     </dialog>
 
+    <dialog id="automation-timebase-dialog" class="recovery-confirm-dialog" aria-labelledby="automation-timebase-title" aria-describedby="automation-timebase-description">
+      <div class="recovery-confirm-content">
+        <p class="eyebrow">AUTOMATION TIME BASE</p>
+        <h2 id="automation-timebase-title">원고·시퀀스 길이 불일치</h2>
+        <p id="automation-timebase-description">자동 편집 원고의 길이가 활성 시퀀스와 크게 다릅니다. 다른 파일의 STT일 수 있으며, 그대로 적용하면 컷과 마커가 어긋난 위치에 만들어질 수 있습니다.</p>
+        <strong id="automation-timebase-label" class="recovery-confirm-label"></strong>
+        <p class="action-note">시퀀스 오디오로 STT를 다시 만들면 이 확인 없이 적용됩니다.</p>
+        <div class="form-actions aligned-end recovery-confirm-actions">
+          <button id="automation-timebase-cancel-btn" class="secondary-button" type="button">취소</button>
+          <button id="automation-timebase-approve-btn" class="danger-button" type="button">그래도 적용</button>
+        </div>
+      </div>
+    </dialog>
+
     <div id="toast-region" class="toast-region" aria-live="assertive" aria-atomic="true"></div>
 
     <script src="index.js"></script>
