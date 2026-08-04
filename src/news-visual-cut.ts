@@ -178,7 +178,23 @@ export function planRescueProbes(
 const ROUTE_MAX_DIST = 0.05;
 const ROUTE_RATIO = 0.5;
 
-export function selectAnchorMatcher(samples: readonly GridSample[], matchers: readonly AnchorMatcher[]): AnchorMatcher {
+export interface SelectAnchorMatcherOptions {
+  /**
+   * 첫 번째(기본) 뱅크에 우선권을 줄지. 기본 true — 8뉴스는 평일 뱅크가 기본이고 주말 뱅크는
+   * 예외라, 근소 차로 갈아타면 평일 회차가 주말 뱅크로 새는 오라우팅이 난다.
+   * false면 단순 최소 거리로 고른다 — 뱅크들이 **동등한 지위**일 때(모닝와이드의 분할/풀샷
+   * 구도처럼 회차마다 어느 쪽이든 나올 수 있을 때) 이쪽이 맞다. 2026-08-04 오프라인 실측:
+   * 7/30은 풀샷 0.061 · 분할 0.082인데 기본 우선 규칙의 문턱(0.05)에 걸려 분할이 선택됐고,
+   * 라벨 커버가 11/20에 그쳤다(풀샷 선택 시 17/20).
+   */
+  preferPrimary?: boolean;
+}
+
+export function selectAnchorMatcher(
+  samples: readonly GridSample[],
+  matchers: readonly AnchorMatcher[],
+  options: SelectAnchorMatcherOptions = {},
+): AnchorMatcher {
   if (matchers.length === 0) throw new Error("선택할 매처가 없습니다.");
   if (matchers.length === 1) return matchers[0]!;
   const minDistOf = (matcher: AnchorMatcher): number => {
@@ -194,6 +210,13 @@ export function selectAnchorMatcher(samples: readonly GridSample[], matchers: re
   let bestDist = primary;
   for (let index = 1; index < matchers.length; index += 1) {
     const minDist = minDistOf(matchers[index]!);
+    if (options.preferPrimary === false) {
+      if (minDist < bestDist) {
+        bestDist = minDist;
+        best = index;
+      }
+      continue;
+    }
     // 기본(평일) 뱅크가 우선 — 특수 뱅크는 압도적으로 가까울 때만 채택(근소 차 오라우팅 방지).
     if (minDist < ROUTE_MAX_DIST && minDist < primary * ROUTE_RATIO && minDist < bestDist) {
       bestDist = minDist;

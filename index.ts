@@ -2600,12 +2600,14 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
     // 모닝와이드도 8뉴스와 같은 포맷 라우팅을 쓴다 — 회차마다 구도가 통째로 바뀌는데
     // (7/28 전량 분할·7/29 전량 풀샷) 한 매처에 섞으면 분산이 커져 변별력이 떨어진다
     // (A/B 실측: 합본 27장에서 7/24가 97.3 → 88.2).
-    const matcher = selectAnchorMatcher(samples, program === "morningwide"
-      ? [
+    const matcher = program === "morningwide"
+      // 두 구도는 동등한 지위라 단순 최소 거리로 고른다 — 8뉴스의 "기본 뱅크 우선" 문턱을
+      // 쓰면 7/30처럼 풀샷이 더 가까운 회차에서도 분할 뱅크가 선택된다(오프라인 실측).
+      ? selectAnchorMatcher(samples, [
         buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS),
         buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS_FULLSHOT),
-      ]
-      : [
+      ], { preferPrimary: false })
+      : selectAnchorMatcher(samples, [
         buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS),
         buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS_SUNDAY_NEW),
       ]);
