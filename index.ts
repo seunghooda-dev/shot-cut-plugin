@@ -3577,7 +3577,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
           if (visionRejectedTimes.length > 0) {
             try {
               const grabStanding = async (time: number): Promise<Uint8Array | null> => {
-                // 내보내기 재시도(§121-b와 동일) — 중간점 확인(§172-a)이 이 헬퍼에 걸리므로
+                // 내보내기 재시도(§121-b와 동일) — 중간점 확인(§172 미해결 등재)이 이 헬퍼에 걸리므로
                 // 1회 유실이 채택/기각을 가르면 안 된다.
                 let bytes: Uint8Array | null = null;
                 for (let attempt = 0; attempt < 2 && !bytes; attempt += 1) {
@@ -3670,11 +3670,11 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
                   // 프레임 수집 단계에서 이미 걸러진다.
                   const nearStanding = standingStarts.some((start) => time - start <= 60 && time > start);
                   if (nearStanding) continue;
-                  // 알려진 공백(§172-a) — 칼럼이 **직전 확정 경계에서 이미 시작**된 경우, 그
+                  // 알려진 공백(§172 미해결 등재) — 칼럼이 **직전 확정 경계에서 이미 시작**된 경우, 그
                   // 중간의 서 있는 진행자를 새 시작으로 오인하는 FP는 여기서 방어되지 않는다
                   // (6/29 실측: 칼럼 579~866.8의 중간 820 → FP 819, 8실행 중 5회). 시각 판별
                   // 4종(중간점·시작부 1점/2점·동일 코너 비교)을 전부 시도했으나 실패해 원복했다
-                  // — 근거와 재개 조건(구조 단서 확보 시)은 런북 §172-a. 여기에 판별 코드를
+                  // — 근거와 재개 조건(구조 단서 확보 시)은 런북 §172 미해결 등재. 여기에 판별 코드를
                   // 다시 넣기 전에 그 절부터 읽을 것.
                   standingStarts.push(time);
                 }
