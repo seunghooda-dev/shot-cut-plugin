@@ -881,6 +881,15 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(area.slice(0, 1600), /칼럼 판정 표 상세/u, "칼럼 판정 표가 로그에 남아야 한다");
   });
 
+  it("표 0으로 살아남은 비정상 후보는 프레임별 판정이 로그에 남는다(§191-d)", () => {
+    // MW 7/28: 인물 없는 b-roll(1050)이 0/3으로 통과해 FP — "전부 앵커 판정"인지 "저신뢰
+    // 기권"인지 로그로 구별 불가했다. 정상 앵커(전 프레임 고신뢰 앵커)는 찍지 않는다.
+    const area = indexSource.slice(indexSource.indexOf("무표 생존 상세"));
+    assert.ok(area.length > 0, "무표 생존 상세 로그가 있어야 한다");
+    const guard = indexSource.slice(indexSource.indexOf("const allConfidentAnchor"));
+    assert.match(guard.slice(0, 300), /every/u, "전 프레임 고신뢰 앵커는 걸러야 스팸이 안 된다");
+  });
+
   it("검증 프레임 부족분 재수집은 지연을 두고 2라운드까지 시도한다(§191-c)", () => {
     // MW 7/28 실기: 1라운드 재수집이 발동했는데 그 1장도 죽어 876이 2/2(만장일치·3표 미달)로
     // 통과, FP 875.5. 유실은 순간 부하에서 몰리므로 라운드 사이 지연이 핵심이다(§190-b 원리).

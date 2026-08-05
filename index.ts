@@ -2968,6 +2968,18 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
           const detail = verifyVerdicts.get(time) ?? [];
           activity.add("info", `배제 판정 상세 ${time.toFixed(0)}s (${detail.length}/${requiredVotes.get(time) ?? 4}장): ${detail.join(" ")}`);
         }
+        // 표 0으로 살아남은 후보의 상세(§191-d) — 배제 표 분포의 `0/3`은 "3장 전부 앵커 판정"과
+        // "3장 전부 저신뢰(<0.85) 기권"을 구별하지 못한다. MW 7/28 실측: 1050(전면 b-roll,
+        // 인물 없음)이 0/3으로 통과해 FP 1048.3이 됐는데, 응답 유실은 0건이라 둘 중 무엇인지
+        // 로그로 판정 불가였다. 진짜 앵커(대부분 0표)까지 다 찍으면 스팸이므로, **표 0이면서
+        // 앵커 만장일치가 아닌 것**(기권 포함)만 남긴다 — 정상 앵커는 전 프레임 고신뢰 앵커다.
+        for (const time of accepted) {
+          if (rejected.has(time) || (rejectionVotes.get(time) ?? 0) > 0) continue;
+          const detail = verifyVerdicts.get(time) ?? [];
+          const allConfidentAnchor = detail.length > 0 && detail.every((entry) => entry.includes("앵커(") && !entry.includes("비앵커(") && !/\(0\.[0-7]/u.test(entry));
+          if (allConfidentAnchor) continue;
+          activity.add("info", `무표 생존 상세 ${time.toFixed(0)}s (${detail.length}장): ${detail.join(" ") || "판정 기록 없음"}`);
+        }
         visionRejectedTimes = [...rejected];
         const kept = accepted.filter((time) => !rejected.has(time));
         // 안전망 문턱 3→1(§124) — "잔여가 적으면 배제를 통째로 되돌린다"는 규칙이 분포 밖 회차에서
