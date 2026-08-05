@@ -2482,10 +2482,20 @@ async function handleNewsCutCleanup(): Promise<void> {
 function aiFailureKind(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("한도")) return "한도";
+  // 크레딧 소진(§191-e 실사고) — OpenAI가 "You have no credits remaining"을 반환하는데
+  // "기타"로 뭉개져 즉시 중단 경로를 타지 못했다. 잔여 배치를 크레딧 없이 계속 시도하며
+  // 실행당 수십 초를 낭비하고, 유실 원인도 안 보였다.
+  if (isCreditExhausted(message)) return "크레딧 소진";
   if (/429|rate ?limit|과부하|overload/iu.test(message)) return "레이트리밋";
   if (/timeout|abort|시간|취소/iu.test(message)) return "타임아웃";
   if (/키|key|401|403/iu.test(message)) return "인증";
   return "기타";
+}
+
+// 크레딧 소진 패턴(§191-e) — 일일 한도("한도")와 별개로 OpenAI 계정 잔액이 0인 상태.
+// 한도와 똑같이 "남은 배치를 즉시 접어야 하는" 종결 조건이다.
+function isCreditExhausted(message: string): boolean {
+  return /no credits remaining|insufficient_quota|exceeded your current quota/iu.test(message);
 }
 
 function formatLossCauses(causes: ReadonlyMap<string, number>): string {
@@ -2886,7 +2896,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
               // 일시 API 오류로 배치 하나가 실패해도 비전 전체를 포기하지 않는다(§92 3차 E2E 실측:
               // 배치 실패 → 전체 강하 → FP 잔존). 실패 배치는 유실 재판정 라운드로 넘긴다.
               missed.push(...chunk);
-              if (error instanceof Error && error.message.includes("한도")) {
+              // 크레딧 소진도 한도와 같은 종결 조건이다(§191-e) — mwY 실사고에서 "기타"로
+              // 남아 잔여 배치를 전부 헛시도했다.
+              if (error instanceof Error && (error.message.includes("한도") || isCreditExhausted(error.message))) {
                 budgetStopped = true;
                 for (const rest of chunks.slice(chunkIndex + 1)) missed.push(...rest);
                 break;
@@ -3271,7 +3283,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
               } catch (error) {
                 // 배치 실패는 회수 포기가 아니라 유실이다 — 재판정 라운드로 넘긴다(검증 경로 §92와 동일).
                 rescueMissed.push(...chunk);
-                if (error instanceof Error && error.message.includes("한도")) {
+                if (error instanceof Error && (error.message.includes("한도") || isCreditExhausted(error.message))) {
                   rescueBudgetStopped = true;
                   for (const rest of rescueChunks.slice(chunkIndex + 1)) rescueMissed.push(...rest);
                   break;

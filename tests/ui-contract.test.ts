@@ -881,6 +881,15 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(area.slice(0, 1600), /칼럼 판정 표 상세/u, "칼럼 판정 표가 로그에 남아야 한다");
   });
 
+  it("크레딧 소진은 한도와 같은 즉시 중단 조건이다(§191-e)", () => {
+    // mwY 실사고: "You have no credits remaining"이 "기타"로 분류돼 잔여 배치를 전부
+    // 헛시도했고, 원인도 로그에 안 남았다. 검증·회수 두 경로 모두 즉시 중단해야 한다.
+    assert.match(indexSource, /function isCreditExhausted/u, "크레딧 소진 판별 함수가 있어야 한다");
+    assert.match(indexSource, /no credits remaining\|insufficient_quota/u, "OpenAI 크레딧 패턴을 다뤄야 한다");
+    const hits = indexSource.match(/isCreditExhausted\(error\.message\)/gu) ?? [];
+    assert.ok(hits.length >= 2, "검증·회수 두 경로의 중단 분기에 모두 걸려야 한다");
+  });
+
   it("표 0으로 살아남은 비정상 후보는 프레임별 판정이 로그에 남는다(§191-d)", () => {
     // MW 7/28: 인물 없는 b-roll(1050)이 0/3으로 통과해 FP — "전부 앵커 판정"인지 "저신뢰
     // 기권"인지 로그로 구별 불가했다. 정상 앵커(전 프레임 고신뢰 앵커)는 찍지 않는다.
