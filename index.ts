@@ -3285,7 +3285,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
               } else {
                 try {
                   let secondBytes: Uint8Array | null = null;
-                  for (let attempt = 0; attempt < 2 && !secondBytes; attempt += 1) {
+                  // 연속 재시도는 순간 부하에서 함께 죽는다(§190-b 실측) — 2회차부터 1초 지연을
+                  // 두고 3회까지 시도한다. 종전 2회 즉시 재시도로는 이 지점만 유실이 남아
+                  // **진짜 앵커가 "판정 유실"로 기각**됐다(모닝와이드 7/29 요동의 직접 원인:
+                  // 5실행 중 2회, 유실 지점이 매번 달랐다 — 860·876·1020).
+                  for (let attempt = 0; attempt < 3 && !secondBytes; attempt += 1) {
+                    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1000));
                     const { filename } = await exportFrameToFolder(Math.max(0, hitTime + 2.0), String(dataFolder.nativePath), 480);
                     secondBytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
                   }
