@@ -881,6 +881,15 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(area.slice(0, 1600), /칼럼 판정 표 상세/u, "칼럼 판정 표가 로그에 남아야 한다");
   });
 
+  it("검증 프레임 부족분 재수집은 지연을 두고 2라운드까지 시도한다(§191-c)", () => {
+    // MW 7/28 실기: 1라운드 재수집이 발동했는데 그 1장도 죽어 876이 2/2(만장일치·3표 미달)로
+    // 통과, FP 875.5. 유실은 순간 부하에서 몰리므로 라운드 사이 지연이 핵심이다(§190-b 원리).
+    const area = indexSource.slice(indexSource.indexOf("let pending = missing"));
+    assert.match(area.slice(0, 400), /round < 2 && pending\.length > 0/u, "재수집은 2라운드 루프여야 한다");
+    assert.match(area.slice(0, 700), /1000 \* \(round \+ 1\)/u, "라운드마다 지연이 늘어야 한다");
+    assert.match(area.slice(0, 2200), /배제 불가로 남습니다/u, "잔여 유실은 경고로 관측돼야 한다");
+  });
+
   it("비경고 회차도 긴 공백(120s·8s)을 스윕하고, 스윕 발견은 2표 합의를 거친다(§171)", () => {
     // §107 전면 발동(100s·4s)은 산발 오판 FP로 원복됐다 — 비경고 회차는 더 넓은 공백만,
     // 그리고 발견은 +2초 프레임 재판정(2표 합의)을 통과해야 채택된다(§107-c 처방).

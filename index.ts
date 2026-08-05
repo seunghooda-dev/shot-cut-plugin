@@ -2772,14 +2772,19 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
               if (!have.has(offset)) missing.push({ time, offset });
             }
           }
-          if (missing.length > 0) {
-            // 재수집 전 지연(§190-d) — §190-b와 같은 원리로, 순간 부하에서는 즉시 재수집도
-            // 함께 죽는다. 1/06 실측: §132 재수집이 있는데도 292가 3/3으로 남아 배제 표
-            // 미달 FP가 됐다(유실이 회수 FN뿐 아니라 검증 FP도 만든다).
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            activity.add("info", `비전 검증 · 프레임 부족 후보 ${new Set(missing.map((entry) => entry.time)).size}개의 ${missing.length}장을 재수집합니다.`);
-            for (const [index, entry] of missing.entries()) {
-              setText("busy-message", `비전 검증 · 부족분 재수집 ${index + 1}/${missing.length}…`);
+          // 재수집은 지연을 두고 최대 2라운드(§191-c) — 1라운드로는 부족함이 실측됐다.
+          // MW 7/28 실기: §132 재수집이 발동했는데 그 1장도 죽어 876이 2/2(만장일치인데
+          // 3표 요건 미달)로 통과, FP 875.5가 됐다. §190-b와 같은 원리로 라운드 사이에
+          // 지연을 둔다 — 순간 부하에서는 연속 재시도가 함께 죽는다.
+          let pending = missing;
+          for (let round = 0; round < 2 && pending.length > 0; round += 1) {
+            // 재수집 전 지연(§190-d) — 1/06 실측: §132 재수집이 있는데도 292가 3/3으로 남아
+            // 배제 표 미달 FP가 됐다(유실이 회수 FN뿐 아니라 검증 FP도 만든다).
+            await new Promise((resolve) => setTimeout(resolve, 1000 * (round + 1)));
+            activity.add("info", `비전 검증 · 프레임 부족 후보 ${new Set(pending.map((entry) => entry.time)).size}개의 ${pending.length}장을 재수집합니다(${round + 1}차).`);
+            const stillMissing: typeof pending = [];
+            for (const [index, entry] of pending.entries()) {
+              setText("busy-message", `비전 검증 · 부족분 재수집 ${index + 1}/${pending.length}(${round + 1}차)…`);
               const { filename } = await exportFrameToFolder(Math.max(0, entry.time + entry.offset), String(dataFolder.nativePath), 480);
               const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
               try {
@@ -2789,7 +2794,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
                 // 임시 파일 삭제 실패는 무시
               }
               if (bytes) frames.push({ time: entry.time, offset: entry.offset, bytes });
+              else stillMissing.push(entry);
             }
+            pending = stillMissing;
+          }
+          if (pending.length > 0) {
+            activity.add("warning", `비전 검증 · 재수집 2라운드 후에도 ${pending.length}장 유실 — 해당 후보는 배제 불가로 남습니다(§191-c).`);
           }
         }
         // 비전 참조 예시 코퍼스는 8뉴스 앵커샷 기반 — 모닝와이드 판정에 넣으면 오히려 오도한다(프로필 분리).
