@@ -158,6 +158,8 @@ import {
   MORNING_WIDE_REFERENCE_GRIDS,
   MORNING_WIDE_REFERENCE_GRIDS_FULLSHOT,
   MORNING_WIDE_REFERENCE_GRIDS_LIGHT,
+  MORNING_WIDE_REFERENCE_GRIDS_0730,
+  MORNING_WIDE_REFERENCE_GRIDS_0731,
 } from "./src/morning-wide-reference-grids";
 import { NEWS_ANCHOR_MODEL_BIAS, NEWS_ANCHOR_MODEL_WEIGHTS } from "./src/news-anchor-model";
 import { base64ToBytes, bytesToBase64, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
@@ -2622,6 +2624,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
         buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS),
         buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS_FULLSHOT),
         buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS_LIGHT),
+        // §7-u — 7/30·7/31 구도. 두 회차의 라벨 근방 참조거리 중앙값이 0.10~0.11로 기존
+        // 3계열 커버 밖이었고(타 회차 0.04~0.05), 이것이 오프라인 FN 33개 중 24개의 원인
+        // 이었다. LOO 실측: 형제 회차 기증만으로 +20 TP·대조 6회차 변화 0(라우팅이 새
+        // 뱅크를 선택하지 않음). 재킷 색·배경이 달라 두 계열로 분리했다(합본 악화 §7-o).
+        buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS_0730),
+        buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS_0731),
       ], { preferPrimary: false })
       : selectAnchorMatcher(samples, [
         buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS),
