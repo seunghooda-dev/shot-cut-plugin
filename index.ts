@@ -2824,6 +2824,10 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
         // — 남은 배치·재판정 라운드를 즉시 접고 별도 경고로 알린다.
         let budgetStopped = false;
         const lossCauses = new Map<string, number>();
+        // "기타" 유실의 원문 표본(§191-e) — mwY 실사고에서 검증·회수 판정이 "기타 67"로
+        // 전멸했는데 원 에러가 어디에도 남지 않아 크레딧 소진·네트워크·API 장애를 구별할 수
+        // 없었다. 마지막 원문 한 건이면 계통 원인 진단에 충분하다.
+        let lastLossDetail = "";
         for (let round = 0; round < 2 && pending.length > 0; round += 1) {
           const chunks = chunkVisionProbes(pending, referenceBytes, maxFramesPerBatch);
           const missed: typeof frames = [];
@@ -2889,6 +2893,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
               }
               const kind = aiFailureKind(error);
               lossCauses.set(kind, (lossCauses.get(kind) ?? 0) + chunk.length);
+              lastLossDetail = (error instanceof Error ? error.message : String(error)).slice(0, 160);
             }
           }
           pending = missed;
@@ -2899,6 +2904,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
           activity.add("warning", `AI 일일 한도 도달 — 비전 검증을 중단합니다(미판정 ${pending.length}장은 배제하지 않습니다). 설정 탭에서 한도를 조정할 수 있습니다.`);
         } else if (pending.length > 0) {
           activity.add("warning", `비전 검증 · 프레임 ${pending.length}장 판정 유실${formatLossCauses(lossCauses)} — 해당 후보는 배제하지 않습니다.`);
+          if (lastLossDetail) activity.add("warning", `판정 유실 원문(마지막 1건): ${lastLossDetail}`);
         }
         // 표 분포 가시화(§113) — 224류 요동(같은 FP가 실행마다 배제↔생존)의 표가 몇 표에서
         // 갈리는지 없이는 중재 사정권(3표)을 조정할 수 없다.
@@ -3211,6 +3217,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
           // 검증 경로와 동일한 한도 처리(§110-c) — 한도 기각을 유실로 위장하지 않는다.
           let rescueBudgetStopped = false;
           const rescueLossCauses = new Map<string, number>();
+          let rescueLastLossDetail = ""; // §191-e — 검증 경로와 같은 원문 표본
           const rescueNearMisses: string[] = [];
           const rescueVerdicts: string[] = [];
           for (let rescueRound = 0; rescueRound < 2 && rescuePending.length > 0; rescueRound += 1) {
@@ -3271,6 +3278,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
                 }
                 const kind = aiFailureKind(error);
                 rescueLossCauses.set(kind, (rescueLossCauses.get(kind) ?? 0) + chunk.length);
+                rescueLastLossDetail = (error instanceof Error ? error.message : String(error)).slice(0, 160);
               }
             }
             rescuePending = rescueMissed;
@@ -3280,6 +3288,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
             activity.add("warning", `AI 일일 한도 도달 — 놓친 경계 회수를 중단합니다(미판정 ${rescuePending.length}장). 설정 탭에서 한도를 조정할 수 있습니다.`);
           } else if (rescuePending.length > 0) {
             activity.add("warning", `회수 · 프레임 ${rescuePending.length}장 판정 유실${formatLossCauses(rescueLossCauses)} — 해당 지점은 회수하지 않습니다: ${rescuePending.slice(0, 10).map((probe) => probe.time.toFixed(0)).join(" ")}`);
+            if (rescueLastLossDetail) activity.add("warning", `회수 유실 원문(마지막 1건): ${rescueLastLossDetail}`);
           }
           // 실기 사후 판독용(§110-b) — 프로브별 판정이 없으면 "비전이 뭐라 했는지"를 영영 알 수 없다.
           // 앵커 판정을 먼저 싣는다(§124-b) — 격자 회차는 프로브가 150장이라 40건 절단에 **정작 경계가
