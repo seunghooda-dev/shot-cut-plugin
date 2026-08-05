@@ -672,12 +672,18 @@ describe("classifyAnchorShots — §139 위치 단서 계약", () => {
     assert.equal(instruction().includes("always SEATED"), false);
   });
 
-  it("standingPresenterOnly 지시에 발언자 구별 단서 2종이 있다 — 2/19 오검출 시정(§170-c)", async () => {
+  it("standingPresenterOnly 지시에 발언자 구별 단서 4종이 있다 — 2/19·7/31 오검출 시정(§170-c·§191)", async () => {
     const { fetcher, instruction } = capture();
     await client(fetcher).classifyAnchorShots([frame(10)], [], {}, { standingPresenterOnly: true });
     // 인용 띠 2줄 = 발언자, 단색 배경막 = 행사장. 둘 다 스튜디오 칼럼이 아니다.
     assert.equal(instruction().includes("TWO-LINE QUOTATION"), true);
     assert.equal(instruction().includes("plain single-colour backdrop"), true);
+    // §191 — 모닝와이드 7/31 353.8: 대담 코너의 **앉은 게스트**가 칼럼 진행자로 회수됐다.
+    // 본 검증은 배제했는데 회수가 되살린 것이라, 구멍은 이 지시에만 있었다. 종전 (a)는
+    // "1줄이면 진행자"라고 읽혀 오히려 통과를 도왔다(그 띠는 1줄 이름+인용문이었다).
+    assert.equal(instruction().includes("ON THEIR FEET"), true);
+    assert.equal(instruction().includes("SEATED anywhere"), true);
+    assert.equal(instruction().includes("QUOTED STATEMENT attributed to that person"), true);
   });
 
   // 2026-08-04 실측 기각 — "서 있어도 앵커"라는 모닝와이드 전용 문장이 데스크 칼럼

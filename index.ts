@@ -2252,6 +2252,11 @@ const DEFAULT_EXPORT_OUTPUT_DIR = "C:\\Users\\seung\\Videos\\premiere_내보내�
  */
 const RESCUE_ANCHOR_MIN_CONFIDENCE = 0.95;
 
+// 칼럼 시작 회수(§170)가 한 시각에서 볼 프레임 오프셋 — 본 검증과 같은 3점이다(§191).
+// 시각당 1장(+1.2)만 보던 종전 방식은 그 한 장이 타이트한 크롭일 때 착석 여부를 못 보고
+// 대담 게스트를 되살렸다. 같은 샷의 +4·+7은 데스크·마이크·다른 출연자를 드러낸다.
+const STANDING_PROBE_OFFSETS = [1.2, 4, 7] as const;
+
 // 뉴스 분할 탭 화질 선택 — 시스템 프리셋(.epr) 매핑(내부 베타: Premiere 2026 설치 경로 고정,
 // 파일 존재는 내보내기 시점에 Host가 검증). H.264=YouTube 계열, H.265=HEVC 계열 프리셋을 쓴다.
 const NEWS_CUT_H264_PRESET_DIR =
@@ -3551,12 +3556,22 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
                 }
                 return bytes;
               };
-             const standingProbes: Array<{ time: number; bytes: Uint8Array }> = [];
+              // §191 — 칼럼 회수도 **본 검증과 같은 3프레임**으로 판정한다. 종전에는 시각당
+              // +1.2 한 장만 봤는데, 그 한 장이 타이트한 크롭이면 착석 여부가 보이지 않아
+              // 대담 코너의 앉은 게스트를 칼럼 진행자로 되살렸다(7/31 353.8 — 본 검증이
+              // 3/3 비앵커로 제대로 배제한 것을 1표가 뒤집었다). 같은 샷의 +4·+7에서는
+              // 데스크와 마이크가 드러나고 361초엔 진행자가 중앙에 앉아 있다. 지시 문구를
+              // 조이는 것으로는 못 막았다(§191 1차) — §170-d와 같이 구조로 막는다.
+              const standingProbes: Array<{ time: number; bytes: Uint8Array }> = [];
+              let standingTimeCount = 0;
               for (const time of visionRejectedTimes) {
                 if (verified.some((start) => Math.abs(start - time) <= 8)) continue;
-                setText("busy-message", `칼럼 시작 확인 ${standingProbes.length + 1}/${visionRejectedTimes.length}…`);
-                const bytes = await grabStanding(time + 1.2);
-                if (bytes) standingProbes.push({ time, bytes });
+                standingTimeCount += 1;
+                setText("busy-message", `칼럼 시작 확인 ${standingTimeCount}/${visionRejectedTimes.length}…`);
+                for (const offset of STANDING_PROBE_OFFSETS) {
+                  const bytes = await grabStanding(time + offset);
+                  if (bytes) standingProbes.push({ time, bytes });
+                }
               }
               if (standingProbes.length > 0) {
                 // 참조 프레임은 보내지 않는다 — 질문이 "앵커인가"가 아니라 "서서 진행하는가"라
@@ -3587,16 +3602,43 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
                   }
                 }
                 const results = standingHits.map((hit) => ({ index: hit.probeIndex, isAnchor: hit.isAnchor, confidence: hit.confidence }));
-                const standingStarts: number[] = [];
+                // §191 — 시각별로 표를 모아 다수결로 판정한다. 판정된 프레임이 2장 미만이면
+                // 되살리지 않는다: 회수는 **추가** 경로라 오검출이 곧 과분할이므로 닫히는
+                // 쪽으로 실패해야 한다(§137). 프레임 유실은 §190-e·f 재기동 처방 뒤 0.5% 미만이다.
+                const standingVotes = new Map<number, { yes: number; total: number; marks: string[] }>();
                 for (const result of results) {
                   const probe = standingProbes[result.index];
-                  if (!probe || !result.isAnchor || result.confidence < RESCUE_ANCHOR_MIN_CONFIDENCE) continue;
+                  if (!probe) continue;
+                  const tally = standingVotes.get(probe.time) ?? { yes: 0, total: 0, marks: [] };
+                  tally.total += 1;
+                  const accepted = result.isAnchor && result.confidence >= RESCUE_ANCHOR_MIN_CONFIDENCE;
+                  if (accepted) tally.yes += 1;
+                  // 확신도까지 남긴다 — 2/3과 3/3을 가른 것이 무엇이었는지는 개수만으로는 못 본다.
+                  tally.marks.push(`${result.isAnchor ? "칼럼" : "아님"}(${result.confidence.toFixed(2)})`);
+                  standingVotes.set(probe.time, tally);
+                }
+                // 호출이 무엇을 보고 무엇을 골랐는지 남긴다 — 회수 경로 검증 2원칙의 첫째다.
+                if (standingVotes.size > 0) {
+                  const detail = [...standingVotes.entries()]
+                    .sort((a, b) => a[0] - b[0])
+                    .map(([time, tally]) => `${time.toFixed(0)}s ${tally.yes}/${tally.total} [${tally.marks.join(" ")}]`)
+                    .join(" · ");
+                  activity.add("info", `칼럼 판정 표 상세: ${detail}`);
+                }
+                const standingStarts: number[] = [];
+                for (const [time, tally] of [...standingVotes.entries()].sort((a, b) => a[0] - b[0])) {
+                  // §191 3차 — 과반이 아니라 **만장일치**다. 2차 실측이 경계를 그어 줬다:
+                  // 진짜 칼럼 시작 4건(7/30 336·350, 8뉴스 7/29 296·334)은 전부 3/3이었고,
+                  // 오검출(7/31 354 대담 게스트)만 2/3이었다. 참 음성은 0/3이다. 본 검증의
+                  // 배제 확신도는 참·거짓이 똑같이 0.97~0.99라 거기엔 구별 신호가 없다.
+                  // 판정된 프레임 기준 만장일치라 프레임 유실(2/2)은 통과하고 이견만 막는다.
+                  if (tally.total < 2 || tally.yes !== tally.total) continue;
                   // 블록의 첫 등장만 — 이미 채택한 칼럼 시작과 60초 안이면 같은 칼럼의 연속이다.
                   // 앞선 확정 경계와의 거리로는 거르지 않는다(§168-c 2차 실측): 칼럼 시작은 직전
                   // 아이템 경계 60초 안에 올 수 있어, 그 규칙이 표적 296.0을 죽이고 대신 연속 지점
                   // 334.0을 통과시켜 F1을 96.0 → 92.3으로 떨어뜨렸다. 확정 경계와의 ±8초 중복은
                   // 프레임 수집 단계에서 이미 걸러진다.
-                  const nearStanding = standingStarts.some((start) => probe.time - start <= 60 && probe.time > start);
+                  const nearStanding = standingStarts.some((start) => time - start <= 60 && time > start);
                   if (nearStanding) continue;
                   // 알려진 공백(§172-a) — 칼럼이 **직전 확정 경계에서 이미 시작**된 경우, 그
                   // 중간의 서 있는 진행자를 새 시작으로 오인하는 FP는 여기서 방어되지 않는다
@@ -3604,7 +3646,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
                   // 4종(중간점·시작부 1점/2점·동일 코너 비교)을 전부 시도했으나 실패해 원복했다
                   // — 근거와 재개 조건(구조 단서 확보 시)은 런북 §172-a. 여기에 판별 코드를
                   // 다시 넣기 전에 그 절부터 읽을 것.
-                  standingStarts.push(probe.time);
+                  standingStarts.push(time);
                 }
                 if (standingStarts.length > 0) {
                   activity.add("info", `칼럼 시작 회수 · ${standingStarts.length}건: ${standingStarts.map((time) => time.toFixed(1)).join(" ")}`);
@@ -3615,7 +3657,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
                   }
                   verified = [...verified.filter((time) => !dropped.includes(time)), ...standingStarts].sort((a, b) => a - b);
                 } else {
-                  activity.add("info", `칼럼 시작 확인 · ${standingProbes.length}곳 모두 해당 없음`);
+                  activity.add("info", `칼럼 시작 확인 · ${standingVotes.size}곳 모두 해당 없음`);
                 }
               }
             } catch (error) {
