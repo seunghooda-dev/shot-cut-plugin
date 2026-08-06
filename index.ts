@@ -2833,6 +2833,10 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
         // 일일 한도 도달은 "판정 유실"이 아니다(§110-c 실측: 한도 기각이 유실로 위장돼 원인 불명이 됐다)
         // — 남은 배치·재판정 라운드를 즉시 접고 별도 경고로 알린다.
         let budgetStopped = false;
+        // 크레딧 소진 구별(§191-f) — 즉시 중단은 한도와 같지만 사용자 처방이 다르다.
+        // 실사고: 소진 상태가 "일일 한도 도달"로 표기돼 감시 스크립트가 복구로 오판,
+        // 5회차를 헛돌렸다(채점기 가드가 전량 거부해 오염은 없었다).
+        let creditExhausted = false;
         const lossCauses = new Map<string, number>();
         // "기타" 유실의 원문 표본(§191-e) — mwY 실사고에서 검증·회수 판정이 "기타 67"로
         // 전멸했는데 원 에러가 어디에도 남지 않아 크레딧 소진·네트워크·API 장애를 구별할 수
@@ -2897,9 +2901,11 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
               // 배치 실패 → 전체 강하 → FP 잔존). 실패 배치는 유실 재판정 라운드로 넘긴다.
               missed.push(...chunk);
               // 크레딧 소진도 한도와 같은 종결 조건이다(§191-e) — mwY 실사고에서 "기타"로
-              // 남아 잔여 배치를 전부 헛시도했다.
+              // 남아 잔여 배치를 전부 헛시도했다. 단 사용자 안내는 갈라야 한다(§191-f):
+              // 일일 한도는 설정 탭에서 풀 수 있지만 크레딧 소진은 OpenAI 충전이 필요하다.
               if (error instanceof Error && (error.message.includes("한도") || isCreditExhausted(error.message))) {
                 budgetStopped = true;
+                if (isCreditExhausted(error.message)) creditExhausted = true;
                 for (const rest of chunks.slice(chunkIndex + 1)) missed.push(...rest);
                 break;
               }
@@ -2913,7 +2919,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
         }
         if (budgetStopped) {
           verifyBudgetStopped = true;
-          activity.add("warning", `AI 일일 한도 도달 — 비전 검증을 중단합니다(미판정 ${pending.length}장은 배제하지 않습니다). 설정 탭에서 한도를 조정할 수 있습니다.`);
+          activity.add("warning", creditExhausted
+            ? `OpenAI 크레딧 소진 — 비전 검증을 중단합니다(미판정 ${pending.length}장은 배제하지 않습니다). platform.openai.com에서 크레딧을 충전해야 재개됩니다.`
+            : `AI 일일 한도 도달 — 비전 검증을 중단합니다(미판정 ${pending.length}장은 배제하지 않습니다). 설정 탭에서 한도를 조정할 수 있습니다.`);
         } else if (pending.length > 0) {
           activity.add("warning", `비전 검증 · 프레임 ${pending.length}장 판정 유실${formatLossCauses(lossCauses)} — 해당 후보는 배제하지 않습니다.`);
           if (lastLossDetail) activity.add("warning", `판정 유실 원문(마지막 1건): ${lastLossDetail}`);
