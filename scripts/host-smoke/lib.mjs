@@ -75,9 +75,30 @@ export async function connectPanel({ session, distPath, reload = false } = {}) {
   let appClientId = null;
   // 500까지 훑는다(2026-08-06 실측: §192 재기동 후 재로드된 패널이 395번 — 300 상한이
   // 살아 있는 패널을 "없음"으로 오진했다). 진단 접속·재연결이 반복될수록 번호가 올라간다.
-  for (let candidate = 1; candidate <= 500 && appClientId === null; candidate += 1) {
-    const reply = await clientReq(candidate, { command: "App", action: "info" }, 1200);
+  // 직전 성공 번호를 캐시해 그 근방부터 훑는다 — 선형 1.2s×426번 ≈ 8.5분이 로테이션
+  // 타임아웃(7분)을 넘겨 살아 있는 패널로도 접속이 실패했다(2026-08-06 실측).
+  const { join: joinPath } = await import("node:path");
+  const { readFileSync: readCache, writeFileSync: writeCache, mkdirSync: mkCacheDir } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const cacheFile = joinPath(tmpdir(), "shortflow-udt", "last-client-id.txt");
+  let cachedId = 0;
+  try { cachedId = Number(readCache(cacheFile, "utf8").trim()) || 0; } catch { /* 캐시 없음 */ }
+  const order = [];
+  if (cachedId >= 1) {
+    // 캐시 번호부터 위로(재로드 시 번호는 증가만 한다), 그다음 캐시 아래로 소량 역방향.
+    for (let candidate = cachedId; candidate <= cachedId + 80; candidate += 1) order.push(candidate);
+    for (let candidate = cachedId - 1; candidate >= Math.max(1, cachedId - 20); candidate -= 1) order.push(candidate);
+  }
+  for (let candidate = 1; candidate <= 500; candidate += 1) {
+    if (!order.includes(candidate)) order.push(candidate);
+  }
+  for (const candidate of order) {
+    if (appClientId !== null) break;
+    const reply = await clientReq(candidate, { command: "App", action: "info" }, 900);
     if (reply && reply.appId) appClientId = candidate;
+  }
+  if (appClientId !== null) {
+    try { mkCacheDir(joinPath(tmpdir(), "shortflow-udt"), { recursive: true }); writeCache(cacheFile, String(appClientId), "utf8"); } catch { /* 캐시 실패 무해 */ }
   }
   if (appClientId === null) {
     // 실패해도 소켓을 닫는다 — 접속 하나가 clientId를 하나 소비하므로, 닫지 않으면 재시도할수록
