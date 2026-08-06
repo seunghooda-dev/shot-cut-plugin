@@ -881,6 +881,14 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(area.slice(0, 1600), /칼럼 판정 표 상세/u, "칼럼 판정 표가 로그에 남아야 한다");
   });
 
+  it("크레딧 소진 중단은 한도와 다른 안내를 낸다 — 감시 오판 실사고(§191-f)", () => {
+    // 소진이 "일일 한도 도달"로 표기돼 감시 스크립트가 복구로 오판, 5회차를 헛돌렸다.
+    // 설정 탭 안내는 소진에는 오도다 — 충전 안내로 갈라야 한다.
+    assert.match(indexSource, /creditExhausted\s*\?/u, "중단 경고가 creditExhausted로 분기해야 한다");
+    assert.match(indexSource, /OpenAI 크레딧 소진/u, "소진 전용 문구가 있어야 한다");
+    assert.match(indexSource, /크레딧을 충전해야 재개/u, "충전 안내가 있어야 한다");
+  });
+
   it("크레딧 소진은 한도와 같은 즉시 중단 조건이다(§191-e)", () => {
     // mwY 실사고: "You have no credits remaining"이 "기타"로 분류돼 잔여 배치를 전부
     // 헛시도했고, 원인도 로그에 안 남았다. 검증·회수 두 경로 모두 즉시 중단해야 한다.
