@@ -128,6 +128,28 @@ describe("collectAnchorCandidates", () => {
     assert.deepEqual([...times].sort((a, b) => a - b), times, "시간순 정렬이어야 한다");
   });
 
+  it("runYieldMaxDist가 원거리 shot에 가려진 저거리 런을 살린다 — MW 968 유형(§7-aa)", () => {
+    // 실측 구조 재현(7/22 968): 원거리 b-roll이 8s+ 긴 샷 후보로 등록되고, 그 구간이
+    // 우연히 RUN_MAX_DIST(0.145) 미만이라 런도 같은 지점에서 시작한다. 런의 min은 뒤이은
+    // 진짜 앵커 구간에서 낮아지지만, 시작이 shot ±6s 안이라 종전 규칙은 무조건 버렸다.
+    // 값 128 → 거리 |128-100|/255 ≈ 0.110: LONG_MAX(0.16) 미만(shot 등록) ·
+    // cap(0.09) 초과(양보 대상 아님) · RUN_MAX(0.145) 미만(런이 여기서 시작).
+    const matcher = buildAnchorMatcher([grid(100)]);
+    const samples = samplesFrom([
+      { from: 0, to: 2, value: 200 },     // 컷 경계용 원거리 콘텐츠
+      { from: 4, to: 14, value: 128 },    // 원거리 b-roll: 10s 긴 샷(시작 4, refDist ≈0.110)
+      { from: 16, to: 20, value: 100 },   // 진짜 앵커 — 런 min을 0으로 낮춘다
+      { from: 22, to: 30, value: 200 },   // 런 종료
+    ]);
+    const withOption = collectAnchorCandidates(samples, matcher, { runYieldMaxDist: 0.09 });
+    const without = collectAnchorCandidates(samples, matcher);
+    const rescued = withOption.find((candidate) => candidate.kind === "run");
+    assert.ok(rescued, `옵션이 가려진 런을 살려야 한다: ${JSON.stringify(withOption)}`);
+    assert.ok(rescued!.refDist < 0.01, "런 min은 진짜 앵커 구간의 저거리여야 한다");
+    assert.equal(without.some((candidate) => candidate.kind === "run"), false,
+      "옵션 없이는 종전대로 가려진다 — 8뉴스 동작 불변의 증거");
+  });
+
   it("참조가 안 통하는 포맷이면(후보<3) 긴 샷 전부로 넓힌다", () => {
     const matcher = buildAnchorMatcher([grid(10)]); // 모든 샘플과 멀다
     const samples = samplesFrom([

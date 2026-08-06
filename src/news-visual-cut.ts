@@ -265,7 +265,21 @@ export interface AnchorCandidate {
  * 리드 포함, §62)의 시작. 같은 지점(±6s)은 하나로 합친다. 후보가 3개 미만이면 참조가 안 통하는
  * 포맷(주말 등)으로 보고 긴 샷 전부를 후보로 넓힌다 — 최종 판정은 비전이 한다.
  */
-export function collectAnchorCandidates(samples: readonly GridSample[], matcher: AnchorMatcher): AnchorCandidate[] {
+export interface CollectAnchorOptions {
+  /**
+   * 저거리 런이 근접(±6s) shot 후보에 양보하는 기준 거리(§7-aa — 모닝와이드 전용 옵션).
+   * 미지정이면 종전대로 어떤 근접 shot에든 무조건 양보한다(8뉴스 경로 불변).
+   * 지정하면 근접 shot의 refDist가 이 값 미만일 때만 양보한다 — 실측(MW 7/22 968·7/29 372):
+   * 원거리 b-roll shot(0.13)이 자리를 차지해 진짜 앵커 런(0.036)이 버려지는 FN이 있었다.
+   */
+  runYieldMaxDist?: number;
+}
+
+export function collectAnchorCandidates(
+  samples: readonly GridSample[],
+  matcher: AnchorMatcher,
+  options: CollectAnchorOptions = {},
+): AnchorCandidate[] {
   const usable = samples.filter((sample) => sample.grid);
   const longShots = findShotSegments(usable)
     .filter((shot) => shot.end - shot.start >= VISUAL_LONG_SHOT_MIN_SECONDS)
@@ -282,7 +296,11 @@ export function collectAnchorCandidates(samples: readonly GridSample[], matcher:
   const flushRun = () => {
     if (!run) return;
     const span = run.end - run.start;
-    if (span >= 2 && span <= 40 && !candidates.some((candidate) => Math.abs(candidate.time - run!.start) <= 6)) {
+    const near = candidates.filter((candidate) => Math.abs(candidate.time - run!.start) <= 6);
+    const blocked = options.runYieldMaxDist === undefined
+      ? near.length > 0
+      : near.some((candidate) => candidate.refDist < options.runYieldMaxDist!);
+    if (span >= 2 && span <= 40 && !blocked) {
       candidates.push({ time: run.start, refDist: run.min, kind: "run" });
     }
     run = null;

@@ -2652,7 +2652,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
     if (bankFit > BANK_FIT_WARN_DISTANCE) {
       activity.add("warning", `이 회차는 학습 범위 밖일 수 있습니다(화면 일치도 ${bankFit.toFixed(3)} · 기준 ${BANK_FIT_WARN_DISTANCE}) — 아이템이 실제보다 적게 나올 수 있으니 결과를 확인해 주세요.`);
     }
-    const candidates = collectAnchorCandidates(samples, matcher);
+    // §7-aa — 모닝와이드만 저거리 런의 양보 기준을 켠다: 원거리 b-roll shot(>cap)이 ±6s
+    // 자리를 차지해 진짜 앵커 런(0.036)이 버려지는 FN 2건 실측(7/22 968·7/29 372).
+    // 8뉴스는 옵션 미전달로 종전 동작 그대로다. 실기 판정 전까지 오프라인 근거(§7-aa
+    // 반사실 TP +3·FP +2)만 있는 상태 — 재개 후 대조(과거 FP 이력 포함)로 판정한다.
+    const candidates = collectAnchorCandidates(samples, matcher, program === "morningwide"
+      ? { runYieldMaxDist: MORNING_WIDE_UNION_MAX_REF_DIST }
+      : {});
     if (candidates.length === 0) throw new Error("앵커 샷 후보를 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
     const tailStart = detectStaticTailStart(samples);
     // 앵커 확정 — 완전 무료(외부 API 0회): 자동 임계 주 앵커 + 강한 런 + 학습 모델 고신뢰 검출
