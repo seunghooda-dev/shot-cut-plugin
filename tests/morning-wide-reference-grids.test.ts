@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  MORNING_WIDE_ANCHOR_MODEL_BIAS,
+  MORNING_WIDE_ANCHOR_MODEL_WEIGHTS,
+} from "../src/morning-wide-anchor-model";
+import {
   MORNING_WIDE_REFERENCE_GRIDS,
+  MORNING_WIDE_REFERENCE_GRIDS_0730,
+  MORNING_WIDE_REFERENCE_GRIDS_0731,
+  MORNING_WIDE_REFERENCE_GRIDS_0803,
   MORNING_WIDE_REFERENCE_GRIDS_FULLSHOT,
   MORNING_WIDE_REFERENCE_GRIDS_LIGHT,
 } from "../src/morning-wide-reference-grids";
@@ -13,6 +20,9 @@ const BANKS: Array<[string, ReadonlyArray<readonly number[]>]> = [
   ["분할 구도", MORNING_WIDE_REFERENCE_GRIDS],
   ["풀샷 구도", MORNING_WIDE_REFERENCE_GRIDS_FULLSHOT],
   ["밝은 재킷", MORNING_WIDE_REFERENCE_GRIDS_LIGHT],
+  ["0730 기증", MORNING_WIDE_REFERENCE_GRIDS_0730],
+  ["0731 기증", MORNING_WIDE_REFERENCE_GRIDS_0731],
+  ["0803+04 기증", MORNING_WIDE_REFERENCE_GRIDS_0803],
 ];
 
 describe("MORNING_WIDE_REFERENCE_GRIDS", () => {
@@ -61,6 +71,16 @@ describe("MORNING_WIDE_REFERENCE_GRIDS", () => {
       assert.ok(widened.includes(time), `상한 안의 후보 ${time}이 채택돼야 한다`);
     }
     assert.ok(!widened.includes(400), "상한 밖 후보는 그대로 배제돼야 한다");
+  });
+
+  // P5 학습 모델(§7-ag) — scoreAnchorSamples의 특징 차원(147)과 가중치 길이가 어긋나면
+  // 점수가 조용히 전부 0이 되어 모델 편입이 무효가 된다. 형식 계약으로 고정한다.
+  it("P5 모델: 가중치 147개·전부 유한수·bias 유한수 — scoreAnchorSamples 입력 계약", () => {
+    assert.equal(MORNING_WIDE_ANCHOR_MODEL_WEIGHTS.length, 147);
+    for (const weight of MORNING_WIDE_ANCHOR_MODEL_WEIGHTS) {
+      assert.ok(Number.isFinite(weight), `가중치가 유한수가 아닙니다: ${weight}`);
+    }
+    assert.ok(Number.isFinite(MORNING_WIDE_ANCHOR_MODEL_BIAS));
   });
 
   // A/B 실측(2026-08-04): 두 계열을 한 매처로 합치면 셀별 분산이 커져 변별력이 떨어진다
