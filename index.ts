@@ -162,6 +162,7 @@ import {
   MORNING_WIDE_REFERENCE_GRIDS_0731,
 } from "./src/morning-wide-reference-grids";
 import { NEWS_ANCHOR_MODEL_BIAS, NEWS_ANCHOR_MODEL_WEIGHTS } from "./src/news-anchor-model";
+import { MORNING_WIDE_ANCHOR_MODEL_BIAS, MORNING_WIDE_ANCHOR_MODEL_WEIGHTS } from "./src/morning-wide-anchor-model";
 import { base64ToBytes, bytesToBase64, loadAnchorExemplars, saveAnchorExemplar } from "./src/anchor-corpus";
 import { LICENSE_CLOCK_KEY, LICENSE_STORAGE_KEY, licenseFailureMessage, verifyLicenseKey } from "./src/license";
 import { LICENSE_PUBLIC_KEY } from "./src/license-public-key";
@@ -2662,13 +2663,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
     if (candidates.length === 0) throw new Error("앵커 샷 후보를 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
     const tailStart = detectStaticTailStart(samples);
     // 앵커 확정 — 완전 무료(외부 API 0회): 자동 임계 주 앵커 + 강한 런 + 학습 모델 고신뢰 검출
-    // 모닝와이드는 학습 모델이 아직 없다(P5 예정) — 빈 가중치는 scoreAnchorSamples가 전부 0을
-    // 반환하는 설계된 무해 경로라, 후보는 뱅크 매칭(무료 경로)만으로 나온다.
+    // 모닝와이드 전용 P5 모델(§7-ae·§7-af) — 홀드아웃 8/4 +10.3, 뱅크가 원리적으로 못 잡는
+    // 결손(런 삼킴·cap 초과)을 회수하는 상보 경로. 8뉴스 모델·경로는 문자 그대로 불변.
     const probabilities = scoreAnchorSamples(
       samples,
       matcher,
-      program === "news8" ? NEWS_ANCHOR_MODEL_WEIGHTS : [],
-      program === "news8" ? NEWS_ANCHOR_MODEL_BIAS : 0,
+      program === "news8" ? NEWS_ANCHOR_MODEL_WEIGHTS : MORNING_WIDE_ANCHOR_MODEL_WEIGHTS,
+      program === "news8" ? NEWS_ANCHOR_MODEL_BIAS : MORNING_WIDE_ANCHOR_MODEL_BIAS,
     );
     const modelStarts = detectModelStarts(samples, probabilities);
     // 모닝와이드는 아이템이 20개를 넘고 후보 거리가 촘촘해 자동 임계만으로는 대부분이 잘린다
