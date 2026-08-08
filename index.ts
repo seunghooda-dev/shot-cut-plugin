@@ -161,6 +161,7 @@ import {
   MORNING_WIDE_REFERENCE_GRIDS_0730,
   MORNING_WIDE_REFERENCE_GRIDS_0731,
   MORNING_WIDE_REFERENCE_GRIDS_0803,
+  MORNING_WIDE_REFERENCE_GRIDS_0805,
 } from "./src/morning-wide-reference-grids";
 import { NEWS_ANCHOR_MODEL_BIAS, NEWS_ANCHOR_MODEL_WEIGHTS } from "./src/news-anchor-model";
 import { MORNING_WIDE_ANCHOR_MODEL_BIAS, MORNING_WIDE_ANCHOR_MODEL_WEIGHTS } from "./src/morning-wide-anchor-model";
@@ -2645,6 +2646,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
         // §7-af 잔여 결손 처방 — footage 전면 합성 구도(8/3 389·8/4 1085.7)의 실기 후보 소멸.
         // 편입 A/B: 학습 8회차 F1·라우팅 완전 동일(오염 0), 8/3 60→100 · 8/4 76.9→100(오프라인).
         buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS_0803),
+        // §7-ak 처방 — 수요일 교대 진행자(8/5 기증 15장). 기존 10회차 라우팅 불변(A/B 오염 0).
+        buildAnchorMatcher(MORNING_WIDE_REFERENCE_GRIDS_0805),
       ], { preferPrimary: false })
       : selectAnchorMatcher(samples, [
         buildAnchorMatcher(NEWS_ANCHOR_REFERENCE_GRIDS),
