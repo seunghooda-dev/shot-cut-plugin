@@ -30,7 +30,8 @@
     "clean:previews": "node scripts/host-smoke/clean-previews.mjs",
     "host:smoke": "node scripts/host-smoke/run.mjs",
     "host:smoke:full": "node scripts/host-smoke/run.mjs --full",
-    "check:news": "node scripts/news-train/regression.mjs"
+    "check:news": "node scripts/news-train/regression.mjs",
+    "check:mw": "npm run test:compile && node scripts/morning-wide/regression.mjs"
   },
   "devDependencies": {
     "@adobe/cc-ext-uxp-types": "^7.3.1",
