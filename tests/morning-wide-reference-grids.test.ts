@@ -6,6 +6,7 @@ import {
   MORNING_WIDE_ANCHOR_MODEL_BIAS,
   MORNING_WIDE_ANCHOR_MODEL_WEIGHTS,
 } from "../src/morning-wide-anchor-model";
+import { NEWS_ANCHOR_MODEL_BIAS, NEWS_ANCHOR_MODEL_WEIGHTS } from "../src/news-anchor-model";
 import {
   MORNING_WIDE_REFERENCE_GRIDS,
   MORNING_WIDE_REFERENCE_GRIDS_0730,
@@ -83,6 +84,17 @@ describe("MORNING_WIDE_REFERENCE_GRIDS", () => {
       assert.ok(Number.isFinite(weight), `가중치가 유한수가 아닙니다: ${weight}`);
     }
     assert.ok(Number.isFinite(MORNING_WIDE_ANCHOR_MODEL_BIAS));
+  });
+
+  // 감사 지적(2026-08-09 F1) — 두 프로그램 모델이 같은 147차원이라, 분기를 뒤집거나 상수를
+  // 잘못 붙여도 scoreAnchorSamples의 길이 방어(cells+3)를 그대로 통과한다. 예외도 0점 강하도
+  // 없이 "그럴듯한" 확률이 나와 F1 몇 점 하락이 §126 요동으로 오분류된다. 복붙 사고를 막는다.
+  it("두 프로그램 모델은 서로 다른 가중치다 — 복붙·오배선 검출", () => {
+    assert.equal(NEWS_ANCHOR_MODEL_WEIGHTS.length, MORNING_WIDE_ANCHOR_MODEL_WEIGHTS.length);
+    const identical = MORNING_WIDE_ANCHOR_MODEL_WEIGHTS
+      .every((weight, index) => weight === NEWS_ANCHOR_MODEL_WEIGHTS[index]);
+    assert.ok(!identical, "모닝와이드 모델이 8뉴스 모델과 동일합니다 — 오배선 의심");
+    assert.notEqual(MORNING_WIDE_ANCHOR_MODEL_BIAS, NEWS_ANCHOR_MODEL_BIAS);
   });
 
   // A/B 실측(2026-08-04): 두 계열을 한 매처로 합치면 셀별 분산이 커져 변별력이 떨어진다
