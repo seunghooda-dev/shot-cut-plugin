@@ -102,6 +102,48 @@ export function lumaGrid(frame: BmpFrame, cols = FRAME_DIFF_GRID_COLS, rows = FR
   return grid;
 }
 
+/**
+ * 에지(윤곽) 격자 — `lumaGrid`와 같은 16×9 셀에 **밝기 대신 기울기 크기**를 담는다.
+ *
+ * 픽셀마다 중심차분 |dx| + |dy|를 구해 셀 평균을 낸다(테두리 1픽셀은 0). 같은 프레임에서
+ * `lumaGrid`와 나란히 뽑히므로 **프레임 내보내기 비용이 0**이다(`bandRow`와 같은 선례).
+ *
+ * 배경 합성 앵커가 luma에서 뱅크와 멀어지는 문제를 겨냥한다 — 진행자 의상·조명은 밝기를
+ * 바꾸지만 인물 윤곽 구조는 유지되기 때문이다(기전은 추론, 미검증). 오프라인 실측(23회차,
+ * 제품 후보 생성기에 매처만 교체한 공정 비교): 무료 경로 F1 88.7 → 97.8, 23회차 18↑·0↓,
+ * **19/19에서 놓치는 라벨이 luma가 놓치는 것의 진부분집합**.
+ *
+ * **아직 제품 판정 경로에 쓰이지 않는다** — Premiere `exportSequenceFrame` 프레임에서
+ * 에지가 ffmpeg 디코드와 얼마나 다른지 미측정이고(luma는 평균 12/255·최대 189 차이가
+ * 실측됐다), 에지는 고주파 통계라 더 민감할 수 있다. 그 측정을 위한 진단용으로 먼저 넣는다.
+ */
+export function edgeGrid(frame: BmpFrame, cols = FRAME_DIFF_GRID_COLS, rows = FRAME_DIFF_GRID_ROWS): Float64Array {
+  const { width, height } = frame;
+  const magnitude = new Float64Array(width * height);
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      magnitude[y * width + x] =
+        Math.abs(frame.lumaAt(x + 1, y) - frame.lumaAt(x - 1, y)) +
+        Math.abs(frame.lumaAt(x, y + 1) - frame.lumaAt(x, y - 1));
+    }
+  }
+  const grid = new Float64Array(cols * rows);
+  for (let cellY = 0; cellY < rows; cellY += 1) {
+    const y0 = Math.floor((cellY * height) / rows);
+    const y1 = Math.max(y0 + 1, Math.floor(((cellY + 1) * height) / rows));
+    for (let cellX = 0; cellX < cols; cellX += 1) {
+      const x0 = Math.floor((cellX * width) / cols);
+      const x1 = Math.max(x0 + 1, Math.floor(((cellX + 1) * width) / cols));
+      let sum = 0;
+      for (let y = y0; y < y1; y += 1) {
+        for (let x = x0; x < x1; x += 1) sum += magnitude[y * width + x]!;
+      }
+      grid[cellY * cols + cellX] = sum / ((y1 - y0) * (x1 - x0));
+    }
+  }
+  return grid;
+}
+
 /** 띠 영역의 비율 좌표(0..1) — bandRow가 프레임 크기와 무관하게 같은 영역을 읽게 한다. */
 export interface BandRegion {
   x0r: number;

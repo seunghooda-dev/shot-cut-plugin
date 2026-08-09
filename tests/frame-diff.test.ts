@@ -7,6 +7,7 @@ import {
   FRAME_DIFF_GRID_ROWS,
   bandRow,
   cloneSamplesForReusedTimes,
+  edgeGrid,
   frameDifference,
   looksCompleteImage,
   lumaGrid,
@@ -104,6 +105,34 @@ describe("parseBmp24", () => {
     assert.equal(parseBmp24(compressed), null);
     const truncated = bmp24(4, 4, () => [0, 0, 0]).slice(0, 60);
     assert.equal(parseBmp24(truncated), null);
+  });
+});
+
+describe("edgeGrid — 밝기가 아니라 윤곽을 담는다", () => {
+  it("평탄한 화면은 밝기와 무관하게 전부 0이다 — luma와 갈리는 지점", () => {
+    const black = edgeGrid(parseBmp24(bmp24(32, 18, () => [0, 0, 0]))!);
+    const white = edgeGrid(parseBmp24(bmp24(32, 18, () => [255, 255, 255]))!);
+    assert.equal(black.every((cell) => cell === 0), true, "검은 화면은 윤곽이 없다");
+    assert.equal(white.every((cell) => cell === 0), true, "흰 화면도 윤곽이 없다");
+    // 같은 두 장을 luma로 보면 정반대로 최대한 멀다 — 이 대비가 표현 교체의 근거다.
+    const blackLuma = lumaGrid(parseBmp24(bmp24(32, 18, () => [0, 0, 0]))!);
+    const whiteLuma = lumaGrid(parseBmp24(bmp24(32, 18, () => [255, 255, 255]))!);
+    assert.ok(whiteLuma[0]! - blackLuma[0]! > 200, "luma로는 두 화면이 극단적으로 다르다");
+  });
+
+  it("세로 경계가 있으면 그 열의 셀만 반응한다", () => {
+    const frame = parseBmp24(bmp24(32, 18, (x) => (x < 16 ? [0, 0, 0] : [255, 255, 255])))!;
+    const grid = edgeGrid(frame);
+    // 16열 격자 · 32px 폭이므로 경계(x=16)는 8번째 셀 경계에 걸린다.
+    const responding = [...grid].filter((cell) => cell > 0).length;
+    assert.ok(responding > 0, `경계가 어떤 셀에도 안 잡혔다: ${JSON.stringify([...grid])}`);
+    assert.ok(responding < grid.length / 2, "평탄한 영역까지 반응하면 안 된다");
+  });
+
+  it("격자 크기와 유한성 계약 — 모델·매처가 그대로 받는다", () => {
+    const grid = edgeGrid(parseBmp24(bmp24(96, 54, (x, y) => [(x * 3) % 256, (y * 5) % 256, 0]))!);
+    assert.equal(grid.length, FRAME_DIFF_GRID_COLS * FRAME_DIFF_GRID_ROWS);
+    assert.equal([...grid].every((cell) => Number.isFinite(cell) && cell >= 0), true);
   });
 });
 
