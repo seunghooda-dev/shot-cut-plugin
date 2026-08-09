@@ -472,12 +472,16 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /onTranscript:\s*\(transcript\)\s*=>\s*\{[\s\S]{0,500}?automationController\?\.setTranscript\(resolveAutomationTranscript\(transcript, null\)\);/);
   assert.match(source, /onChange:\s*\(document\)\s*=>\s*\{[\s\S]{0,420}?automationController\?\.setTranscript\(resolveAutomationTranscript\(speechController\?\.transcript, document\)\);/);
   // 모닝와이드 프로필 분기(morning-wide-split P4) — 8뉴스 기본값 동결 + 전용 버튼 + 8뉴스
-  // 전용 신호(§110 띠·§152 사인오프)의 프로그램 게이트를 계약으로 고정한다.
+  // 전용 신호(§110 띠)의 프로그램 게이트를 계약으로 고정한다.
   assert.match(source, /async function runNewsCutAutoFlow\(exportAfter: boolean, program: NewsCutProgram = "news8"\)/);
   assert.match(source, /bind\("news-cut-mw-auto-btn", "click", guarded\(handleMorningCutAuto, "모닝와이드 원클릭 분할 실패"\)\)/);
   assert.match(source, /bind\("news-cut-mw-split-btn", "click", guarded\(handleMorningCutSplitOnly, "모닝와이드 분할 실패"\)\)/);
   assert.match(source, /const bandEventCandidates = program === "news8" \? bandEvents : \[\];/);
-  assert.match(source, /if \(program !== "news8"\) return 0;/);
+  // §7-ap 사인오프는 모닝와이드에서도 개통했다(종전 `program !== "news8"` 잠금 해제). 남은
+  // 계약은 **패턴 분기**다 — 8뉴스는 KBC 고정, MW만 방송사명 ASR 오인을 허용한다. 완화는
+  // 매치를 늘리기만 하므로 8뉴스에 새면 검증된 오검출 0이 재검증 없이 흔들린다.
+  assert.match(source, /const signoffPattern = program === "news8" \? SIGNOFF_PATTERN : MORNING_WIDE_SIGNOFF_PATTERN;/);
+  assert.match(source, /findSignoffs\(result, window\.begin, signoffPattern\)/);
   // §189 #2(사용자 확정): 자동 편집 적용은 시퀀스 길이 대조 포트와 불일치 확인 모달이 배선돼야 한다.
   assert.match(source, /getSequenceDurationSeconds:\s*async \(\) => \{[\s\S]{0,240}?includeSelection: false, includePlayerPosition: false[\s\S]{0,80}?sequenceEnd/);
   assert.match(source, /confirmTimeBaseMismatch:\s*\(details\) => requestAutomationTimeBaseConfirmation\(details\)/);

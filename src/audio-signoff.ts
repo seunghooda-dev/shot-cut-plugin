@@ -11,6 +11,19 @@ import { parseWavPcm } from "./wav-pcm";
 export const SIGNOFF_PATTERN = /KBC\s*(?:뉴스\s*)?[가-힣]{2,4}\s*입니다/u;
 
 /**
+ * 모닝와이드용 완화형 — 같은 관습이되 **방송사명 토큰의 ASR 오인을 허용**한다.
+ *
+ * 모닝와이드 19회차 로컬 STT 실측에서 실제 사인오프가 `MBC 뉴스 김성현입니다`로 전사됐다
+ * (KBC를 MBC로 잘못 들음). 8뉴스는 `KBC` 고정으로 실기가 검증돼 있으므로 **그 경로는 건드리지
+ * 않고** 모닝와이드에서만 완화한다 — 완화는 매치를 늘리기만 하므로, 8뉴스에 적용하면 검증된
+ * 오검출 0을 재검증 없이 흔들게 된다.
+ *
+ * 실측: 경계 적중 6/19(고정형) → 7/19(완화형) · **대조 오검출 둘 다 0/19**.
+ * `계획입니다`·`규제입니다` 같은 흔한 종결은 방송사명 토큰이 앞에 없어 그대로 걸러진다.
+ */
+export const MORNING_WIDE_SIGNOFF_PATTERN = /(?:[A-Z]{1,3}C|케이비씨)\s*(?:뉴스\s*)?[가-힣]{2,4}\s*입니다/u;
+
+/**
  * 후보 지점 직전에 볼 창 — 사인오프는 대개 경계 1~3초 앞에서 끝나지만 **경계 ±1초에 끝나는
  * 것도 실재한다**(§155 실측: 3/24 193.1 Δ−1.0 · 580.2 Δ+1.0, J-컷 겹침 포함). 창이 경계에
  * 닿지 않으면 마지막 문장이 잘려 신호가 있어도 못 본다(§152 1차의 11.7초 창이 0/10) —
@@ -133,11 +146,12 @@ export function planSignoffWindows(
 export function findSignoffs(
   segments: readonly TranscriptLike[],
   windowBegin: number,
+  pattern: RegExp = SIGNOFF_PATTERN,
 ): SignoffHit[] {
   const hits: SignoffHit[] = [];
   for (const segment of segments) {
     if (!segment || typeof segment.text !== "string") continue;
-    if (!SIGNOFF_PATTERN.test(segment.text)) continue;
+    if (!pattern.test(segment.text)) continue;
     const end = Number(segment.end);
     if (!Number.isFinite(end)) continue;
     hits.push({ at: Math.round((windowBegin + end) * 10) / 10, text: segment.text.trim() });

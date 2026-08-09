@@ -80,6 +80,8 @@ import {
   planSignoffWindows,
   signoffProbeTimes,
   createWavWindowSlicer,
+  SIGNOFF_PATTERN,
+  MORNING_WIDE_SIGNOFF_PATTERN,
   type SignoffHit,
 } from "./src/audio-signoff";
 import {
@@ -3103,8 +3105,13 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
         // 흔들리지 않아 §126 변동에 대한 보험이 된다. 창은 이미 뽑아 둔 프로브 지점 직전만 보고,
         // 후보는 회수 프로브 목록에 합류시켜 기존 비전 판정·병합·재스냅을 그대로 통과시킨다.
         const signoffProbeCount = await (async (): Promise<number> => {
-          // §152 사인오프 창·패턴은 8뉴스 실측 기반 — 모닝와이드는 P5에서 재실측 후 개통한다.
-          if (program !== "news8") return 0;
+          // §7-ap — 모닝와이드 재실측 후 개통(종전에는 `program !== "news8"`로 잠겨 있었다).
+          // 19회차 로컬 STT 실측: 경계 적중 6/19(완화형 7/19) · **대조 오검출 0/19**로 8뉴스
+          // §152 확정치(오검출 0·경계 30% 커버)와 사실상 같다. MW의 결손은 정밀도가 아니라
+          // 재현율이고, 오디오는 짧은 앵커 블록에서 시각 프로브가 이탈하는 지점을 그대로 덮는다.
+          // 창 기하는 아이템 스케일이라 그대로 쓴다 — 라벨 실측 아이템 길이 p50이 MW 42초 ·
+          // 8뉴스 45초로 사실상 같다(불일치는 블록 스케일에만 있다).
+          const signoffPattern = program === "news8" ? SIGNOFF_PATTERN : MORNING_WIDE_SIGNOFF_PATTERN;
           if (plan.times.length === 0) return 0;
           const windows = planSignoffWindows(plan.times, verified, tailStart ?? duration);
           if (windows.length === 0) return 0;
@@ -3133,7 +3140,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
             try {
               const clip = sliceWindow(window.begin, window.end);
               const result = await runSignoffStt(clip, window.begin);
-              hits.push(...findSignoffs(result, window.begin));
+              hits.push(...findSignoffs(result, window.begin, signoffPattern));
               sttFailedWindows.delete(windowIndex);
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);

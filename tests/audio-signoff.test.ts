@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  MORNING_WIDE_SIGNOFF_PATTERN,
   SIGNOFF_PATTERN,
   createWavWindowSlicer,
   encodeWavPcm16,
@@ -34,6 +35,35 @@ describe("SIGNOFF_PATTERN — 실측으로 고른 규칙(§152)", () => {
   // 1차 실측에서 이 가정으로 0/10을 냈다 — 규칙을 추측으로 쓰면 신호가 있어도 못 본다.
   it("기자입니다 형식은 이 방송 관습이 아니다", () => {
     assert.equal(SIGNOFF_PATTERN.test("현장에서 홍길동 기자입니다."), false);
+  });
+});
+
+describe("MORNING_WIDE_SIGNOFF_PATTERN — 방송사명 ASR 오인 허용(§7-ap)", () => {
+  it("KBC를 잘못 들은 전사도 잡는다 — 19회차 실측에서 실제로 나온 형태", () => {
+    assert.equal(MORNING_WIDE_SIGNOFF_PATTERN.test("MBC 뉴스 김성현입니다."), true);
+    assert.equal(MORNING_WIDE_SIGNOFF_PATTERN.test("KBC 박승연입니다."), true);
+    assert.equal(MORNING_WIDE_SIGNOFF_PATTERN.test("케이비씨 정지협입니다."), true);
+  });
+
+  it("흔한 문장 종결은 방송사명 토큰이 없어 그대로 걸러진다", () => {
+    assert.equal(MORNING_WIDE_SIGNOFF_PATTERN.test("올해 안에 마무리할 계획입니다."), false);
+    assert.equal(MORNING_WIDE_SIGNOFF_PATTERN.test("추가 규제입니다."), false);
+    assert.equal(MORNING_WIDE_SIGNOFF_PATTERN.test("현장에서 홍길동 기자입니다."), false);
+  });
+
+  // 완화는 매치를 늘리기만 하므로 8뉴스에 적용하면 검증된 오검출 0을 재검증 없이 흔든다.
+  it("8뉴스 패턴은 완화되지 않았다 — 동결 경로 불변의 증거", () => {
+    assert.equal(SIGNOFF_PATTERN.test("MBC 뉴스 김성현입니다."), false);
+    assert.equal(SIGNOFF_PATTERN.test("케이비씨 정지협입니다."), false);
+  });
+
+  it("findSignoffs는 기본값이 8뉴스 패턴이고, 넘긴 패턴을 쓴다", () => {
+    const segments = [{ text: "MBC 뉴스 김성현입니다.", start: 1, end: 3 }];
+    assert.deepEqual(findSignoffs(segments, 100), []);
+    assert.deepEqual(
+      findSignoffs(segments, 100, MORNING_WIDE_SIGNOFF_PATTERN).map((hit) => hit.at),
+      [103],
+    );
   });
 });
 
