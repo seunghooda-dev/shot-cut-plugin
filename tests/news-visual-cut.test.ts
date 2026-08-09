@@ -150,6 +150,26 @@ describe("collectAnchorCandidates", () => {
       "옵션 없이는 종전대로 가려진다 — 8뉴스 동작 불변의 증거");
   });
 
+  it("runTimeAtOnset이 런 후보의 시각을 b-roll이 아닌 앵커 시작으로 낸다 — §7-ao", () => {
+    // 위 §7-aa와 같은 구조: 런이 4(원거리 b-roll)에서 시작해 16(진짜 앵커)까지 이어진다.
+    // 종전에는 시각 4 · 거리 0을 함께 내보내 "앵커다운 거리를 단 b-roll 후보"가 됐다.
+    const matcher = buildAnchorMatcher([grid(100)]);
+    const samples = samplesFrom([
+      { from: 0, to: 2, value: 200 },
+      { from: 4, to: 14, value: 128 },   // dist ≈0.110 — RUN_MAX 미만이라 런에 삼켜지되 저거리는 아니다
+      { from: 16, to: 20, value: 100 },  // dist 0 — 여기가 앵커 시작
+      { from: 22, to: 30, value: 200 },
+    ]);
+    const options = { runYieldMaxDist: 0.09, runTimeAtOnset: true };
+    const onset = collectAnchorCandidates(samples, matcher, options).find((c) => c.kind === "run");
+    const legacy = collectAnchorCandidates(samples, matcher, { runYieldMaxDist: 0.09 })
+      .find((c) => c.kind === "run");
+    assert.ok(onset, `런 후보가 있어야 한다: ${JSON.stringify(options)}`);
+    assert.equal(onset!.time, 16, "시각은 저거리가 시작되는 16이어야 한다");
+    assert.equal(legacy!.time, 4, "옵션 없이는 종전대로 런 시작 4 — 8뉴스 동작 불변의 증거");
+    assert.equal(onset!.refDist, legacy!.refDist, "거리는 양쪽 모두 런 최저값으로 같다");
+  });
+
   it("참조가 안 통하는 포맷이면(후보<3) 긴 샷 전부로 넓힌다", () => {
     const matcher = buildAnchorMatcher([grid(10)]); // 모든 샘플과 멀다
     const samples = samplesFrom([

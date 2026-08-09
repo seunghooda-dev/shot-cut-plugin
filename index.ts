@@ -2523,13 +2523,14 @@ async function runVisionBatch<T>(label: string, frameCount: number, task: () => 
 type NewsCutProgram = "news8" | "morningwide";
 
 /**
- * 모닝와이드 확정 합집합 상한 — 오프라인 8회차·3계열 뱅크 스윕에서 0.09가 최적이다
- * (P 93.1 · R 94.4 · F1 93.7). 뱅크가 2계열이던 때의 최적은 0.08이었는데(F1 88.5),
- * 밝은 재킷 계열을 더해 회차별 거리가 전반적으로 줄면서 최적점이 이동했다 —
- * **문턱은 뱅크 구성에 종속되므로 뱅크를 바꾸면 함께 다시 잰다.**
- * 0.10 이상은 재현율 이득보다 오검출 증가가 커진다(0.10: P 86.2 · 0.11: P 81.3).
+ * 모닝와이드 확정 합집합 상한 — **문턱은 뱅크 구성에 종속되므로 뱅크를 바꾸면 함께 다시 잰다.**
+ * 0.09는 3계열 뱅크·8회차 시절의 최적이었고(그 전 2계열에서는 0.08), 7계열·19회차로 늘어난
+ * 지금 재스윕에서 최적이 0.08로 되돌아왔다(§7-ao). 0.06~0.08이 동일 결과라 미지 회차 여유가
+ * 가장 큰 0.08을 고른다 — 0.09 대비 **TP·FN 불변에 FP만 감소**(학습 20→12 · 홀드아웃 19→15)라
+ * 순수 정밀도 이득이고, 0.08~0.09 밴드가 새로 채택하던 8건은 전부 라벨이 없었다.
+ * 0.10 이상은 재현율 이득보다 오검출 증가가 커진다(0.10: FP 41 · 0.13: FP 104).
  */
-const MORNING_WIDE_UNION_MAX_REF_DIST = 0.09;
+const MORNING_WIDE_UNION_MAX_REF_DIST = 0.08;
 
 async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram = "news8"): Promise<void> {
   const api = frameDataFolderApi();
@@ -2664,8 +2665,11 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
     // 자리를 차지해 진짜 앵커 런(0.036)이 버려지는 FN 2건 실측(7/22 968·7/29 372).
     // 8뉴스는 옵션 미전달로 종전 동작 그대로다. 실기 판정 전까지 오프라인 근거(§7-aa
     // 반사실 TP +3·FP +2)만 있는 상태 — 재개 후 대조(과거 FP 이력 포함)로 판정한다.
+    // §7-ao — 런 후보의 시각 귀속 시정(모닝와이드만). 런이 직전 b-roll 꼬리까지 삼키면
+    // 시각은 b-roll을, 거리는 앵커를 가리켜 후보가 다른 샷을 지목했다. 19회차 오프라인에서
+    // 상승 7 · 하락 0(학습 94.3→96.2 · 홀드아웃 88.3→90.6, TP +1 · FN −1 · FP −8).
     const candidates = collectAnchorCandidates(samples, matcher, program === "morningwide"
-      ? { runYieldMaxDist: MORNING_WIDE_UNION_MAX_REF_DIST }
+      ? { runYieldMaxDist: MORNING_WIDE_UNION_MAX_REF_DIST, runTimeAtOnset: true }
       : {});
     if (candidates.length === 0) throw new Error("앵커 샷 후보를 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
     const tailStart = detectStaticTailStart(samples);

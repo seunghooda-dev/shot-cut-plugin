@@ -273,6 +273,14 @@ export interface CollectAnchorOptions {
    * 원거리 b-roll shot(0.13)이 자리를 차지해 진짜 앵커 런(0.036)이 버려지는 FN이 있었다.
    */
   runYieldMaxDist?: number;
+  /**
+   * 런 후보의 시각을 런 시작이 아니라 "앵커다운 거리가 시작되는 시점"으로 낸다(모닝와이드 전용).
+   * 런 임계 VISUAL_RUN_MAX_DIST(0.145)가 느슨해 직전 b-roll 꼬리까지 한 런에 삼켜지는데, 그때
+   * 후보는 시각을 b-roll(run.start)에서, 거리를 앵커(run.min)에서 가져와 서로 다른 샷을 가리킨다.
+   * 실측(19회차): 런 후보 717개 중 240개(33.5%)가 최저점이 시작보다 4초 이상 뒤였고, 그중 9건은
+   * 진짜 라벨을 ±8초 밖으로 밀어내 놓쳤다(7/28 1034→1070·8/4 880→904·7/31 16→36).
+   */
+  runTimeAtOnset?: boolean;
 }
 
 export function collectAnchorCandidates(
@@ -292,7 +300,7 @@ export function collectAnchorCandidates(
     .filter((shot) => shot.refDist < VISUAL_LONG_SHOT_MAX_DIST)
     .map((shot) => ({ ...shot, kind: "shot" as const }));
   // 저거리 런 — 긴 샷 필터가 놓치는 5~8초 스튜디오 리드를 잡는다.
-  let run: { start: number; end: number; min: number } | null = null;
+  let run: { start: number; end: number; min: number; onset: number; lowStart: number | null } | null = null;
   const flushRun = () => {
     if (!run) return;
     const span = run.end - run.start;
@@ -301,15 +309,23 @@ export function collectAnchorCandidates(
       ? near.length > 0
       : near.some((candidate) => candidate.refDist < options.runYieldMaxDist!);
     if (span >= 2 && span <= 40 && !blocked) {
-      candidates.push({ time: run.start, refDist: run.min, kind: "run" });
+      candidates.push({ time: options.runTimeAtOnset ? run.onset : run.start, refDist: run.min, kind: "run" });
     }
     run = null;
   };
   for (const sample of usable) {
     const dist = matcher.distance(sample.grid!);
     if (dist < VISUAL_RUN_MAX_DIST) {
-      if (!run) run = { start: sample.time, end: sample.time, min: dist };
-      else { run.end = sample.time; run.min = Math.min(run.min, dist); }
+      const low = dist < VISUAL_RUN_SPLIT_MAX_DIST;
+      if (!run) {
+        run = { start: sample.time, end: sample.time, min: dist, onset: sample.time, lowStart: low ? sample.time : null };
+      } else {
+        run.end = sample.time;
+        if (!low) run.lowStart = null;
+        else if (run.lowStart === null) run.lowStart = sample.time;
+        // 최저점이 갱신될 때만 onset을 다시 잡는다 — 최저점을 품은 저거리 구간의 시작이다.
+        if (dist < run.min) { run.min = dist; run.onset = run.lowStart ?? sample.time; }
+      }
     } else {
       flushRun();
     }
