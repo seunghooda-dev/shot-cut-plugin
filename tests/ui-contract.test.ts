@@ -483,6 +483,16 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /bind\("news-cut-cuesheet-btn", "click", guarded\(handleNewsCutCueSheet, "큐시트 읽기 실패"\)\)/);
   assert.match(source, /async function handleNewsCutCueSheet\(\): Promise<void> \{\s*ensureAiConsent\("큐시트 읽기"\);\s*if \(!\(await hasStoredOpenAIApiKey\(\)\)\)/);
   assert.match(source, /parseCueSheetResponse\(await client\.readCueSheet\(\{ bytes, mimeType \}\)\)/);
+  // 회수 함수는 **아무것도 안 해도 로그를 남겨야 한다.** 첫 실기(7/13)에서 확정 14개·큐 꼭지
+  // 14개라 "빈자리 없음" 조기반환이 조용히 걸렸고, 로그가 없어 "배선 안 됨"과 "할 일 없었음"을
+  // 구별하지 못해 원인 규명에 한 세션을 썼다. 조기반환은 **큐시트가 없을 때 하나뿐**이어야 한다.
+  const recoveryBody = source.slice(
+    source.indexOf("function applyCueSheetRecovery"),
+    source.indexOf("async function handleNewsCutCueSheet"),
+  );
+  assert.ok(recoveryBody.length > 0, "applyCueSheetRecovery 본문을 찾지 못했습니다");
+  assert.equal((recoveryBody.match(/return \[\.\.\.accepted\];/gu) ?? []).length, 1);
+  assert.match(recoveryBody, /activity\.add\(\s*"info",\s*`큐시트 회수 —/u);
   // §7-ap 사인오프는 모닝와이드에서도 개통했다(종전 `program !== "news8"` 잠금 해제). 남은
   // 계약은 **패턴 분기**다 — 8뉴스는 KBC 고정, MW만 방송사명 ASR 오인을 허용한다. 완화는
   // 매치를 늘리기만 하므로 8뉴스에 새면 검증된 오검출 0이 재검증 없이 흔들린다.

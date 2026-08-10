@@ -1926,10 +1926,12 @@ function applyCueSheetRecovery(
 ): number[] {
   if (!loadedCueSheet || accepted.length === 0) return [...accepted];
   const items = cueSheetItemStarts(loadedCueSheet);
-  if (items.length <= accepted.length) return [...accepted];
+  // **아무것도 안 해도 반드시 로그를 남긴다.** 첫 실기(7/13)에서 확정 14개·큐 꼭지 14개라
+  // "빈자리 없음" 조기반환이 조용히 걸렸고, 로그가 한 줄도 없어 "배선이 안 됐다"와
+  // "돌았는데 할 일이 없었다"를 구별하지 못했다. 아래 정렬·보간은 꼭지 수가 확정보다
+  // 적거나 같으면 어차피 빈자리 0을 내므로, 조기반환을 없애도 동작은 같고 로그만 생긴다.
   const pairs = alignCueToBoundaries(items.map((item) => item.start), [...accepted]);
   const gaps = predictMissingCueItems(items, [...accepted], pairs);
-  if (gaps.length === 0) return [...accepted];
   const maxRefDist = program === "morningwide" ? MORNING_WIDE_UNION_MAX_REF_DIST : VISUAL_LONG_SHOT_MAX_DIST;
   const merged = [...accepted];
   const picked: string[] = [];
@@ -1944,7 +1946,7 @@ function applyCueSheetRecovery(
   merged.sort((a, b) => a - b);
   activity.add(
     "info",
-    `큐시트 회수 — 큐 꼭지 ${items.length} · 정렬 ${pairs.length} · 빈자리 ${gaps.length} · 회수 ${merged.length - accepted.length}: ${picked.join(" ")}`,
+    `큐시트 회수 — 큐 꼭지 ${items.length} · 확정 ${accepted.length} · 정렬 ${pairs.length} · 빈자리 ${gaps.length} · 회수 ${merged.length - accepted.length}${picked.length > 0 ? `: ${picked.join(" ")}` : ""}`,
   );
   return merged;
 }
