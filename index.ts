@@ -199,7 +199,7 @@ import {
   type CueSheet,
   type CueSheetChecksum,
 } from "./src/cue-sheet";
-import { recoverFromCueSheet, trimByCueSheetCount } from "./src/cue-sheet-align";
+import { recoverFromCueSheet } from "./src/cue-sheet-align";
 import {
   buildReferencePrompt,
   type ReferenceFileEntry,
@@ -1958,45 +1958,6 @@ async function resolveCueSheetForSource(sequenceName: string, program: NewsCutPr
 }
 
 /**
- * 큐시트를 **참고용으로** 써서 과분할을 깎는다. 큐시트가 없으면 입력을 그대로 돌려준다.
- *
- * 사용자 지시(2026-08-11) — "자체 필터를 우선시하고 큐시트는 참고용으로." 8뉴스는 방송이
- * 중간에 끊겨 큐시트대로 안 나가는 꼭지가 많으므로 **경계를 만드는 데는 쓰지 않는다**
- * (§CUE-2에서 −2.4로 실측 기각). 반면 "확정이 큐 꼭지보다 많으면 초과분은 오검출"이라는
- * 부등호는 미출고와 무관하게 성립한다 — 큐시트에 없는 꼭지가 방송되지는 않기 때문이다.
- *
- * 순위는 **학습 모델 확률**이다. 뱅크 거리로 매기면 모델이 잡은 경계를 먼저 잘라 나빠진다
- * (§7-az: 뱅크 거리 −5.5 · 모델 확률 +6.7).
- */
-function applyCueSheetTrim(
-  accepted: readonly number[],
-  samples: readonly { time: number }[],
-  probabilities: readonly number[],
-): number[] {
-  if (!loadedCueSheet || accepted.length === 0) return [...accepted];
-  const items = cueSheetItemStarts(loadedCueSheet);
-  // 가장 가까운 표본의 모델 확률을 그 시각의 신뢰도로 쓴다(표본 간격 2초라 오차가 작다).
-  const confidence = (time: number): number => {
-    let best = 0;
-    let gap = Number.POSITIVE_INFINITY;
-    for (let index = 0; index < samples.length; index += 1) {
-      const distance = Math.abs(samples[index]!.time - time);
-      if (distance < gap) { gap = distance; best = probabilities[index] ?? 0; }
-    }
-    return best;
-  };
-  const trimmed = trimByCueSheetCount(items.length, accepted, confidence);
-  // 아무것도 안 깎아도 로그를 남긴다 — 침묵하면 "배선 안 됨"과 구별할 수 없다(§7-aw).
-  const dropped = accepted.filter((time) => !trimmed.includes(time));
-  activity.add(
-    "info",
-    `큐시트 가지치기 — 큐 꼭지 ${items.length} · 확정 ${accepted.length} · 깎음 ${dropped.length}`
-    + (dropped.length > 0 ? `: ${dropped.map((time) => `${time.toFixed(1)}(p ${confidence(time).toFixed(2)})`).join(" ")}` : ""),
-  );
-  return trimmed;
-}
-
-/**
  * 큐시트로 놓친 경계를 회수한다. 큐시트가 없으면 **입력을 그대로 돌려주므로 동작이 불변**이다.
  * 예측은 이웃 간격만 쓴다 — 큐시트 절대 시각은 8회차 실측에서 평균 19.5초·최대 122초 어긋났고
  * 전역 드리프트 보정도 통하지 않았다. 간격 기반 정렬 + 국소 보간은 같은 표본에서 평균 5.4초,
@@ -2951,11 +2912,9 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
     // **큐시트 절대 시각은 쓰지 않는다.** 확정된 앞뒤 경계에 큐시트 간격을 얹어 사이를 예측하고,
     // 그 창 안에 이미 있는 후보만 되살린다 — 없는 경계를 만들지 않으므로 전역 정밀도를 팔지 않는다.
     // 회수분은 아래 비전 검증을 그대로 통과한다(§92 오배제 0 경로).
-    // **깎기가 회수보다 먼저다.** 과분할을 먼저 걷어야 정렬이 오검출에 밀리지 않고, 그래야
-    // 회수가 빈자리를 옳은 곳에 만든다(§7-bd에서 FP 둘이 큐 꼭지를 먹어 결손 자리에 빈자리가
-    // 안 생긴 것이 실측됐다).
-    const cueTrimmed = applyCueSheetTrim(accepted, samples, probabilities);
-    if (cueTrimmed.length < accepted.length) accepted.splice(0, accepted.length, ...cueTrimmed);
+    // **큐시트 가지치기는 실기에서 기각됐다(§7-bm) — 배선하지 않는다.** 오프라인에서 +3.0이었으나
+    // 실기 7/16에서 깎은 3개 중 2개가 TP였고 97.4 → 91.9가 됐다. 오프라인에는 비전이 없어
+    // 과분할이 남아 있지만 실기는 비전이 이미 걷으므로, 비전 앞에서 깎으면 정답을 집는다.
     const cueRecovered = applyCueSheetRecovery(accepted, candidates);
     if (cueRecovered.length > accepted.length) accepted.splice(0, accepted.length, ...cueRecovered);
     activity.add("info", `원클릭 분할 · 앵커 ${accepted.length}개(화면 매칭 후보 ${candidates.length} · 학습 모델 ${modelStarts.length})`);
