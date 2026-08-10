@@ -1876,8 +1876,42 @@ function selectedNewsItems(): Array<{ item: NewsItem; index: number }> {
   return selected;
 }
 
-// 이번 실행에서 읽어 둔 큐시트(사진 판독분). 회차가 바뀌면 다시 올려야 하므로 세션 값으로 둔다.
+// 이번 실행에서 읽어 둔 큐시트(사진 판독분).
 let loadedCueSheet: CueSheet | null = null;
+
+/**
+ * 이번 회차에 쓸 큐시트를 정한다. 방금 올린 것이 있으면 그것을 쓰고, 없으면 **시퀀스 이름의
+ * 날짜로 저장분을 찾는다** — 세션 값만 두면 패널을 다시 열 때마다 다시 올려야 해서 실무에서
+ * 쓰이지 않는다. 이름에 날짜가 없거나 저장분이 없으면 큐시트 없이 진행한다(동작 불변).
+ */
+async function resolveCueSheetForSource(sequenceName: string): Promise<void> {
+  // 이 경로는 **조용히 실패하면 안 된다.** 첫 실기에서 큐시트가 전혀 관여하지 않았는데
+  // 로그가 한 줄도 없어 원인을 가릴 수 없었다(파일·정규식·호출 모두 정상인데도). 어느
+  // 단계에서 멈췄는지 항상 남긴다 — 침묵하는 가드는 없느니만 못하다는 게 이 프로젝트의 교훈이다.
+  const name = String(sequenceName ?? "");
+  if (loadedCueSheet) { activity.add("info", "큐시트: 이번 세션에 올린 것을 씁니다."); return; }
+  const match = /(20\d{2})[-_]?(\d{2})[-_]?(\d{2})/u.exec(name);
+  if (!match) { activity.add("info", `큐시트: 시퀀스 이름에 날짜가 없어 건너뜁니다(${name || "이름 없음"}).`); return; }
+  const date = `${match[1]}-${match[2]}-${match[3]}`;
+  const api = frameDataFolderApi();
+  if (!api) { activity.add("info", "큐시트: 파일 저장소를 쓸 수 없어 건너뜁니다."); return; }
+  try {
+    const dataFolder = await api.fileSystem.getDataFolder();
+    const entry = await dataFolder.getEntry(`cue-sheet_${date}.json`);
+    const parsed = parseCueSheetResponse(JSON.parse(String(await entry.read({ format: api.formats.utf8 }))));
+    const checksum = cueSheetChecksum(parsed);
+    // 저장분도 검산을 다시 통과해야 쓴다 — 파일이 손상됐거나 옛 형식일 수 있다.
+    if (!checksum.ok) {
+      activity.add("warning", `큐시트 ${date} 저장분 검산 불일치(${checksum.durationSum}s vs ${checksum.lastCumulative}s) — 큐시트 없이 진행합니다.`);
+      return;
+    }
+    loadedCueSheet = parsed;
+    activity.add("info", `큐시트 ${date} 저장분을 불러왔습니다 — 본 꼭지 ${cueSheetItemStarts(parsed).length}개.`);
+  } catch (error) {
+    // 저장분 없음은 정상이다(큐시트를 안 올린 회차). 그래도 사유는 남긴다.
+    activity.add("info", `큐시트 ${date} 저장분 없음 또는 읽기 실패(${errorMessage(error)}) — 큐시트 없이 진행합니다.`);
+  }
+}
 
 /**
  * 큐시트로 놓친 경계를 회수한다. 큐시트가 없으면 **입력을 그대로 돌려주므로 동작이 불변**이다.
@@ -2663,6 +2697,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
   if (!(duration > 60)) throw new Error("활성 시퀀스가 없거나 너무 짧습니다 — 1분 이상 뉴스 방송 시퀀스를 활성화해 주세요.");
   newsCutSourceKey = await readActiveContextKey().catch(() => "");
   newsCutSourceName = String(status.sequenceName ?? "");
+  await resolveCueSheetForSource(newsCutSourceName);
   // 다단계 스텝바 — busy 오버레이에 현재 단계를 칩으로 표시한다(hide 시 자동 소거라 각 단계 진입마다 다시 세팅).
   const newsCutSteps = exportAfter
     ? ["프레임 점검", "화면 스캔", "앵커 검증", "경계 재스냅", "시퀀스 생성", "내보내기"]
