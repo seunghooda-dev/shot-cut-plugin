@@ -9,6 +9,7 @@ import {
   pickCueRecovery,
   predictMissingCueItems,
   recoverFromCueSheet,
+  trimByCueSheetCount,
 } from "../src/cue-sheet-align";
 import type { CueSheetItemStart } from "../src/cue-sheet";
 
@@ -205,5 +206,45 @@ describe("회수 임계 경계값", () => {
   it("중복은 정확히 8초까지 거르고 그 밖은 받는다 — 채점 허용오차와 같은 값", () => {
     assert.equal(pickCueRecovery(gap, [{ time: 100, refDist: 0.05 }], [92], 0.16), null);
     assert.deepEqual(pickCueRecovery(gap, [{ time: 100, refDist: 0.05 }], [91.999], 0.16), { time: 100, refDist: 0.05 });
+  });
+});
+
+describe("trimByCueSheetCount — 큐시트 참고용 가지치기", () => {
+  // 사용자 지시(2026-08-11): 자체 필터 우선 · 큐시트는 참고용. **경계를 만들지 않는다.**
+  // 실측(100 미만 11회차): 91.4 → 94.4 · 홀드아웃 7회차 90.1 → 94.0 · 내린 회차 0.
+  const conf = (map: Record<number, number>) => (time: number) => map[time] ?? 0.5;
+
+  it("확정이 큐 꼭지보다 많으면 초과분만큼 신뢰도 낮은 순으로 깎는다", () => {
+    const accepted = [10, 20, 30, 40, 50];
+    const trimmed = trimByCueSheetCount(3, accepted, conf({ 20: 0.1, 40: 0.2, 10: 0.9, 30: 0.8, 50: 0.7 }));
+    assert.deepEqual(trimmed, [10, 30, 50]);
+  });
+
+  it("깎아도 시각 순서를 유지한다", () => {
+    const trimmed = trimByCueSheetCount(2, [5, 15, 25], conf({ 15: 0.1 }));
+    assert.deepEqual(trimmed, [5, 25]);
+  });
+
+  it("확정이 꼭지보다 적거나 같으면 아무것도 깎지 않는다 — 경계를 만들지도 않는다", () => {
+    assert.deepEqual(trimByCueSheetCount(5, [10, 20, 30], conf({})), [10, 20, 30]);
+    assert.deepEqual(trimByCueSheetCount(3, [10, 20, 30], conf({})), [10, 20, 30]);
+  });
+
+  it("꼭지 수가 0이거나 비정상이면 손대지 않는다", () => {
+    // 큐시트를 못 읽었을 때 전부 깎아 버리면 분할이 통째로 사라진다.
+    assert.deepEqual(trimByCueSheetCount(0, [10, 20], conf({})), [10, 20]);
+    assert.deepEqual(trimByCueSheetCount(Number.NaN, [10, 20], conf({})), [10, 20]);
+    assert.deepEqual(trimByCueSheetCount(-3, [10, 20], conf({})), [10, 20]);
+  });
+
+  it("입력 배열을 건드리지 않는다", () => {
+    const accepted = [10, 20, 30];
+    trimByCueSheetCount(1, accepted, conf({}));
+    assert.deepEqual(accepted, [10, 20, 30]);
+  });
+
+  it("신뢰도가 같으면 앞쪽을 남긴다 — 판정이 실행마다 흔들리지 않아야 한다", () => {
+    const trimmed = trimByCueSheetCount(2, [10, 20, 30], conf({}));
+    assert.equal(trimmed.length, 2);
   });
 });

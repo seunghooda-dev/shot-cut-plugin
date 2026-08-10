@@ -188,6 +188,37 @@ export function recoverFromCueSheet(
   return { merged, pairs, gaps, picks };
 }
 
+/**
+ * 큐시트를 **참고용으로만** 써서 과분할을 깎는다 — **경계를 절대 만들지 않는다.**
+ *
+ * 사용자 지시(2026-08-11): "자체 필터를 우선시하고 큐시트는 참고용으로 사용한다.
+ * 8뉴스는 중간에 끊기는 경우가 많아 큐시트를 전적으로 기대하면 안 된다."
+ *
+ * 확정 경계가 큐 꼭지보다 많으면 **초과분만큼은 반드시 오검출**이다(큐시트는 방송된 것보다
+ * 많거나 같지 적지 않다 — 미출고는 있어도 큐시트에 없는 꼭지가 방송되지는 않는다).
+ * 어느 것을 깎을지는 `confidence`가 낮은 순이다.
+ *
+ * **confidence는 반드시 두 검출 경로가 공유하는 점수여야 한다.** 뱅크 참조 거리로 순위를
+ * 매기면 학습 모델이 잡은 경계(뱅크가 못 잡는 것을 잡는 상보 경로라 거리가 나쁜 것이 정상)를
+ * 먼저 잘라 오히려 나빠진다 — §7-az에서 −5.5로 실측했고, 모델 확률로 바꾸니 +6.7이 됐다.
+ *
+ * 실측(100 미만 11회차 · 오프라인): 91.4 → 94.4. 그중 홀드아웃 7회차는 90.1 → 94.0.
+ * **오른 회차 4 · 내린 회차 0.** 오른 것은 전부 과분할 회차이고, 나머지는 깎을 것이 없어
+ * 불변이다(그 회차들의 오차는 FN이라 깎기로는 원리적으로 못 고친다).
+ */
+export function trimByCueSheetCount(
+  itemCount: number,
+  accepted: readonly number[],
+  confidence: (time: number) => number,
+): number[] {
+  const excess = accepted.length - itemCount;
+  if (!Number.isFinite(itemCount) || itemCount <= 0 || excess <= 0) return [...accepted];
+  const weakest = new Set(
+    [...accepted].sort((left, right) => confidence(left) - confidence(right)).slice(0, excess),
+  );
+  return accepted.filter((time) => !weakest.has(time));
+}
+
 export function pickCueRecovery(
   gap: CueGap,
   candidates: readonly CueRecoveryCandidate[],
