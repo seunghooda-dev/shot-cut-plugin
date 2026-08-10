@@ -189,10 +189,12 @@ import {
 } from "./src/shorts-learning";
 import { OpenAITextClient, chunkSubtitleCues, hasStoredOpenAIApiKey } from "./src/openai-text";
 import {
+  CUE_SHEET_MAX_ROWS,
   cueSheetChecksum,
   cueSheetItemStarts,
   parseCueSheetResponse,
   parseStoredCueSheet,
+  serializeCueSheet,
   type CueSheet,
   type CueSheetChecksum,
 } from "./src/cue-sheet";
@@ -1907,8 +1909,14 @@ async function resolveCueSheetForSource(sequenceName: string): Promise<void> {
   // 회차를 도는 배치에서는 2회차부터 전부 1회차 큐시트로 돌았다(7/17이 7/15의 19꼭지로 회수).
   // 날짜가 다르면 폐기하고 그 회차 저장분을 다시 찾는다.
   if (loadedCueSheet) {
-    if (date === "" || loadedCueSheet.broadcastDate === date) {
-      activity.add("info", `큐시트: 이번 세션에 올린 것을 씁니다(${loadedCueSheet.broadcastDate || "날짜미상"}).`);
+    if (date === "") {
+      // 대조할 날짜가 없다는 사실을 반드시 남긴다 — 정상 재사용과 문구가 같으면 배치에서
+      // 잘못된 회차의 큐시트를 쓰고도 사후에 구별할 수 없다.
+      activity.add("warning", `큐시트: 이번 세션 값(${loadedCueSheet.broadcastDate || "날짜미상"})을 씁니다 — 시퀀스 이름(${name || "이름 없음"})에 날짜가 없어 **회차 대조를 못 했습니다.**`);
+      return;
+    }
+    if (loadedCueSheet.broadcastDate === date) {
+      activity.add("info", `큐시트: 이번 세션에 올린 것을 씁니다(${date} 대조 일치).`);
       return;
     }
     activity.add("info", `큐시트: 세션 값(${loadedCueSheet.broadcastDate || "날짜미상"})이 이 회차(${date})와 달라 폐기하고 저장분을 찾습니다.`);
@@ -2000,18 +2008,34 @@ async function handleNewsCutCueSheet(): Promise<void> {
   if (sheet.rows.length === 0) throw new Error("큐시트에서 읽어낸 행이 없습니다. 표 전체가 보이도록 다시 촬영해 주세요.");
 
   const label = sheet.broadcastDate || "날짜미상";
-  const dataFolder = await api.fileSystem.getDataFolder();
-  const saved = `cue-sheet_${label}.json`;
-  const entry = await dataFolder.createFile(saved, { overwrite: true });
-  await entry.write(JSON.stringify({ ...sheet, checksum, itemStarts: starts }, null, 2), { format: api.formats.utf8 });
+  // **검산이 맞을 때만 파일을 쓴다.** 종전에는 저장이 채택 게이트보다 앞이라, 같은 회차를
+  // 흐리게 재촬영하면 채택은 안 되면서 **이미 있던 정상 저장분을 덮어써 잃었다**(감사 실측).
+  let saved = "";
+  if (checksum.ok) {
+    const dataFolder = await api.fileSystem.getDataFolder();
+    saved = `cue-sheet_${label}.json`;
+    const entry = await dataFolder.createFile(saved, { overwrite: true });
+    // 직렬화는 src/cue-sheet.ts가 한다 — 읽기와 **같은 모듈에서 짝을 이뤄야** 왕복 테스트가
+    // 제품의 양쪽 끝을 다 잡는다(§7-ay가 정확히 그 틈에서 났다).
+    await entry.write(serializeCueSheet(sheet), { format: api.formats.utf8 });
+  }
 
   // 검산이 맞을 때만 분할에 물린다 — 판독이 틀린 큐시트로 회수하면 없는 경계를 만든다.
   loadedCueSheet = checksum.ok ? sheet : null;
-  renderNewsCutCueSheet(sheet, checksum, starts, saved);
+  renderNewsCutCueSheet(sheet, checksum, starts, saved || "저장 안 함(검산 불일치)");
   activity.add(
     checksum.ok ? "info" : "warning",
-    `큐시트 ${label} — 행 ${sheet.rows.length} · 본 꼭지 ${starts.length} · 검산 ${checksum.ok ? "일치" : `불일치(${cueChecksumDetail(checksum)})`}`,
+    `큐시트 ${label} — 행 ${sheet.rows.length}/${sheet.rowsSeen} · 본 꼭지 ${starts.length} · 검산 ${checksum.ok ? "일치" : `불일치(${cueChecksumDetail(checksum)}) — 저장하지 않았습니다(기존 저장분 보존)`}`,
   );
+  // 응답 행이 조용히 사라지면 검산이 못 잡는다(꼬리가 잘려도 합은 보존된다) — 수치로 남긴다.
+  if (sheet.rowsSeen > sheet.rows.length) {
+    activity.add("warning", `큐시트 판독 행 손실 ${sheet.rowsSeen - sheet.rows.length}건 — 형식 불량이거나 상한(${CUE_SHEET_MAX_ROWS}행) 절단입니다. 표가 잘리지 않았는지 확인해 주세요.`);
+  }
+  // 날짜를 못 읽으면 파일명이 회차와 묶이지 않아 **다음 실행에서 자동 인식되지 않는다.**
+  // 조용히 넘어가면 유료로 읽은 큐시트가 사라진 것처럼 보인다(조회 키는 시퀀스 이름의 날짜다).
+  if (checksum.ok && sheet.broadcastDate === "") {
+    activity.add("warning", "큐시트 방송일자를 읽지 못했습니다 — 이번 세션에만 적용되고 다음 실행에서 자동 인식되지 않습니다. 날짜가 보이게 다시 촬영하면 회차별로 저장됩니다.");
+  }
   toast(checksum.ok ? `큐시트를 읽었습니다 — 본 꼭지 ${starts.length}개` : "큐시트를 읽었지만 검산이 맞지 않습니다. 판독 결과를 확인해 주세요.", checksum.ok ? "success" : "info");
 }
 

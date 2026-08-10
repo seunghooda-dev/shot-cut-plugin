@@ -8,6 +8,7 @@ import {
   parseClock,
   parseCueSheetResponse,
   parseStoredCueSheet,
+  serializeCueSheet,
 } from "../src/cue-sheet";
 
 // 2026-07-13 모닝와이드 실물 큐시트(라벨과 대조해 편차 평균 6.1초를 실측한 그 회차).
@@ -92,9 +93,9 @@ describe("저장분 왕복", () => {
   // 이 왕복이 깨져 있었다(2026-08-10 실기 §7-ay). 저장은 초 숫자로 하는데 읽기는 시계
   // 문자열 파서를 태워 전 행이 버려졌고, 검산이 `0s vs 0s`로 나와 큐시트가 통째로 무시됐다.
   // 기능 도입 이래 **저장분으로는 한 번도 돈 적이 없었다** — 같은 세션 메모리 값만 쓰였다.
-  const saved = (sheet: ReturnType<typeof parseCueSheetResponse>) => JSON.parse(JSON.stringify({
-    ...sheet, checksum: cueSheetChecksum(sheet), itemStarts: cueSheetItemStarts(sheet),
-  }));
+  // **제품이 쓰는 직렬화 함수를 그대로 쓴다.** 테스트가 저장 형태를 흉내 내면 제품 writer가
+  // 바뀌어도 초록이라, 왕복이 깨진 채 도입 이래 방치됐던 그 상태를 못 막는다(감사 2번).
+  const saved = (sheet: ReturnType<typeof parseCueSheetResponse>) => JSON.parse(serializeCueSheet(sheet));
 
   it("판독분을 저장한 그대로 다시 읽어 같은 표를 낸다", () => {
     const original = parseCueSheetResponse({ broadcastDate: "2026-07-13", rows: REAL_ROWS });
@@ -222,5 +223,40 @@ describe("parseCueSheetResponse", () => {
   it("검산 불일치를 잡아낸다 — 한 행을 잘못 읽은 경우", () => {
     const broken = REAL_ROWS.map((row, index) => (index === 4 ? { ...row, duration: "03:00" } : row));
     assert.equal(cueSheetChecksum(parseCueSheetResponse({ broadcastDate: "", rows: broken })).ok, false);
+  });
+});
+
+describe("판독 손실 가시화 · 시각 범위", () => {
+  it("응답 행 수를 rowsSeen에 남긴다 — 형식 불량으로 버린 행이 보여야 한다", () => {
+    const sheet = parseCueSheetResponse({
+      broadcastDate: "2026-07-13",
+      rows: [
+        { order: 1, duration: "00:26", cumulative: "00:26", title: "정상" },
+        { order: 2, duration: "??", cumulative: "02:49", title: "판독 실패" },
+      ],
+    });
+    assert.equal(sheet.rows.length, 1);
+    assert.equal(sheet.rowsSeen, 2);
+  });
+
+  it("상한 절단도 rowsSeen과의 차이로 드러난다 — 검산은 이 손실을 못 잡는다", () => {
+    const rows = Array.from({ length: 70 }, (_value, index) => ({
+      order: index + 1, duration: "00:30", cumulative: `${String(Math.floor(((index + 1) * 30) / 60)).padStart(2, "0")}:${String(((index + 1) * 30) % 60).padStart(2, "0")}`, title: "행",
+    }));
+    const sheet = parseCueSheetResponse({ broadcastDate: "", rows });
+    assert.equal(sheet.rows.length, 60);
+    assert.equal(sheet.rowsSeen, 70);
+    // 꼬리를 잘라도 "소요 합 = 마지막 누적"이 보존되므로 검산은 통과한다 — 그래서 rowsSeen이 필요하다.
+    assert.equal(cueSheetChecksum(sheet).ok, true);
+  });
+
+  it("시각 자리 값이 범위를 벗어나면 버린다 — 자릿수만 보면 00:99가 통과한다", () => {
+    assert.equal(parseClock("00:99"), null);
+    assert.equal(parseClock("99:99"), null);
+    assert.equal(parseClock("12:60:00"), null);
+    // 초가 정상이면 받는다. MM:SS의 분은 상한을 두지 않는다(장편 표기 허용).
+    assert.equal(parseClock("00:59"), 59);
+    assert.equal(parseClock("99:59"), 5999);
+    assert.equal(parseClock("01:59:59"), 7199);
   });
 });

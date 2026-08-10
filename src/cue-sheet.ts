@@ -28,6 +28,12 @@ export interface CueSheet {
   /** 방송일자 YYYY-MM-DD. 읽지 못했으면 빈 문자열. */
   broadcastDate: string;
   rows: CueSheetRow[];
+  /**
+   * 응답이 준 원본 행 수. `rows.length`와 다르면 그 차이가 **조용히 사라진 행**이다
+   * (형식 불량 폐기 또는 상한 절단). 검산은 이 손실을 원리적으로 못 잡는다 — 꼬리 행이
+   * 잘리면 "소요 합 = 마지막 누적"이 그대로 보존되기 때문이다(2026-08-10 감사 실측).
+   */
+  rowsSeen: number;
 }
 
 export interface CueSheetChecksum {
@@ -43,12 +49,21 @@ export interface CueSheetChecksum {
   ok: boolean;
 }
 
-/** "MM:SS" 또는 "HH:MM:SS"를 초로. 형식이 아니면 null. */
+/**
+ * "MM:SS" 또는 "HH:MM:SS"를 초로. 형식이 아니거나 **자리 값이 범위를 벗어나면** null.
+ *
+ * 범위 검사가 없으면 `00:99`가 99초로, `12:60:00`이 46800초로 통과한다(2026-08-10 감사 실측).
+ * 시각 파서는 신뢰 경계의 첫 관문이라 자릿수만 보고 넘기면 안 된다 — 판독기가 한 자리를
+ * 일관되게 오독하면 검산(합 대조)도 함께 속는다. 초는 언제나 60 미만이고, HH:MM:SS의 분도
+ * 60 미만이다. MM:SS의 분은 상한을 두지 않는다(90분 프로그램 표기를 막지 않기 위함).
+ */
 export function parseClock(value: string): number | null {
   const text = String(value ?? "").trim();
   if (!/^\d{1,2}(:\d{2}){1,2}$/.test(text)) return null;
   const parts = text.split(":").map(Number);
   if (parts.some((part) => !Number.isFinite(part))) return null;
+  if (parts[parts.length - 1]! >= 60) return null;
+  if (parts.length === 3 && parts[1]! >= 60) return null;
   const seconds = parts.length === 3
     ? parts[0]! * 3600 + parts[1]! * 60 + parts[2]!
     : parts[0]! * 60 + parts[1]!;
@@ -124,6 +139,7 @@ function buildCueSheet(raw: unknown, toSeconds: CueClockReader): CueSheet {
   return {
     broadcastDate: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "",
     rows,
+    rowsSeen: rawRows.length,
   };
 }
 
@@ -133,6 +149,20 @@ function buildCueSheet(raw: unknown, toSeconds: CueClockReader): CueSheet {
  */
 export function parseCueSheetResponse(raw: unknown): CueSheet {
   return buildCueSheet(raw, (value) => parseClock(String(value ?? "")));
+}
+
+/**
+ * 저장 파일에 넣을 형태를 만든다. **읽기(`parseStoredCueSheet`)와 짝이므로 같은 모듈에 둔다** —
+ * 이 형태를 만드는 코드가 `index.ts`에 있으면 테스트가 제품이 아니라 재구현본을 재게 되고,
+ * 그 상태에서 실제로 왕복이 깨진 채 도입 이래 방치됐다(§7-ay). 왕복 테스트가 제품의 양쪽
+ * 끝을 다 잡으려면 쓰기도 순수 함수여야 한다.
+ */
+export function serializeCueSheet(sheet: CueSheet): string {
+  return JSON.stringify(
+    { ...sheet, checksum: cueSheetChecksum(sheet), itemStarts: cueSheetItemStarts(sheet) },
+    null,
+    2,
+  );
 }
 
 /**

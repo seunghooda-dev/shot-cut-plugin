@@ -185,3 +185,25 @@ describe("pickCueRecovery", () => {
     assert.equal(pickCueRecovery(gap, [{ time: Number.NaN, refDist: 0.01 }], [], 0.16), null);
   });
 });
+
+describe("회수 임계 경계값", () => {
+  // 세 비교의 **정확한 경계**를 고정한다. 감사 실측(2026-08-10)에서 전부 미테스트였다 —
+  // 특히 중복 규칙을 `< 8`로 뒤집으면 채점 허용오차와 같은 자리에 경계가 하나 더 생겨
+  // TP 1 + FP 1이 된다. 회수 경로가 정밀도를 파는 가장 전형적인 형태다.
+  const gap = { cueIndex: 1, predicted: 100, window: 20, title: "꼭지", isReport: false };
+
+  it("창 끝은 포함하고 한 뼘 밖은 버린다", () => {
+    assert.deepEqual(pickCueRecovery(gap, [{ time: 120, refDist: 0.05 }], [], 0.16), { time: 120, refDist: 0.05 });
+    assert.equal(pickCueRecovery(gap, [{ time: 120.001, refDist: 0.05 }], [], 0.16), null);
+  });
+
+  it("참조 거리 상한은 같은 값까지 받고 그 위는 버린다", () => {
+    assert.deepEqual(pickCueRecovery(gap, [{ time: 100, refDist: 0.16 }], [], 0.16), { time: 100, refDist: 0.16 });
+    assert.equal(pickCueRecovery(gap, [{ time: 100, refDist: 0.1601 }], [], 0.16), null);
+  });
+
+  it("중복은 정확히 8초까지 거르고 그 밖은 받는다 — 채점 허용오차와 같은 값", () => {
+    assert.equal(pickCueRecovery(gap, [{ time: 100, refDist: 0.05 }], [92], 0.16), null);
+    assert.deepEqual(pickCueRecovery(gap, [{ time: 100, refDist: 0.05 }], [91.999], 0.16), { time: 100, refDist: 0.05 });
+  });
+});
