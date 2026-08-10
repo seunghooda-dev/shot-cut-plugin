@@ -35,14 +35,30 @@
 경우 맞는 것을 깎을 수 있다.** 과분할 이력 회차(7/16·8/05)와 F1 100 회차(7/22·8/07)를
 함께 돌려 판정 중이다. **이 판정 전에는 배포하지 않는다.**
 
-## 3. 배포 전 순서 (확정)
+## 3. 배포 전 순서 — 자동 항목 전부 완료
 
-1. [ ] 실기 판정 — 큐시트 가지치기가 F1 100 회차를 해치지 않는가
-2. [ ] `npm run check` · `check:news` · `check:mw` 3종 초록
-3. [ ] 작업 트리 clean · 단일 체크포인트 커밋
-4. [ ] `npm run beta:evidence:verified` — CCX·SHA-256·Git 묶음 재생성
-5. [ ] `npm run host:smoke:full` — 실기 스모크 11/11
-6. [ ] `BETA_RELEASE_CHECKLIST.md`의 [수동] 항목 확인 (사용자 몫)
+1. [x] **실기 판정 — 가지치기 기각·원복**(§7-bm). 7/16이 97.4 → 91.9로 떨어졌고 깎은 3개 중
+   2개가 TP였다. **F1 100 회차를 대조에 넣은 것이 결정적이었다** — 이득 회차만 봤으면 못 잡는다.
+2. [x] `npm run check` 2081/2081 · `check:news` 6회차 100 · `check:mw` 19회차 통과
+3. [x] 작업 트리 clean · 커밋 `93c7a97` 푸시
+4. [x] `npm run beta:evidence:verified` — CCX 재생성
+   - `release/ShortFlow-Studio-1.0.0.ccx` · 448,669 bytes
+   - SHA-256 `e43406d190b453bdca92cb80c175ee77930058266ba5d473835301fd7aebe64c`
+   - 증거 `beta-evidence/ShortFlow_Beta_Evidence_20260810T235503Z.md` · commit `93c7a97` · tree clean
+5. [x] `npm run host:smoke:full` — **11/11 통과**
+   (panel-boot · tab-sweep 13탭 · host-context · ui-contract-live · subtitle-roundtrip ·
+   transcript-attach · hangul-path-io · listener-lifecycle 누적 0 · source-untouched 불변 ·
+   sequence-switch-recover · status-truth)
+6. [ ] `BETA_RELEASE_CHECKLIST.md`의 **[수동]** 항목 — TTS 저장·음악 폴더 동기화·Safe Zone
+   export 경고·썸네일 PNG/SVG·복제본 rollback 등. **사용자가 직접 확인해야 하는 부분이다.**
+
+## 3-b. 이번 후보에 들어간 것 (8/03 이후 184커밋)
+
+- **큐시트 기능 전체** — 사진 판독·검산(행별)·회차/프로그램별 저장·회수(§7-ax·§7-bi 인과 실증
+  97.4 → 100)·종(R) 판독. **가지치기는 기각돼 들어가지 않는다**(§7-bm).
+- **결함 12건 시정** — 침묵 조기반환 2 · 회수 문턱 무동작 · 저장분 왕복 불일치 · 정렬 m>n
+  가드 · 회차 대조 누락 · 검산 중간행 · 종 AI 계약 누락 · 감사 4건.
+- **모닝와이드 실기** — 학습셋 6회차 100 · 홀드아웃 6회차 98.5 · 블라인드 3회차 99.0.
 
 ## 4. 사용자 확인이 필요한 것
 
