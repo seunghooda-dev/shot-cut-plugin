@@ -57,6 +57,34 @@ describe("classifyCueRow", () => {
     // "CM"은 낱말 경계에서만 광고로 본다 — 'CMIT' 같은 표기에 걸리면 꼭지를 잃는다.
     assert.equal(classifyCueRow("CMIT 살균제 성분 검출"), "item");
   });
+
+  it("종 칸이 있으면 제목보다 우선한다", () => {
+    // 제목에 '타이틀'이 들어간 리포트가 타이틀 행으로 밀려나면 꼭지 하나를 통째로 잃는다.
+    assert.equal(classifyCueRow("타이틀 방어전 승리", "R"), "item");
+    assert.equal(classifyCueRow("아무 기사", "CM"), "cm");
+    assert.equal(classifyCueRow("아무 기사", "T"), "close");
+    assert.equal(classifyCueRow("아무 기사", "B"), "filler");
+  });
+
+  it("종 칸이 비면 제목으로 판정한다 — 타이틀 행도 종이 비어 있다", () => {
+    assert.equal(classifyCueRow("[모닝] 7/13 모닝 타이틀 + 주요뉴스", ""), "title");
+    assert.equal(classifyCueRow("여수 중학교 집단 식중독", ""), "item");
+  });
+});
+
+describe("종(R) 표기", () => {
+  it("R만 리포트로 표시하고 괄호·소문자를 받아들인다", () => {
+    const sheet = parseCueSheetResponse({
+      broadcastDate: "2026-07-13",
+      rows: [
+        { order: 1, duration: "02:23", cumulative: "02:23", title: "리포트", typeCode: "(R)" },
+        { order: 2, duration: "00:30", cumulative: "02:53", title: "단신", typeCode: "" },
+        { order: 3, duration: "01:46", cumulative: "04:39", title: "리포트 소문자", typeCode: "r" },
+      ],
+    });
+    assert.deepEqual(sheet.rows.map((row) => row.isReport), [true, false, true]);
+    assert.deepEqual(sheet.rows.map((row) => row.typeCode), ["R", "", "R"]);
+  });
 });
 
 describe("parseCueSheetResponse", () => {
@@ -72,7 +100,7 @@ describe("parseCueSheetResponse", () => {
     const sheet = parseCueSheetResponse({ broadcastDate: "2026-07-13", rows: REAL_ROWS });
     const starts = cueSheetItemStarts(sheet);
     assert.equal((starts).length, 14);
-    assert.deepEqual(starts[0], { order: 2, start: 26, title: "반도체 클러스터 금호타이어 부지" });
+    assert.deepEqual(starts[0], { order: 2, start: 26, title: "반도체 클러스터 금호타이어 부지", isReport: false });
     assert.equal(starts.at(-1)?.start, 862);
   });
 

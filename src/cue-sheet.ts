@@ -13,7 +13,15 @@ export interface CueSheetRow {
   /** 누적 시간(초) — 그 행이 **끝나는** 시각이다. */
   cumulative: number;
   title: string;
+  /** 큐시트 `종` 칸 원문(R·B·CM·T·빈칸). 빈칸은 단신이다. */
+  typeCode: string;
   kind: CueSheetRowKind;
+  /**
+   * 리포트(종 = R)인가. 실측에서 리포트 106~230초 · 단신 21~57초로 **겹침이 없었다**
+   * (모닝와이드 7/13·7/14, 리포트 11 · 단신 20). 길이 등급이 확정되므로 보간 결과의
+   * 타당성 검문에 쓴다 — 리포트 자리에 30초 간격이 나오면 정렬이 틀린 것이다.
+   */
+  isReport: boolean;
 }
 
 export interface CueSheet {
@@ -49,7 +57,17 @@ const CLOSE_PATTERN = /클로징|스탭\s*스크롤|엔딩/u;
 const CM_PATTERN = /(^|[^A-Za-z])CM([^A-Za-z]|$)|광고/u;
 const FILLER_PATTERN = /필러|브릿지/u;
 
-export function classifyCueRow(title: string): CueSheetRowKind {
+/**
+ * 행 종류를 정한다. `종` 칸이 있으면 그것이 우선이고(방송 편성이 직접 찍은 코드라 제목보다
+ * 정확하다), 비어 있을 때만 제목으로 판정한다. **빈칸만으로 단신이라고 단정하면 안 된다** —
+ * 실물에서 타이틀 행과 일부 단신이 똑같이 빈칸이라, 그 경우 제목이 유일한 단서다.
+ */
+export function classifyCueRow(title: string, typeCode = ""): CueSheetRowKind {
+  const code = String(typeCode ?? "").trim().toUpperCase();
+  if (code === "CM") return "cm";
+  if (code === "T") return "close";
+  if (code === "B") return "filler";
+  if (code === "R") return "item";
   const text = String(title ?? "");
   if (CLOSE_PATTERN.test(text)) return "close";
   if (CM_PATTERN.test(text)) return "cm";
@@ -67,14 +85,22 @@ export function parseCueSheetResponse(raw: unknown): CueSheet {
   const rawRows = Array.isArray(source?.rows) ? source!.rows : [];
   const rows: CueSheetRow[] = [];
   for (const entry of rawRows.slice(0, CUE_SHEET_MAX_ROWS)) {
-    const row = entry as { order?: unknown; duration?: unknown; cumulative?: unknown; title?: unknown };
+    const row = entry as {
+      order?: unknown; duration?: unknown; cumulative?: unknown; title?: unknown; typeCode?: unknown;
+    };
     const duration = parseClock(String(row?.duration ?? ""));
     const cumulative = parseClock(String(row?.cumulative ?? ""));
     const order = Number(row?.order);
     if (duration === null || cumulative === null) continue;
     if (!Number.isInteger(order) || order < 1) continue;
     const title = String(row?.title ?? "").trim().slice(0, 200);
-    rows.push({ order, duration, cumulative, title, kind: classifyCueRow(title) });
+    // 종 칸은 (R)처럼 괄호·기호가 섞여 찍히므로 영문자만 남긴다.
+    const typeCode = String(row?.typeCode ?? "").replace(/[^A-Za-z]/g, "").toUpperCase().slice(0, 4);
+    rows.push({
+      order, duration, cumulative, title, typeCode,
+      kind: classifyCueRow(title, typeCode),
+      isReport: typeCode === "R",
+    });
   }
   rows.sort((a, b) => a.order - b.order);
   const date = String(source?.broadcastDate ?? "").trim();
@@ -99,13 +125,26 @@ export function cueSheetChecksum(sheet: CueSheet): CueSheetChecksum {
  * 본 꼭지의 시작 시각(초) 목록. 큐시트의 `누적`은 **끝** 시각이므로 시작은 직전 행의 누적이고,
  * 첫 행이 본 꼭지면 0에서 시작한다. 타이틀·CM·클로징·필러는 아이템이 아니라 제외한다.
  */
-export function cueSheetItemStarts(sheet: CueSheet): Array<{ order: number; start: number; title: string }> {
+export interface CueSheetItemStart {
+  order: number;
+  /** 큐시트 기준 시작 시각(초). **절대값은 믿지 않는다** — 이웃과의 간격 계산에만 쓴다. */
+  start: number;
+  title: string;
+  isReport: boolean;
+}
+
+export function cueSheetItemStarts(sheet: CueSheet): CueSheetItemStart[] {
   const rows = sheet?.rows ?? [];
-  const starts: Array<{ order: number; start: number; title: string }> = [];
+  const starts: CueSheetItemStart[] = [];
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index]!;
     if (row.kind !== "item") continue;
-    starts.push({ order: row.order, start: index === 0 ? 0 : rows[index - 1]!.cumulative, title: row.title });
+    starts.push({
+      order: row.order,
+      start: index === 0 ? 0 : rows[index - 1]!.cumulative,
+      title: row.title,
+      isReport: row.isReport,
+    });
   }
   return starts;
 }

@@ -137,6 +137,7 @@ import {
   BANK_FIT_WARN_DISTANCE,
   detectBandEvents,
   planRescueProbes,
+  VISUAL_LONG_SHOT_MAX_DIST,
   collectAnchorCandidates,
   detectMismatchBorder,
   selectAnchorMatcher,
@@ -194,6 +195,7 @@ import {
   type CueSheet,
   type CueSheetChecksum,
 } from "./src/cue-sheet";
+import { alignCueToBoundaries, pickCueRecovery, predictMissingCueItems } from "./src/cue-sheet-align";
 import {
   buildReferencePrompt,
   type ReferenceFileEntry,
@@ -1874,6 +1876,45 @@ function selectedNewsItems(): Array<{ item: NewsItem; index: number }> {
   return selected;
 }
 
+// 이번 실행에서 읽어 둔 큐시트(사진 판독분). 회차가 바뀌면 다시 올려야 하므로 세션 값으로 둔다.
+let loadedCueSheet: CueSheet | null = null;
+
+/**
+ * 큐시트로 놓친 경계를 회수한다. 큐시트가 없으면 **입력을 그대로 돌려주므로 동작이 불변**이다.
+ * 예측은 이웃 간격만 쓴다 — 큐시트 절대 시각은 8회차 실측에서 평균 19.5초·최대 122초 어긋났고
+ * 전역 드리프트 보정도 통하지 않았다. 간격 기반 정렬 + 국소 보간은 같은 표본에서 평균 5.4초,
+ * 각자의 창 안 적중 128/129였다. 회수 후보가 창 안에 없으면 아무것도 하지 않는다.
+ */
+function applyCueSheetRecovery(
+  accepted: readonly number[],
+  candidates: ReadonlyArray<{ time: number; refDist: number }>,
+  program: NewsCutProgram,
+): number[] {
+  if (!loadedCueSheet || accepted.length === 0) return [...accepted];
+  const items = cueSheetItemStarts(loadedCueSheet);
+  if (items.length <= accepted.length) return [...accepted];
+  const pairs = alignCueToBoundaries(items.map((item) => item.start), [...accepted]);
+  const gaps = predictMissingCueItems(items, [...accepted], pairs);
+  if (gaps.length === 0) return [...accepted];
+  const maxRefDist = program === "morningwide" ? MORNING_WIDE_UNION_MAX_REF_DIST : VISUAL_LONG_SHOT_MAX_DIST;
+  const merged = [...accepted];
+  const picked: string[] = [];
+  for (const gap of gaps) {
+    const recovery = pickCueRecovery(gap, candidates, merged, maxRefDist);
+    // 회수 경로는 무엇을 골랐는지(그리고 왜 못 골랐는지) 반드시 남긴다 — 로그 없이 배선했다가
+    // 세 번 틀린 이력이 있다(feedback_rescue_path_validation).
+    if (!recovery) { picked.push(`${gap.predicted.toFixed(1)}±${gap.window}✗(${gap.title.slice(0, 12)})`); continue; }
+    merged.push(recovery.time);
+    picked.push(`${gap.predicted.toFixed(1)}±${gap.window}→${recovery.time.toFixed(1)}(d ${recovery.refDist.toFixed(3)})`);
+  }
+  merged.sort((a, b) => a - b);
+  activity.add(
+    "info",
+    `큐시트 회수 — 큐 꼭지 ${items.length} · 정렬 ${pairs.length} · 빈자리 ${gaps.length} · 회수 ${merged.length - accepted.length}: ${picked.join(" ")}`,
+  );
+  return merged;
+}
+
 // 촬영한 큐시트 사진을 읽어 표로 옮기고 검산한 뒤 데이터 폴더에 회차별로 저장한다.
 // AI 응답은 신뢰하지 않는다 — 검증·행 분류·검산은 전부 src/cue-sheet.ts가 다시 한다(신뢰 경계).
 async function handleNewsCutCueSheet(): Promise<void> {
@@ -1909,6 +1950,8 @@ async function handleNewsCutCueSheet(): Promise<void> {
   const entry = await dataFolder.createFile(saved, { overwrite: true });
   await entry.write(JSON.stringify({ ...sheet, checksum, itemStarts: starts }, null, 2), { format: api.formats.utf8 });
 
+  // 검산이 맞을 때만 분할에 물린다 — 판독이 틀린 큐시트로 회수하면 없는 경계를 만든다.
+  loadedCueSheet = checksum.ok ? sheet : null;
   renderNewsCutCueSheet(sheet, checksum, starts, saved);
   activity.add(
     checksum.ok ? "info" : "warning",
@@ -2766,6 +2809,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
       program === "morningwide" ? { unionMaxRefDist: MORNING_WIDE_UNION_MAX_REF_DIST } : {},
     );
     if (accepted.length === 0) throw new Error("앵커 샷을 찾지 못했습니다 — 뉴스 방송 시퀀스인지 확인해 주세요.");
+    // 큐시트 국소 보간 회수 — 올려둔 큐시트가 있을 때만 돈다(없으면 아래 accepted가 그대로다).
+    // **큐시트 절대 시각은 쓰지 않는다.** 확정된 앞뒤 경계에 큐시트 간격을 얹어 사이를 예측하고,
+    // 그 창 안에 이미 있는 후보만 되살린다 — 없는 경계를 만들지 않으므로 전역 정밀도를 팔지 않는다.
+    // 회수분은 아래 비전 검증을 그대로 통과한다(§92 오배제 0 경로).
+    const cueRecovered = applyCueSheetRecovery(accepted, candidates, program);
+    if (cueRecovered.length > accepted.length) accepted.splice(0, accepted.length, ...cueRecovered);
     activity.add("info", `원클릭 분할 · 앵커 ${accepted.length}개(화면 매칭 후보 ${candidates.length} · 학습 모델 ${modelStarts.length})`);
     // 실행간 비결정성 진단용(§92) — 확정 후보 시각을 남겨 비전 배제와 후보 누락을 구분한다.
     activity.add("info", `확정 후보 시각: ${accepted.map((time) => time.toFixed(1)).join(" ")}`);
