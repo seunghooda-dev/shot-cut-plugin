@@ -27,6 +27,13 @@ export interface CueSheetRow {
 export interface CueSheet {
   /** 방송일자 YYYY-MM-DD. 읽지 못했으면 빈 문자열. */
   broadcastDate: string;
+  /**
+   * 표 머리글의 프로그램명 원문(예: `[최종]모닝와이드`, `[최종]주말 8 뉴 스`). 읽지 못했으면
+   * 빈 문자열. **저장 파일명이 이것으로 갈린다** — 같은 날 두 프로그램이 다 방송되므로
+   * 날짜만으로는 서로를 덮어쓴다(2026-08-10 실사고: 주말 8뉴스 큐시트가 모닝와이드
+   * 저장분으로 배치돼 있었다).
+   */
+  programTitle: string;
   rows: CueSheetRow[];
   /**
    * 응답이 준 원본 행 수. `rows.length`와 다르면 그 차이가 **조용히 사라진 행**이다
@@ -113,7 +120,7 @@ const readStoredSeconds: CueClockReader = (value) => {
 };
 
 function buildCueSheet(raw: unknown, toSeconds: CueClockReader): CueSheet {
-  const source = raw as { broadcastDate?: unknown; rows?: unknown } | null;
+  const source = raw as { broadcastDate?: unknown; programTitle?: unknown; rows?: unknown } | null;
   const rawRows = Array.isArray(source?.rows) ? source!.rows : [];
   const rows: CueSheetRow[] = [];
   for (const entry of rawRows.slice(0, CUE_SHEET_MAX_ROWS)) {
@@ -138,6 +145,7 @@ function buildCueSheet(raw: unknown, toSeconds: CueClockReader): CueSheet {
   const date = String(source?.broadcastDate ?? "").trim();
   return {
     broadcastDate: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "",
+    programTitle: String(source?.programTitle ?? "").trim().slice(0, 80),
     rows,
     rowsSeen: rawRows.length,
   };
@@ -227,4 +235,18 @@ export function cueSheetItemStarts(sheet: CueSheet): CueSheetItemStart[] {
     });
   }
   return starts;
+}
+
+/**
+ * 머리글 원문에서 프로그램을 가린다. **추측하지 않는다** — 못 가리면 빈 문자열이고, 호출부는
+ * 그때 저장을 미루거나 사용자에게 알린다. 잘못 가려 다른 프로그램 저장분을 덮어쓰는 것이
+ * 못 가리는 것보다 나쁘다(2026-08-10 실사고).
+ */
+export function detectCueSheetProgram(programTitle: string): "news8" | "morningwide" | "" {
+  const text = String(programTitle ?? "").replace(/\s+/gu, "");
+  if (text === "") return "";
+  if (/모닝와이드/u.test(text)) return "morningwide";
+  // "8뉴스"는 주말·평일 판이 다 있고 표기에 공백이 섞인다("주말 8 뉴 스") — 공백 제거 후 본다.
+  if (/8뉴스/u.test(text)) return "news8";
+  return "";
 }

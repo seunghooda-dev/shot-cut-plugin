@@ -192,6 +192,7 @@ import {
   CUE_SHEET_MAX_ROWS,
   cueSheetChecksum,
   cueSheetItemStarts,
+  detectCueSheetProgram,
   parseCueSheetResponse,
   parseStoredCueSheet,
   serializeCueSheet,
@@ -1898,7 +1899,18 @@ function cueChecksumDetail(checksum: CueSheetChecksum): string {
  * 날짜로 저장분을 찾는다** — 세션 값만 두면 패널을 다시 열 때마다 다시 올려야 해서 실무에서
  * 쓰이지 않는다. 이름에 날짜가 없거나 저장분이 없으면 큐시트 없이 진행한다(동작 불변).
  */
-async function resolveCueSheetForSource(sequenceName: string): Promise<void> {
+/**
+ * 회차별 큐시트 저장 파일명. **프로그램을 이름에 넣는다** — 같은 날 8뉴스와 모닝와이드가
+ * 둘 다 방송되므로 날짜만 쓰면 서로 덮어쓰고, 한쪽 큐시트가 다른 프로그램 분할에 물린다
+ * (2026-08-10 실사고: 주말 8뉴스 7/11·7/12 큐시트가 모닝와이드 저장분으로 배치돼 있었다).
+ * 모닝와이드만 접미사를 붙여 **8뉴스 기존 파일명을 그대로 둔다** — 이미 배치된 저장분을
+ * 이름 변경으로 잃지 않기 위함이다.
+ */
+function cueSheetFileName(date: string, program: NewsCutProgram): string {
+  return program === "morningwide" ? `cue-sheet_${date}_mw.json` : `cue-sheet_${date}.json`;
+}
+
+async function resolveCueSheetForSource(sequenceName: string, program: NewsCutProgram): Promise<void> {
   // 이 경로는 **조용히 실패하면 안 된다.** 첫 실기에서 큐시트가 전혀 관여하지 않았는데
   // 로그가 한 줄도 없어 원인을 가릴 수 없었다(파일·정규식·호출 모두 정상인데도). 어느
   // 단계에서 멈췄는지 항상 남긴다 — 침묵하는 가드는 없느니만 못하다는 게 이 프로젝트의 교훈이다.
@@ -1927,7 +1939,7 @@ async function resolveCueSheetForSource(sequenceName: string): Promise<void> {
   if (!api) { activity.add("info", "큐시트: 파일 저장소를 쓸 수 없어 건너뜁니다."); return; }
   try {
     const dataFolder = await api.fileSystem.getDataFolder();
-    const entry = await dataFolder.getEntry(`cue-sheet_${date}.json`);
+    const entry = await dataFolder.getEntry(cueSheetFileName(date, program));
     // 저장분은 초로 정규화돼 있으므로 **저장분 전용 파서**를 쓴다 — AI 응답용 파서를 태우면
     // 시계 문자열이 아니라 전 행이 버려진다(§7-ay 실사고).
     const parsed = parseStoredCueSheet(JSON.parse(String(await entry.read({ format: api.formats.utf8 }))));
@@ -2008,12 +2020,16 @@ async function handleNewsCutCueSheet(): Promise<void> {
   if (sheet.rows.length === 0) throw new Error("큐시트에서 읽어낸 행이 없습니다. 표 전체가 보이도록 다시 촬영해 주세요.");
 
   const label = sheet.broadcastDate || "날짜미상";
+  // **프로그램은 사진 머리글에서 가린다.** 업로드 버튼은 어느 프로그램 작업 중인지 모르고,
+  // 같은 날 8뉴스와 모닝와이드가 다 방송되므로 날짜만으로 저장하면 서로를 덮어쓴다.
+  // 못 가리면 저장하지 않는다 — 잘못 가려 다른 프로그램에 물리는 것이 더 나쁘다(실사고).
+  const detected = detectCueSheetProgram(sheet.programTitle);
   // **검산이 맞을 때만 파일을 쓴다.** 종전에는 저장이 채택 게이트보다 앞이라, 같은 회차를
   // 흐리게 재촬영하면 채택은 안 되면서 **이미 있던 정상 저장분을 덮어써 잃었다**(감사 실측).
   let saved = "";
-  if (checksum.ok) {
+  if (checksum.ok && detected !== "") {
     const dataFolder = await api.fileSystem.getDataFolder();
-    saved = `cue-sheet_${label}.json`;
+    saved = cueSheetFileName(label, detected);
     const entry = await dataFolder.createFile(saved, { overwrite: true });
     // 직렬화는 src/cue-sheet.ts가 한다 — 읽기와 **같은 모듈에서 짝을 이뤄야** 왕복 테스트가
     // 제품의 양쪽 끝을 다 잡는다(§7-ay가 정확히 그 틈에서 났다).
@@ -2022,7 +2038,7 @@ async function handleNewsCutCueSheet(): Promise<void> {
 
   // 검산이 맞을 때만 분할에 물린다 — 판독이 틀린 큐시트로 회수하면 없는 경계를 만든다.
   loadedCueSheet = checksum.ok ? sheet : null;
-  renderNewsCutCueSheet(sheet, checksum, starts, saved || "저장 안 함(검산 불일치)");
+  renderNewsCutCueSheet(sheet, checksum, starts, saved || (checksum.ok ? "저장 안 함(프로그램 미확인)" : "저장 안 함(검산 불일치)"));
   activity.add(
     checksum.ok ? "info" : "warning",
     `큐시트 ${label} — 행 ${sheet.rows.length}/${sheet.rowsSeen} · 본 꼭지 ${starts.length} · 검산 ${checksum.ok ? "일치" : `불일치(${cueChecksumDetail(checksum)}) — 저장하지 않았습니다(기존 저장분 보존)`}`,
@@ -2033,6 +2049,9 @@ async function handleNewsCutCueSheet(): Promise<void> {
   }
   // 날짜를 못 읽으면 파일명이 회차와 묶이지 않아 **다음 실행에서 자동 인식되지 않는다.**
   // 조용히 넘어가면 유료로 읽은 큐시트가 사라진 것처럼 보인다(조회 키는 시퀀스 이름의 날짜다).
+  if (checksum.ok && detected === "") {
+    activity.add("warning", `큐시트 프로그램을 머리글에서 가리지 못했습니다(${sheet.programTitle || "머리글 미판독"}) — 어느 프로그램 저장분인지 정할 수 없어 저장하지 않았습니다. 표 상단의 프로그램명이 보이게 다시 촬영해 주세요. 이번 세션에는 그대로 적용됩니다.`);
+  }
   if (checksum.ok && sheet.broadcastDate === "") {
     activity.add("warning", "큐시트 방송일자를 읽지 못했습니다 — 이번 세션에만 적용되고 다음 실행에서 자동 인식되지 않습니다. 날짜가 보이게 다시 촬영하면 회차별로 저장됩니다.");
   }
@@ -2742,7 +2761,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
   if (!(duration > 60)) throw new Error("활성 시퀀스가 없거나 너무 짧습니다 — 1분 이상 뉴스 방송 시퀀스를 활성화해 주세요.");
   newsCutSourceKey = await readActiveContextKey().catch(() => "");
   newsCutSourceName = String(status.sequenceName ?? "");
-  await resolveCueSheetForSource(newsCutSourceName);
+  await resolveCueSheetForSource(newsCutSourceName, program);
   // 다단계 스텝바 — busy 오버레이에 현재 단계를 칩으로 표시한다(hide 시 자동 소거라 각 단계 진입마다 다시 세팅).
   const newsCutSteps = exportAfter
     ? ["프레임 점검", "화면 스캔", "앵커 검증", "경계 재스냅", "시퀀스 생성", "내보내기"]

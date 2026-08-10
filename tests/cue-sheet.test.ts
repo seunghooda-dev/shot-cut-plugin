@@ -5,6 +5,7 @@ import {
   classifyCueRow,
   cueSheetChecksum,
   cueSheetItemStarts,
+  detectCueSheetProgram,
   parseClock,
   parseCueSheetResponse,
   parseStoredCueSheet,
@@ -258,5 +259,30 @@ describe("판독 손실 가시화 · 시각 범위", () => {
     assert.equal(parseClock("00:59"), 59);
     assert.equal(parseClock("99:59"), 5999);
     assert.equal(parseClock("01:59:59"), 7199);
+  });
+});
+
+describe("프로그램 식별", () => {
+  // 같은 날 8뉴스와 모닝와이드가 다 방송되므로 날짜만으로 저장하면 서로를 덮어쓴다.
+  // 2026-08-10 실사고: 주말 8뉴스 7/11·7/12 큐시트가 모닝와이드 저장분으로 배치돼 있었다.
+  it("머리글 원문에서 프로그램을 가린다 — 공백 표기도 받는다", () => {
+    assert.equal(detectCueSheetProgram("[최종]모닝와이드  -5-"), "morningwide");
+    assert.equal(detectCueSheetProgram("[최종]주말 8 뉴 스 -10-"), "news8");
+    assert.equal(detectCueSheetProgram("[최종]8뉴스"), "news8");
+  });
+
+  it("못 가리면 빈 문자열이다 — 추측하지 않는다", () => {
+    // 잘못 가려 다른 프로그램 저장분을 덮어쓰는 것이 못 가리는 것보다 나쁘다.
+    for (const bad of ["", "   ", "알 수 없는 프로그램", "뉴스"]) {
+      assert.equal(detectCueSheetProgram(bad), "");
+    }
+  });
+
+  it("머리글을 파싱 결과에 싣고 왕복에서도 유지한다", () => {
+    const sheet = parseCueSheetResponse({
+      broadcastDate: "2026-07-13", programTitle: "[최종]모닝와이드", rows: REAL_ROWS,
+    });
+    assert.equal(sheet.programTitle, "[최종]모닝와이드");
+    assert.equal(parseStoredCueSheet(JSON.parse(serializeCueSheet(sheet))).programTitle, "[최종]모닝와이드");
   });
 });
