@@ -286,3 +286,30 @@ describe("프로그램 식별", () => {
     assert.equal(parseStoredCueSheet(JSON.parse(serializeCueSheet(sheet))).programTitle, "[최종]모닝와이드");
   });
 });
+
+describe("영상뉴스 제외", () => {
+  // 2026-08-11 사용자 확정: "영상뉴스"는 항상 불필요한 꼭지이고 유튜브에 올리지 않는다.
+  // 큐시트에는 `260713 영상뉴스`처럼 날짜 접두가 붙고 소요가 1초다.
+  it("영상뉴스 행은 아이템이 아니다", () => {
+    assert.equal(classifyCueRow("260713 영상뉴스"), "filler");
+    assert.equal(classifyCueRow("영상뉴스"), "filler");
+  });
+
+  it("꼭지 목록에서 빠진다", () => {
+    const sheet = parseCueSheetResponse({
+      broadcastDate: "2026-07-13",
+      rows: [
+        { order: 1, duration: "00:30", cumulative: "00:30", title: "첫 꼭지" },
+        { order: 2, duration: "00:01", cumulative: "00:31", title: "260713 영상뉴스" },
+        { order: 3, duration: "00:30", cumulative: "01:01", title: "다음 꼭지" },
+      ],
+    });
+    assert.deepEqual(cueSheetItemStarts(sheet).map((item) => item.order), [1, 3]);
+  });
+
+  it("기사 본문의 '영상'은 걸리지 않는다", () => {
+    // 낱말 전체가 '영상뉴스'일 때만 제외한다 — 흔한 낱말이라 과잉 매칭이 꼭지를 잃는다.
+    assert.equal(classifyCueRow("무인기 영상 공개…군 당국 분석"), "item");
+    assert.equal(classifyCueRow("뉴스 영상 제보 이어져"), "item");
+  });
+});
