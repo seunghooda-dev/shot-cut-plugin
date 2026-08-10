@@ -51,15 +51,25 @@ export interface CueGap {
 }
 
 /**
- * 큐시트 꼭지와 검출 경계를 순서를 지키며 짝짓는다. **큐시트 쪽 건너뜀만 허용한다** —
- * 방송에서 빠지는 꼭지는 있어도(사용자 증언: 뒤쪽일수록 잦다) 큐시트에 없는 경계가 방송에
- * 나가지는 않기 때문이다. 검출 경계가 남으면 그건 오검출이거나 큐시트 판독 누락이므로
- * 여기서 임의로 흡수하지 않고 짝 없이 남긴다.
+ * 큐시트 꼭지와 검출 경계를 순서를 지키며 짝짓는다. 짧은 쪽을 전부 쓰고 **긴 쪽에서
+ * 건너뛴다** — 방송에서 빠지는 꼭지도 있고(사용자 증언: 뒤쪽일수록 잦다) 큐시트에 없는
+ * 오검출 경계도 있으므로 양쪽 다 남을 수 있다. 짝 없이 남은 경계는 그 자체가 오검출 후보다.
+ *
+ * 경계가 꼭지보다 많을 때는 **역할을 바꿔 같은 DP를 돌린다.** 비용이 간격 차의 절댓값이라
+ * 대칭이므로 결과가 같고, 짝 인덱스만 되돌리면 된다. 종전에는 이 경우 빈 배열을 돌려줘
+ * **큐시트 기능이 통째로 무력화**됐다(7/16 경계 24 > 꼭지 20 · 7/20 12 > 11에서 실제 발생).
+ * 그런데도 로그는 다른 회차와 똑같이 "빈자리 0"으로 찍혀 구별되지 않았다(§7-ax).
+ * 건너뛸 개수를 문턱으로 두지 않는 것이 핵심이다 — 짧은 쪽 길이가 그 개수를 정하므로
+ * **새로 고를 하이퍼파라미터가 없다.**
  */
 export function alignCueToBoundaries(cueStarts: readonly number[], boundaries: readonly number[]): CueAlignPair[] {
   const n = cueStarts.length;
   const m = boundaries.length;
-  if (n === 0 || m === 0 || m > n) return [];
+  if (n === 0 || m === 0) return [];
+  if (m > n) {
+    return alignCueToBoundaries(boundaries, cueStarts)
+      .map((pair) => ({ cueIndex: pair.boundaryIndex, boundaryIndex: pair.cueIndex }));
+  }
   const INF = Number.POSITIVE_INFINITY;
   // best[i][j] = 큐시트 i를 경계 j에 짝지었을 때, 0..j를 모두 채운 최소 비용.
   // 비용은 **간격 차이**다 — 직전 짝과의 간격이 큐시트와 검출에서 얼마나 다른가. 절대 시각을

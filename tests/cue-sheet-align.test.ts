@@ -38,6 +38,24 @@ describe("alignCueToBoundaries", () => {
     assert.deepEqual(pairs.map((pair) => pair.boundaryIndex), [0, 1, 2]);
   });
 
+  it("경계가 큐 꼭지보다 많아도 짝을 짓는다 — 남는 경계가 오검출 후보다", () => {
+    // 종전에는 여기서 빈 배열을 돌려줘 큐시트 기능이 통째로 무력화됐다(7/16·7/20 실제 발생).
+    const pairs = alignCueToBoundaries([0, 100, 200], [0, 50, 100, 200]);
+    assert.equal(pairs.length, 3);
+    // 짝지어진 경계 인덱스는 오름차순이고 서로 다르다 — 50(인덱스 1)이 남는다.
+    assert.deepEqual(pairs.map((pair) => pair.cueIndex), [0, 1, 2]);
+    assert.deepEqual(pairs.map((pair) => pair.boundaryIndex), [0, 2, 3]);
+  });
+
+  it("경계가 많을 때도 순서를 지키고 인덱스가 뒤집히지 않는다", () => {
+    const pairs = alignCueToBoundaries([10, 120], [8, 60, 118, 300, 500]);
+    assert.equal(pairs.length, 2);
+    for (let index = 1; index < pairs.length; index += 1) {
+      assert.ok(pairs[index]!.cueIndex > pairs[index - 1]!.cueIndex);
+      assert.ok(pairs[index]!.boundaryIndex > pairs[index - 1]!.boundaryIndex);
+    }
+  });
+
   it("한쪽이 비면 짝이 없다", () => {
     assert.deepEqual(alignCueToBoundaries([], [10, 20]), []);
     assert.deepEqual(alignCueToBoundaries([10, 20], []), []);

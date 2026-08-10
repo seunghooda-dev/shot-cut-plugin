@@ -1890,10 +1890,20 @@ async function resolveCueSheetForSource(sequenceName: string): Promise<void> {
   // 로그가 한 줄도 없어 원인을 가릴 수 없었다(파일·정규식·호출 모두 정상인데도). 어느
   // 단계에서 멈췄는지 항상 남긴다 — 침묵하는 가드는 없느니만 못하다는 게 이 프로젝트의 교훈이다.
   const name = String(sequenceName ?? "");
-  if (loadedCueSheet) { activity.add("info", "큐시트: 이번 세션에 올린 것을 씁니다."); return; }
   const match = /(20\d{2})[-_]?(\d{2})[-_]?(\d{2})/u.exec(name);
+  const date = match ? `${match[1]}-${match[2]}-${match[3]}` : "";
+  // **세션 값을 회차 대조 없이 재사용하면 안 된다(§7-ba 실사고).** 패널을 한 번 열고 여러
+  // 회차를 도는 배치에서는 2회차부터 전부 1회차 큐시트로 돌았다(7/17이 7/15의 19꼭지로 회수).
+  // 날짜가 다르면 폐기하고 그 회차 저장분을 다시 찾는다.
+  if (loadedCueSheet) {
+    if (date === "" || loadedCueSheet.broadcastDate === date) {
+      activity.add("info", `큐시트: 이번 세션에 올린 것을 씁니다(${loadedCueSheet.broadcastDate || "날짜미상"}).`);
+      return;
+    }
+    activity.add("info", `큐시트: 세션 값(${loadedCueSheet.broadcastDate || "날짜미상"})이 이 회차(${date})와 달라 폐기하고 저장분을 찾습니다.`);
+    loadedCueSheet = null;
+  }
   if (!match) { activity.add("info", `큐시트: 시퀀스 이름에 날짜가 없어 건너뜁니다(${name || "이름 없음"}).`); return; }
-  const date = `${match[1]}-${match[2]}-${match[3]}`;
   const api = frameDataFolderApi();
   if (!api) { activity.add("info", "큐시트: 파일 저장소를 쓸 수 없어 건너뜁니다."); return; }
   try {
