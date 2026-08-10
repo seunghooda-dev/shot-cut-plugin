@@ -314,6 +314,14 @@
                 <option value="hevc-720">H.265(HEVC) · 720p (AME 필요)</option>
               </select></div>
             </div>
+            <div class="field">
+              <label>큐시트 사진 (선택)</label>
+              <span class="field-hint">촬영한 큐시트를 올리면 순서·소요·누적·기사제목을 읽고, 소요 합과 누적 끝이 맞는지 검산합니다. AI 설정 탭의 전송 동의와 API 키가 필요하며 장당 수 원의 비용이 듭니다. 아직 분할 판정에는 쓰이지 않고 회차별로 저장만 합니다 — 편차 표본이 모이면 예정 시각 근처를 다시 찾는 데 씁니다.</span>
+              <div class="form-actions automation-actions">
+                <button id="news-cut-cuesheet-btn" class="secondary-button" type="button" title="촬영한 큐시트 사진(PNG·JPG)을 골라 표로 읽어들이고 검산한 뒤 회차별로 저장합니다.">큐시트 사진 올리기</button>
+              </div>
+              <div id="news-cut-cuesheet-result" class="learn-corpus-list" hidden></div>
+            </div>
             <button id="news-cut-auto-btn" class="primary-button full-width-button" type="button" title="8뉴스 프로필(학습 모델·참조 뱅크·띠 규칙)로 활성 시퀀스를 스캔해 앵커 샷 기준으로 분할하고, 시퀀스 생성과 내보내기까지 한 번에 실행합니다.">8뉴스 원클릭 분할 — 화면 분석부터 내보내기까지</button>
             <button id="news-cut-split-btn" class="secondary-button full-width-button" type="button" title="8뉴스 프로필로 화면 분석과 아이템 시퀀스 생성까지만 실행하고 내보내기는 하지 않습니다. 결과를 검토·조정한 뒤 '일괄 내보내기'로 내보낼 수 있습니다.">8뉴스 분할만 — 시퀀스 생성까지(내보내기 없음)</button>
             <button id="news-cut-mw-auto-btn" class="primary-button full-width-button" type="button" title="모닝와이드 프로필(전용 참조 뱅크·분할 구도 판정)로 분할하고 내보내기까지 실행합니다. 8뉴스 전용 규칙(학습 모델·띠 회수·사인오프)은 사용하지 않습니다.">모닝와이드 원클릭 분할 — 화면 분석부터 내보내기까지</button>

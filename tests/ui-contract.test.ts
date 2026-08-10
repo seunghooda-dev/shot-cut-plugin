@@ -477,6 +477,12 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /bind\("news-cut-mw-auto-btn", "click", guarded\(handleMorningCutAuto, "모닝와이드 원클릭 분할 실패"\)\)/);
   assert.match(source, /bind\("news-cut-mw-split-btn", "click", guarded\(handleMorningCutSplitOnly, "모닝와이드 분할 실패"\)\)/);
   assert.match(source, /const bandEventCandidates = program === "news8" \? bandEvents : \[\];/);
+  // 큐시트 판독은 **유료 비전 호출**이라 동의 게이트와 키 확인을 반드시 먼저 통과해야 하고,
+  // AI 응답은 반드시 parseCueSheetResponse를 거쳐야 한다(컨트롤러가 신뢰 경계 — 원시 응답을
+  // 그대로 렌더하면 조작된 표가 그대로 화면·저장 파일에 들어간다).
+  assert.match(source, /bind\("news-cut-cuesheet-btn", "click", guarded\(handleNewsCutCueSheet, "큐시트 읽기 실패"\)\)/);
+  assert.match(source, /async function handleNewsCutCueSheet\(\): Promise<void> \{\s*ensureAiConsent\("큐시트 읽기"\);\s*if \(!\(await hasStoredOpenAIApiKey\(\)\)\)/);
+  assert.match(source, /parseCueSheetResponse\(await client\.readCueSheet\(\{ bytes, mimeType \}\)\)/);
   // §7-ap 사인오프는 모닝와이드에서도 개통했다(종전 `program !== "news8"` 잠금 해제). 남은
   // 계약은 **패턴 분기**다 — 8뉴스는 KBC 고정, MW만 방송사명 ASR 오인을 허용한다. 완화는
   // 매치를 늘리기만 하므로 8뉴스에 새면 검증된 오검출 0이 재검증 없이 흔들린다.

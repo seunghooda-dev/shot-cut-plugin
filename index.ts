@@ -188,6 +188,13 @@ import {
 } from "./src/shorts-learning";
 import { OpenAITextClient, chunkSubtitleCues, hasStoredOpenAIApiKey } from "./src/openai-text";
 import {
+  cueSheetChecksum,
+  cueSheetItemStarts,
+  parseCueSheetResponse,
+  type CueSheet,
+  type CueSheetChecksum,
+} from "./src/cue-sheet";
+import {
   buildReferencePrompt,
   type ReferenceFileEntry,
   type ReferenceItem,
@@ -1865,6 +1872,72 @@ function selectedNewsItems(): Array<{ item: NewsItem; index: number }> {
     }
   }
   return selected;
+}
+
+// 촬영한 큐시트 사진을 읽어 표로 옮기고 검산한 뒤 데이터 폴더에 회차별로 저장한다.
+// AI 응답은 신뢰하지 않는다 — 검증·행 분류·검산은 전부 src/cue-sheet.ts가 다시 한다(신뢰 경계).
+async function handleNewsCutCueSheet(): Promise<void> {
+  ensureAiConsent("큐시트 읽기");
+  if (!(await hasStoredOpenAIApiKey())) throw new Error("AI 설정 탭에서 OpenAI API 키를 먼저 저장해 주세요.");
+  const api = frameDataFolderApi();
+  if (!api) throw new Error("이 환경에서는 파일 저장소를 사용할 수 없습니다.");
+  const picked = await api.fileSystem.getFileForOpening({ types: ["png", "jpg", "jpeg"], allowMultiple: false });
+  const file = Array.isArray(picked) ? picked[0] : picked;
+  if (!file) return;
+  const data = await file.read({ format: api.formats.binary });
+  const bytes = data instanceof ArrayBuffer
+    ? new Uint8Array(data)
+    : ArrayBuffer.isView(data)
+      ? new Uint8Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, (data as ArrayBufferView).byteLength)
+      : null;
+  if (!bytes || bytes.byteLength === 0) throw new Error("큐시트 이미지를 읽지 못했습니다.");
+  // 휴대폰 사진은 수 MB라 요청 캡을 넘긴다 — 축소는 UXP에서 불가하므로 촬영 단계에서 줄이도록 안내한다.
+  if (bytes.byteLength > 1_400_000) {
+    throw new Error(`큐시트 사진이 큽니다(${Math.round(bytes.byteLength / 1024)}KB). 1.4MB 이하로 줄여서 다시 올려 주세요.`);
+  }
+  const mimeType = /\.jpe?g$/i.test(String(file.name)) ? "image/jpeg" : "image/png";
+  activity.add("info", `큐시트 읽기 시작 — ${String(file.name)} (${Math.round(bytes.byteLength / 1024)}KB, 유료)`);
+  const client = new OpenAITextClient({ endpoint: settings.aiEndpoint });
+  const sheet = parseCueSheetResponse(await client.readCueSheet({ bytes, mimeType }));
+  const checksum = cueSheetChecksum(sheet);
+  const starts = cueSheetItemStarts(sheet);
+  if (sheet.rows.length === 0) throw new Error("큐시트에서 읽어낸 행이 없습니다. 표 전체가 보이도록 다시 촬영해 주세요.");
+
+  const label = sheet.broadcastDate || "날짜미상";
+  const dataFolder = await api.fileSystem.getDataFolder();
+  const saved = `cue-sheet_${label}.json`;
+  const entry = await dataFolder.createFile(saved, { overwrite: true });
+  await entry.write(JSON.stringify({ ...sheet, checksum, itemStarts: starts }, null, 2), { format: api.formats.utf8 });
+
+  renderNewsCutCueSheet(sheet, checksum, starts, saved);
+  activity.add(
+    checksum.ok ? "info" : "warning",
+    `큐시트 ${label} — 행 ${sheet.rows.length} · 본 꼭지 ${starts.length} · 검산 ${checksum.ok ? "일치" : `불일치(소요 합 ${checksum.durationSum}s vs 누적 끝 ${checksum.lastCumulative}s)`}`,
+  );
+  toast(checksum.ok ? `큐시트를 읽었습니다 — 본 꼭지 ${starts.length}개` : "큐시트를 읽었지만 검산이 맞지 않습니다. 판독 결과를 확인해 주세요.", checksum.ok ? "success" : "info");
+}
+
+// 큐시트 판독 결과 렌더 — 문구는 전부 textContent(§25-b clearChildren).
+function renderNewsCutCueSheet(
+  sheet: CueSheet,
+  checksum: CueSheetChecksum,
+  starts: Array<{ order: number; start: number; title: string }>,
+  savedAs: string,
+): void {
+  const container = optionalElement<HTMLElement>("news-cut-cuesheet-result");
+  if (!container) return;
+  clearChildren(container);
+  container.hidden = false;
+  const summary = document.createElement("div");
+  summary.className = "learn-corpus-row";
+  summary.textContent = `${sheet.broadcastDate || "날짜미상"} · 행 ${sheet.rows.length} · 본 꼭지 ${starts.length} · 검산 ${checksum.ok ? "일치" : `불일치(${checksum.durationSum}s vs ${checksum.lastCumulative}s)`} · 저장 ${savedAs}`;
+  container.appendChild(summary);
+  for (const item of starts) {
+    const row = document.createElement("div");
+    row.className = "learn-corpus-row";
+    row.textContent = `${item.order}. ${formatDuration(item.start)} — ${item.title}`;
+    container.appendChild(row);
+  }
 }
 
 // 아이템 목록 렌더 — 체크박스 + 구간·제목(문구는 전부 textContent, §25-b clearChildren).
@@ -4367,6 +4440,7 @@ function bindCoreEvents(): void {
   bind("news-cut-split-btn", "click", guarded(handleNewsCutSplitOnly, "분할 실패"));
   bind("news-cut-mw-auto-btn", "click", guarded(handleMorningCutAuto, "모닝와이드 원클릭 분할 실패"));
   bind("news-cut-mw-split-btn", "click", guarded(handleMorningCutSplitOnly, "모닝와이드 분할 실패"));
+  bind("news-cut-cuesheet-btn", "click", guarded(handleNewsCutCueSheet, "큐시트 읽기 실패"));
   bind("news-cut-analyze-btn", "click", guarded(handleNewsCutAnalyze, "뉴스 분할 분석 실패"));
   bind("news-cut-create-btn", "click", guarded(handleNewsCutCreate, "뉴스 분할 시퀀스 생성 실패"));
   bind("news-cut-export-btn", "click", guarded(handleNewsCutExport, "뉴스 분할 내보내기 실패"));
