@@ -1,6 +1,26 @@
 // 큐시트를 검출 경계에 맞춰 정렬하고, 놓친 꼭지의 위치를 이웃 간격으로 예측하는 순수 계층
 import type { CueSheetItemStart } from "./cue-sheet";
 
+/** 회수 후보 — 화면 매칭이 낸 시각과 그 참조 거리. */
+export interface CueRecoveryCandidate {
+  time: number;
+  refDist: number;
+}
+
+export interface CueRecoveryPick {
+  gap: CueGap;
+  /** 창 안에서 고른 후보. 없으면 null이고, 그 자체가 보고할 사실이다. */
+  recovery: CueRecoveryCandidate | null;
+}
+
+export interface CueRecoveryResult {
+  /** 확정 경계 + 회수분(오름차순). 회수가 없으면 입력과 같은 내용이다. */
+  merged: number[];
+  pairs: CueAlignPair[];
+  gaps: CueGap[];
+  picks: CueRecoveryPick[];
+}
+
 /**
  * **큐시트의 절대 시각은 쓰지 않는다.** 실측(모닝와이드 8회차 129경계)에서 큐시트 시각과
  * 실제 경계의 편차가 평균 19.5초·최대 122초였고, 전역 선형 드리프트 보정도 소용없었다
@@ -128,12 +148,42 @@ export function predictMissingCueItems(
  * 큐시트가 있다고 없는 경계를 만들어내면 안 된다(§161 계열 기각의 핵심 사유가 그것이다).
  * 이미 채택된 경계와 8초 안에서 겹치는 후보는 중복이라 거른다(채점 허용오차와 같은 값).
  */
+/**
+ * 정렬 → 보간 → 회수를 한 번에 돈다. **이 함수가 회수의 전부다** — 호출부(index.ts)는 큐시트
+ * 유무만 가리고 결과를 로그로 옮길 뿐이다. 글루를 여기 둔 이유는 `index.ts`가 테스트에서
+ * 불릴 수 없어, 글루가 거기 있으면 오프라인 실측이 **제품이 아니라 재구현본을 재는** 일이
+ * 되기 때문이다(실제로 이번 도입에서 프로토타입과 제품이 평균 4.1초 vs 13.8초로 갈렸다).
+ *
+ * 결과는 무엇을 골랐는지뿐 아니라 **무엇을 못 골랐는지도** 담는다(`picks[].recovery === null`).
+ * 회수 경로가 조용히 무동작하면 "배선 안 됨"과 구별할 수 없다는 것이 §7-aw의 교훈이다.
+ */
+export function recoverFromCueSheet(
+  items: readonly CueSheetItemStart[],
+  accepted: readonly number[],
+  candidates: readonly CueRecoveryCandidate[],
+  maxRefDist: number,
+): CueRecoveryResult {
+  const base = [...accepted];
+  const pairs = alignCueToBoundaries(items.map((item) => item.start), base);
+  const gaps = predictMissingCueItems(items, base, pairs);
+  const merged = [...base];
+  const picks: CueRecoveryPick[] = [];
+  for (const gap of gaps) {
+    const recovery = pickCueRecovery(gap, candidates, merged, maxRefDist);
+    // 회수분을 즉시 merged에 넣어야 다음 빈자리의 중복 판정이 이번 회수까지 본다.
+    if (recovery) merged.push(recovery.time);
+    picks.push({ gap, recovery });
+  }
+  merged.sort((a, b) => a - b);
+  return { merged, pairs, gaps, picks };
+}
+
 export function pickCueRecovery(
   gap: CueGap,
-  candidates: ReadonlyArray<{ time: number; refDist: number }>,
+  candidates: readonly CueRecoveryCandidate[],
   accepted: readonly number[],
   maxRefDist: number,
-): { time: number; refDist: number } | null {
+): CueRecoveryCandidate | null {
   let best: { time: number; refDist: number } | null = null;
   for (const candidate of candidates) {
     if (!Number.isFinite(candidate.time)) continue;

@@ -195,7 +195,7 @@ import {
   type CueSheet,
   type CueSheetChecksum,
 } from "./src/cue-sheet";
-import { alignCueToBoundaries, pickCueRecovery, predictMissingCueItems } from "./src/cue-sheet-align";
+import { recoverFromCueSheet } from "./src/cue-sheet-align";
 import {
   buildReferencePrompt,
   type ReferenceFileEntry,
@@ -1922,28 +1922,23 @@ async function resolveCueSheetForSource(sequenceName: string): Promise<void> {
 function applyCueSheetRecovery(
   accepted: readonly number[],
   candidates: ReadonlyArray<{ time: number; refDist: number }>,
-  program: NewsCutProgram,
 ): number[] {
   if (!loadedCueSheet || accepted.length === 0) return [...accepted];
   const items = cueSheetItemStarts(loadedCueSheet);
-  // **아무것도 안 해도 반드시 로그를 남긴다.** 첫 실기(7/13)에서 확정 14개·큐 꼭지 14개라
-  // "빈자리 없음" 조기반환이 조용히 걸렸고, 로그가 한 줄도 없어 "배선이 안 됐다"와
-  // "돌았는데 할 일이 없었다"를 구별하지 못했다. 아래 정렬·보간은 꼭지 수가 확정보다
-  // 적거나 같으면 어차피 빈자리 0을 내므로, 조기반환을 없애도 동작은 같고 로그만 생긴다.
-  const pairs = alignCueToBoundaries(items.map((item) => item.start), [...accepted]);
-  const gaps = predictMissingCueItems(items, [...accepted], pairs);
-  const maxRefDist = program === "morningwide" ? MORNING_WIDE_UNION_MAX_REF_DIST : VISUAL_LONG_SHOT_MAX_DIST;
-  const merged = [...accepted];
-  const picked: string[] = [];
-  for (const gap of gaps) {
-    const recovery = pickCueRecovery(gap, candidates, merged, maxRefDist);
-    // 회수 경로는 무엇을 골랐는지(그리고 왜 못 골랐는지) 반드시 남긴다 — 로그 없이 배선했다가
-    // 세 번 틀린 이력이 있다(feedback_rescue_path_validation).
-    if (!recovery) { picked.push(`${gap.predicted.toFixed(1)}±${gap.window}✗(${gap.title.slice(0, 12)})`); continue; }
-    merged.push(recovery.time);
-    picked.push(`${gap.predicted.toFixed(1)}±${gap.window}→${recovery.time.toFixed(1)}(d ${recovery.refDist.toFixed(3)})`);
-  }
-  merged.sort((a, b) => a - b);
+  // **회수 상한은 채택 상한과 같으면 안 된다(§7-ax).** 모닝와이드 채택은 합집합이 거리
+  // 0.08 미만 후보를 전부 삼키므로, 회수 상한을 0.08로 두면 고를 수 있는 후보가 이미
+  // 채택된 것뿐이라 8초 중복 규칙에 다시 걸려 **원리적으로 0건**이다(실측: 7회차 회수 0).
+  // 실제 결손 4건은 전부 ±8초 안에 후보가 있었고 거리는 0.092~0.148로 상한 바로 위였다.
+  // 값은 두 프로그램 공통으로 기존 상수를 쓴다 — 홀드아웃을 보고 새로 고른 수가 아니어야
+  // 그 6회차가 검증 자산으로 남는다. 국소 창(±20초)은 회차 전체의 1/30이라 전역보다 관대해도
+  // 되고, 회수분은 어차피 아래 비전 검증을 그대로 통과한다(§92 오배제 0 경로).
+  const { merged, pairs, gaps, picks } = recoverFromCueSheet(items, accepted, candidates, VISUAL_LONG_SHOT_MAX_DIST);
+  // 회수 경로는 무엇을 골랐는지(그리고 왜 못 골랐는지) 반드시 남긴다 — 로그 없이 배선했다가
+  // 세 번 틀린 이력이 있다(feedback_rescue_path_validation). **아무것도 회수하지 못한
+  // 실행도 로그를 남긴다**(§7-aw) — 침묵하면 "배선 안 됨"과 구별할 수 없다.
+  const picked = picks.map(({ gap, recovery }) => (recovery
+    ? `${gap.predicted.toFixed(1)}±${gap.window}→${recovery.time.toFixed(1)}(d ${recovery.refDist.toFixed(3)})`
+    : `${gap.predicted.toFixed(1)}±${gap.window}✗(${gap.title.slice(0, 12)})`));
   activity.add(
     "info",
     `큐시트 회수 — 큐 꼭지 ${items.length} · 확정 ${accepted.length} · 정렬 ${pairs.length} · 빈자리 ${gaps.length} · 회수 ${merged.length - accepted.length}${picked.length > 0 ? `: ${picked.join(" ")}` : ""}`,
@@ -2850,7 +2845,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
     // **큐시트 절대 시각은 쓰지 않는다.** 확정된 앞뒤 경계에 큐시트 간격을 얹어 사이를 예측하고,
     // 그 창 안에 이미 있는 후보만 되살린다 — 없는 경계를 만들지 않으므로 전역 정밀도를 팔지 않는다.
     // 회수분은 아래 비전 검증을 그대로 통과한다(§92 오배제 0 경로).
-    const cueRecovered = applyCueSheetRecovery(accepted, candidates, program);
+    const cueRecovered = applyCueSheetRecovery(accepted, candidates);
     if (cueRecovered.length > accepted.length) accepted.splice(0, accepted.length, ...cueRecovered);
     activity.add("info", `원클릭 분할 · 앵커 ${accepted.length}개(화면 매칭 후보 ${candidates.length} · 학습 모델 ${modelStarts.length})`);
     // 실행간 비결정성 진단용(§92) — 확정 후보 시각을 남겨 비전 배제와 후보 누락을 구분한다.

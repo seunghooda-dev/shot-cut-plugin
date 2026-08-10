@@ -8,6 +8,7 @@ import {
   alignCueToBoundaries,
   pickCueRecovery,
   predictMissingCueItems,
+  recoverFromCueSheet,
 } from "../src/cue-sheet-align";
 import type { CueSheetItemStart } from "../src/cue-sheet";
 
@@ -92,6 +93,46 @@ describe("predictMissingCueItems", () => {
       { cueIndex: 0, boundaryIndex: 0 }, { cueIndex: 2, boundaryIndex: 1 },
     ]);
     assert.equal(gaps[0]?.isReport, true);
+  });
+});
+
+describe("recoverFromCueSheet", () => {
+  it("빈자리를 창 안 후보로 채우고 무엇을 골랐는지 함께 돌려준다", () => {
+    const cue = items([0, 100, 200]);
+    const accepted = [10, 210];
+    const candidates = [{ time: 108, refDist: 0.05 }, { time: 400, refDist: 0.01 }];
+    const result = recoverFromCueSheet(cue, accepted, candidates, 0.08);
+    assert.deepEqual(result.merged, [10, 108, 210]);
+    assert.equal(result.gaps.length, 1);
+    assert.deepEqual(result.picks.map((pick) => pick.recovery?.time), [108]);
+  });
+
+  it("창 안에 후보가 없으면 아무것도 더하지 않되 못 고른 사실을 남긴다", () => {
+    // 침묵 금지(§7-aw) — 회수 0이어도 호출부가 "빈자리는 있었다"를 말할 수 있어야 한다.
+    const result = recoverFromCueSheet(items([0, 100, 200]), [10, 210], [{ time: 400, refDist: 0.01 }], 0.08);
+    assert.deepEqual(result.merged, [10, 210]);
+    assert.equal(result.picks.length, 1);
+    assert.equal(result.picks[0]?.recovery, null);
+  });
+
+  it("빈자리가 없으면 확정을 그대로 돌려준다", () => {
+    const result = recoverFromCueSheet(items([0, 100]), [0, 100], [{ time: 50, refDist: 0.01 }], 0.08);
+    assert.deepEqual(result.merged, [0, 100]);
+    assert.deepEqual(result.gaps, []);
+    assert.deepEqual(result.picks, []);
+  });
+
+  it("연속한 빈자리를 회수할 때 앞서 회수한 시각도 중복 판정에 넣는다", () => {
+    // 회수분을 즉시 반영하지 않으면 같은 후보를 두 빈자리가 각각 집어 경계가 겹친다.
+    const cue = items([0, 100, 105, 200]);
+    const result = recoverFromCueSheet(cue, [0, 200], [{ time: 102, refDist: 0.02 }], 0.08);
+    assert.equal(result.merged.filter((time) => time === 102).length, 1);
+  });
+
+  it("입력 배열을 건드리지 않는다", () => {
+    const accepted = [10, 210];
+    recoverFromCueSheet(items([0, 100, 200]), accepted, [{ time: 108, refDist: 0.05 }], 0.08);
+    assert.deepEqual(accepted, [10, 210]);
   });
 });
 
