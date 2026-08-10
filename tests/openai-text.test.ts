@@ -698,3 +698,43 @@ describe("classifyAnchorShots — §139 위치 단서 계약", () => {
   });
 });
 
+
+describe("readCueSheet — 종(typeCode) 계약", () => {
+  // **strict 스키마에 없는 필드는 AI가 반환할 수 없다.** typeCode를 스키마에 넣지 않아
+  // 종 분기(R/B/CM/T)와 isReport가 도입 이래 실기에서 사문이었다(2026-08-10 감사 실측).
+  // 사용자가 명시적으로 요구한 규칙("종 R = 리포트, 빈칸 = 단신")이라 계약으로 잠근다.
+  const captureBody = () => {
+    let captured: any = null;
+    const fetcher = (async (_url: unknown, init: any) => {
+      captured = JSON.parse(String(init?.body ?? "{}"));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ output_text: JSON.stringify({ broadcastDate: "2026-07-13", rows: [] }) }),
+      } as Response;
+    }) as typeof fetch;
+    return { fetcher, body: () => captured };
+  };
+  const image = { bytes: new Uint8Array([1, 2, 3]), mimeType: "image/jpeg" as const };
+
+  it("스키마가 typeCode를 properties와 required에 모두 담는다", async () => {
+    const { fetcher, body } = captureBody();
+    await client(fetcher).readCueSheet(image);
+    const rowSchema = body()?.text?.format?.schema?.properties?.rows?.items;
+    assert.ok(rowSchema, "행 스키마를 찾지 못했습니다");
+    assert.ok(Object.keys(rowSchema.properties).includes("typeCode"), "properties에 typeCode가 없습니다");
+    // strict 모드는 properties 전부가 required에 있어야 한다 — 하나라도 빠지면 요청이 거절된다.
+    assert.deepEqual([...rowSchema.required].sort(), Object.keys(rowSchema.properties).sort());
+  });
+
+  it("지시문이 종 칸을 읽으라고 말하고, 빈칸을 추측하지 말라고 못박는다", async () => {
+    const { fetcher, body } = captureBody();
+    await client(fetcher).readCueSheet(image);
+    // requestJson은 시스템 지시문을 `input[0].content`에 **문자열로** 넣는다(파츠 배열이 아니다).
+    const instruction = String(body()?.input?.[0]?.content ?? "");
+    assert.ok(instruction.length > 0, "시스템 지시문을 찾지 못했습니다");
+    assert.match(instruction, /typeCode/u);
+    assert.match(instruction, /종/u);
+    assert.match(instruction, /never guess a letter/u);
+  });
+});

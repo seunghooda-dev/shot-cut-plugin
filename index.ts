@@ -1903,7 +1903,7 @@ async function resolveCueSheetForSource(sequenceName: string): Promise<void> {
   const name = String(sequenceName ?? "");
   const match = /(20\d{2})[-_]?(\d{2})[-_]?(\d{2})/u.exec(name);
   const date = match ? `${match[1]}-${match[2]}-${match[3]}` : "";
-  // **세션 값을 회차 대조 없이 재사용하면 안 된다(§7-ba 실사고).** 패널을 한 번 열고 여러
+  // **세션 값을 회차 대조 없이 재사용하면 안 된다(§7-bb 실기 실증).** 패널을 한 번 열고 여러
   // 회차를 도는 배치에서는 2회차부터 전부 1회차 큐시트로 돌았다(7/17이 7/15의 19꼭지로 회수).
   // 날짜가 다르면 폐기하고 그 회차 저장분을 다시 찾는다.
   if (loadedCueSheet) {
