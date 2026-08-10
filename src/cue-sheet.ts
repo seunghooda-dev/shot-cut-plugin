@@ -33,6 +33,13 @@ export interface CueSheet {
 export interface CueSheetChecksum {
   durationSum: number;
   lastCumulative: number;
+  /**
+   * 누적이 `직전 누적 + 소요`와 어긋난 행의 순서 번호(최대 5개). **합계만 보면 중간 행의
+   * 오독을 놓친다** — 마지막 누적만 맞으면 통과하기 때문이다. 그런데 아이템 시작은
+   * *직전 행의 누적*이라, 중간 누적이 틀리면 그 앞뒤 두 구간의 간격이 통째로 어긋나고
+   * 보간이 엉뚱한 곳을 가리킨다(2026-08-10 사용자 지적으로 보강).
+   */
+  brokenRows: number[];
   ok: boolean;
 }
 
@@ -145,7 +152,23 @@ export function cueSheetChecksum(sheet: CueSheet): CueSheetChecksum {
   const rows = sheet?.rows ?? [];
   const durationSum = rows.reduce((sum, row) => sum + row.duration, 0);
   const lastCumulative = rows.length > 0 ? rows[rows.length - 1]!.cumulative : 0;
-  return { durationSum, lastCumulative, ok: rows.length > 0 && durationSum === lastCumulative };
+  // 행마다 누적을 다시 쌓아 대조한다. 어긋난 행에서는 **적힌 누적으로 기준을 되돌려**
+  // 이후 전 행이 연쇄로 어긋난 것처럼 보이지 않게 한다 — 오독 한 곳을 한 건으로 센다.
+  const brokenRows: number[] = [];
+  let running = 0;
+  for (const row of rows) {
+    running += row.duration;
+    if (running !== row.cumulative) {
+      if (brokenRows.length < 5) brokenRows.push(row.order);
+      running = row.cumulative;
+    }
+  }
+  return {
+    durationSum,
+    lastCumulative,
+    brokenRows,
+    ok: rows.length > 0 && durationSum === lastCumulative && brokenRows.length === 0,
+  };
 }
 
 /**

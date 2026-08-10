@@ -140,7 +140,23 @@ describe("parseCueSheetResponse", () => {
     assert.equal(sheet.broadcastDate, "2026-07-13");
     assert.equal((sheet.rows).length, 17);
     const checksum = cueSheetChecksum(sheet);
-    assert.deepEqual(checksum, { durationSum: 1127, lastCumulative: 1127, ok: true });
+    assert.deepEqual(checksum, { durationSum: 1127, lastCumulative: 1127, brokenRows: [], ok: true });
+  });
+
+  it("중간 누적이 어긋나면 총합이 맞아도 잡는다", () => {
+    // 사용자 지적(2026-08-10): 총합만 보면 중간 행 오독을 놓친다. 그런데 아이템 시작은
+    // **직전 행의 누적**이라, 중간이 틀리면 앞뒤 두 구간의 간격이 통째로 어긋난다.
+    // 한 행의 누적만 옮기면 총합(=마지막 누적)은 그대로다 — 종전 검산이 통과하던 경우다.
+    const broken = REAL_ROWS.map((row, index) => (index === 5 ? { ...row, cumulative: "09:35" } : row));
+    const checksum = cueSheetChecksum(parseCueSheetResponse({ broadcastDate: "", rows: broken }));
+    assert.equal(checksum.durationSum, checksum.lastCumulative);
+    assert.deepEqual(checksum.brokenRows, [6, 7]);
+    assert.equal(checksum.ok, false);
+  });
+
+  it("어긋난 행이 많아도 다섯 개까지만 보고한다", () => {
+    const broken = REAL_ROWS.map((row, index) => (index >= 2 ? { ...row, cumulative: "00:30" } : row));
+    assert.equal(cueSheetChecksum(parseCueSheetResponse({ broadcastDate: "", rows: broken })).brokenRows.length, 5);
   });
 
   it("본 꼭지 시작 시각은 직전 행의 누적이다", () => {

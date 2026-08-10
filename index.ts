@@ -1880,6 +1880,17 @@ function selectedNewsItems(): Array<{ item: NewsItem; index: number }> {
 // 이번 실행에서 읽어 둔 큐시트(사진 판독분).
 let loadedCueSheet: CueSheet | null = null;
 
+// 검산 실패 사유를 수치까지 적는다 — "불일치"만으로는 총합이 틀린 것인지 중간 행이
+// 틀린 것인지 가릴 수 없고, 둘은 처방이 다르다(전자는 재촬영, 후자는 그 행만 재판독).
+function cueChecksumDetail(checksum: CueSheetChecksum): string {
+  const parts: string[] = [];
+  if (checksum.durationSum !== checksum.lastCumulative) {
+    parts.push(`소요 합 ${checksum.durationSum}s vs 누적 끝 ${checksum.lastCumulative}s`);
+  }
+  if (checksum.brokenRows.length > 0) parts.push(`누적 어긋난 행 ${checksum.brokenRows.join("·")}`);
+  return parts.length > 0 ? parts.join(" · ") : "행 없음";
+}
+
 /**
  * 이번 회차에 쓸 큐시트를 정한다. 방금 올린 것이 있으면 그것을 쓰고, 없으면 **시퀀스 이름의
  * 날짜로 저장분을 찾는다** — 세션 값만 두면 패널을 다시 열 때마다 다시 올려야 해서 실무에서
@@ -1915,7 +1926,7 @@ async function resolveCueSheetForSource(sequenceName: string): Promise<void> {
     const checksum = cueSheetChecksum(parsed);
     // 저장분도 검산을 다시 통과해야 쓴다 — 파일이 손상됐거나 옛 형식일 수 있다.
     if (!checksum.ok) {
-      activity.add("warning", `큐시트 ${date} 저장분 검산 불일치(${checksum.durationSum}s vs ${checksum.lastCumulative}s) — 큐시트 없이 진행합니다.`);
+      activity.add("warning", `큐시트 ${date} 저장분 검산 불일치(${cueChecksumDetail(checksum)}) — 큐시트 없이 진행합니다.`);
       return;
     }
     loadedCueSheet = parsed;
@@ -1999,7 +2010,7 @@ async function handleNewsCutCueSheet(): Promise<void> {
   renderNewsCutCueSheet(sheet, checksum, starts, saved);
   activity.add(
     checksum.ok ? "info" : "warning",
-    `큐시트 ${label} — 행 ${sheet.rows.length} · 본 꼭지 ${starts.length} · 검산 ${checksum.ok ? "일치" : `불일치(소요 합 ${checksum.durationSum}s vs 누적 끝 ${checksum.lastCumulative}s)`}`,
+    `큐시트 ${label} — 행 ${sheet.rows.length} · 본 꼭지 ${starts.length} · 검산 ${checksum.ok ? "일치" : `불일치(${cueChecksumDetail(checksum)})`}`,
   );
   toast(checksum.ok ? `큐시트를 읽었습니다 — 본 꼭지 ${starts.length}개` : "큐시트를 읽었지만 검산이 맞지 않습니다. 판독 결과를 확인해 주세요.", checksum.ok ? "success" : "info");
 }
@@ -2017,7 +2028,7 @@ function renderNewsCutCueSheet(
   container.hidden = false;
   const summary = document.createElement("div");
   summary.className = "learn-corpus-row";
-  summary.textContent = `${sheet.broadcastDate || "날짜미상"} · 행 ${sheet.rows.length} · 본 꼭지 ${starts.length} · 검산 ${checksum.ok ? "일치" : `불일치(${checksum.durationSum}s vs ${checksum.lastCumulative}s)`} · 저장 ${savedAs}`;
+  summary.textContent = `${sheet.broadcastDate || "날짜미상"} · 행 ${sheet.rows.length} · 본 꼭지 ${starts.length} · 검산 ${checksum.ok ? "일치" : `불일치(${cueChecksumDetail(checksum)})`} · 저장 ${savedAs}`;
   container.appendChild(summary);
   for (const item of starts) {
     const row = document.createElement("div");
