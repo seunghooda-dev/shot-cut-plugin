@@ -192,6 +192,7 @@ import {
   cueSheetChecksum,
   cueSheetItemStarts,
   parseCueSheetResponse,
+  parseStoredCueSheet,
   type CueSheet,
   type CueSheetChecksum,
 } from "./src/cue-sheet";
@@ -1898,7 +1899,9 @@ async function resolveCueSheetForSource(sequenceName: string): Promise<void> {
   try {
     const dataFolder = await api.fileSystem.getDataFolder();
     const entry = await dataFolder.getEntry(`cue-sheet_${date}.json`);
-    const parsed = parseCueSheetResponse(JSON.parse(String(await entry.read({ format: api.formats.utf8 }))));
+    // 저장분은 초로 정규화돼 있으므로 **저장분 전용 파서**를 쓴다 — AI 응답용 파서를 태우면
+    // 시계 문자열이 아니라 전 행이 버려진다(§7-ay 실사고).
+    const parsed = parseStoredCueSheet(JSON.parse(String(await entry.read({ format: api.formats.utf8 }))));
     const checksum = cueSheetChecksum(parsed);
     // 저장분도 검산을 다시 통과해야 쓴다 — 파일이 손상됐거나 옛 형식일 수 있다.
     if (!checksum.ok) {

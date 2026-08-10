@@ -77,10 +77,20 @@ export function classifyCueRow(title: string, typeCode = ""): CueSheetRowKind {
 }
 
 /**
- * AI가 읽어 온 큐시트 응답을 검증한다. 응답은 untrusted이므로 모든 필드를 다시 확인하고,
- * 하나라도 어긋나면 그 행을 버린다(하드 실패 대신 부분 수용 — 사진 일부가 흐릴 수 있다).
+ * 시각 칸을 초로 바꾼다. **두 갈래가 필요하다** — AI 응답은 `"02:23"` 같은 시계 문자열이고,
+ * 우리가 저장한 파일은 이미 초로 정규화된 숫자(`143`)다. 한쪽 파서로 양쪽을 읽으려다
+ * 저장분 큐시트가 통째로 버려졌다(2026-08-10 실기: `parseClock("26")`이 null이라 전 행 탈락 →
+ * 검산 `0s vs 0s` → 큐시트 없이 진행). 기능이 도입 이래 저장분으로는 한 번도 돈 적이 없었다.
  */
-export function parseCueSheetResponse(raw: unknown): CueSheet {
+type CueClockReader = (value: unknown) => number | null;
+
+const readStoredSeconds: CueClockReader = (value) => {
+  // 저장분도 신뢰하지 않는다 — 파일이 손상되거나 옛 형식일 수 있다. 방송 하루를 넘는 값은 버린다.
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 24 * 3600) return null;
+  return Math.round(value);
+};
+
+function buildCueSheet(raw: unknown, toSeconds: CueClockReader): CueSheet {
   const source = raw as { broadcastDate?: unknown; rows?: unknown } | null;
   const rawRows = Array.isArray(source?.rows) ? source!.rows : [];
   const rows: CueSheetRow[] = [];
@@ -88,8 +98,8 @@ export function parseCueSheetResponse(raw: unknown): CueSheet {
     const row = entry as {
       order?: unknown; duration?: unknown; cumulative?: unknown; title?: unknown; typeCode?: unknown;
     };
-    const duration = parseClock(String(row?.duration ?? ""));
-    const cumulative = parseClock(String(row?.cumulative ?? ""));
+    const duration = toSeconds(row?.duration);
+    const cumulative = toSeconds(row?.cumulative);
     const order = Number(row?.order);
     if (duration === null || cumulative === null) continue;
     if (!Number.isInteger(order) || order < 1) continue;
@@ -108,6 +118,23 @@ export function parseCueSheetResponse(raw: unknown): CueSheet {
     broadcastDate: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "",
     rows,
   };
+}
+
+/**
+ * AI가 읽어 온 큐시트 응답을 검증한다. 응답은 untrusted이므로 모든 필드를 다시 확인하고,
+ * 하나라도 어긋나면 그 행을 버린다(하드 실패 대신 부분 수용 — 사진 일부가 흐릴 수 있다).
+ */
+export function parseCueSheetResponse(raw: unknown): CueSheet {
+  return buildCueSheet(raw, (value) => parseClock(String(value ?? "")));
+}
+
+/**
+ * 데이터 폴더에 저장해 둔 회차별 큐시트를 다시 읽는다. 시각이 이미 초라는 것만 다르고,
+ * 검증·행 분류·정렬은 AI 응답과 **똑같이** 다시 한다 — 저장된 `kind`·`isReport`를 그대로
+ * 믿지 않는다(분류 규칙이 바뀌면 옛 파일이 낡은 판정을 되살릴 수 있다).
+ */
+export function parseStoredCueSheet(raw: unknown): CueSheet {
+  return buildCueSheet(raw, readStoredSeconds);
 }
 
 /**

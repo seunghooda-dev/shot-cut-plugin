@@ -7,6 +7,7 @@ import {
   cueSheetItemStarts,
   parseClock,
   parseCueSheetResponse,
+  parseStoredCueSheet,
 } from "../src/cue-sheet";
 
 // 2026-07-13 모닝와이드 실물 큐시트(라벨과 대조해 편차 평균 6.1초를 실측한 그 회차).
@@ -84,6 +85,52 @@ describe("종(R) 표기", () => {
     });
     assert.deepEqual(sheet.rows.map((row) => row.isReport), [true, false, true]);
     assert.deepEqual(sheet.rows.map((row) => row.typeCode), ["R", "", "R"]);
+  });
+});
+
+describe("저장분 왕복", () => {
+  // 이 왕복이 깨져 있었다(2026-08-10 실기 §7-ay). 저장은 초 숫자로 하는데 읽기는 시계
+  // 문자열 파서를 태워 전 행이 버려졌고, 검산이 `0s vs 0s`로 나와 큐시트가 통째로 무시됐다.
+  // 기능 도입 이래 **저장분으로는 한 번도 돈 적이 없었다** — 같은 세션 메모리 값만 쓰였다.
+  const saved = (sheet: ReturnType<typeof parseCueSheetResponse>) => JSON.parse(JSON.stringify({
+    ...sheet, checksum: cueSheetChecksum(sheet), itemStarts: cueSheetItemStarts(sheet),
+  }));
+
+  it("판독분을 저장한 그대로 다시 읽어 같은 표를 낸다", () => {
+    const original = parseCueSheetResponse({ broadcastDate: "2026-07-13", rows: REAL_ROWS });
+    const restored = parseStoredCueSheet(saved(original));
+    assert.deepEqual(restored, original);
+  });
+
+  it("왕복 후에도 검산과 꼭지 시작이 같다", () => {
+    const original = parseCueSheetResponse({ broadcastDate: "2026-07-13", rows: REAL_ROWS });
+    const restored = parseStoredCueSheet(saved(original));
+    assert.deepEqual(cueSheetChecksum(restored), cueSheetChecksum(original));
+    assert.deepEqual(cueSheetItemStarts(restored), cueSheetItemStarts(original));
+  });
+
+  it("저장분도 신뢰하지 않는다 — 시각이 숫자가 아니거나 범위 밖이면 그 행을 버린다", () => {
+    const sheet = parseStoredCueSheet({
+      broadcastDate: "2026-07-13",
+      rows: [
+        { order: 1, duration: 26, cumulative: 26, title: "정상" },
+        { order: 2, duration: "02:23", cumulative: 169, title: "시계 문자열은 저장 형식이 아니다" },
+        { order: 3, duration: -1, cumulative: 200, title: "음수" },
+        { order: 4, duration: 10, cumulative: 90000, title: "하루 초과" },
+        { order: 5, duration: Number.NaN, cumulative: 300, title: "NaN" },
+      ],
+    });
+    assert.deepEqual(sheet.rows.map((row) => row.order), [1]);
+  });
+
+  it("저장된 분류를 그대로 믿지 않고 다시 판정한다", () => {
+    // 분류 규칙이 바뀌면 옛 파일이 낡은 판정을 되살릴 수 있다.
+    const sheet = parseStoredCueSheet({
+      broadcastDate: "2026-07-13",
+      rows: [{ order: 1, duration: 60, cumulative: 60, title: "아무 기사", typeCode: "CM", kind: "item", isReport: true }],
+    });
+    assert.equal(sheet.rows[0]?.kind, "cm");
+    assert.equal(sheet.rows[0]?.isReport, false);
   });
 });
 
