@@ -259,6 +259,17 @@ describe("sanitizeNewsItemTitle + 제목 붙은 이름 (§CUE-4)", () => {
     assert.equal(sanitizeNewsItemTitle("코로나-19 확산"), "코로나-19 확산");
   });
 
+  it("나머지 금지 문자(\\ * ? < > |)·DEL·비문자 입력도 안전하게 걷는다 — 파일 쓰기 사고 방지", () => {
+    // 종전 테스트는 / : "만 봤다. 나머지 금지 문자를 문자군에서 빠뜨리면 Windows 파일 생성이
+    // 조용히 실패하거나 이름이 시퀀스명과 갈린다(§CUE-4 파일명=시퀀스명 불변).
+    assert.equal(sanitizeNewsItemTitle("a\\b*c?d<e>f|g"), "a b c d e f g");
+    // \u007f(DEL)은 \u0000-\u001f 범위와 별개 코드포인트라 따로 검증한다(정규식에서 빠지기 쉽다).
+    assert.equal(sanitizeNewsItemTitle("보도\u007f자료"), "보도 자료");
+    // null/undefined는 String(값 ?? "")로 흡수돼 빈 문자열이어야 한다 — 가드가 사라지면 throw.
+    assert.equal(sanitizeNewsItemTitle(null as unknown as string), "");
+    assert.equal(sanitizeNewsItemTitle(undefined as unknown as string), "");
+  });
+
   it("남는 것이 없으면 빈 문자열이고, 그때 이름은 종전 그대로다", () => {
     const date = new Date(2026, 6, 15);
     assert.equal(sanitizeNewsItemTitle("   "), "");
