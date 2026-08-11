@@ -2463,7 +2463,11 @@ async function handleNewsCutCreate(): Promise<void> {
     return [] as string[];
   });
   const startIndex = nextNewsItemIndex(existingNames, today);
-  const titles = newsCutItemTitles(selected.map(({ item }) => item.start));
+  // 제목 정렬은 **전체 아이템**으로 돌린 뒤 선택 인덱스로 집는다 — 선택 부분집합의 start만
+  // 정렬에 넘기면 비연속 선택에서 큐 간격이 어긋나 헤드라인이 한 칸 밀린다(2420줄 우려의 실제
+  // 재현). 전량 선택이면 결과는 동일(무변).
+  const allTitles = newsCutItemTitles(newsCutItems.map((item) => item.start));
+  const titles = selected.map(({ index }) => allTitles[index] ?? "");
   const inputs = selected.map(({ item }, order) => ({
     start: item.start,
     end: item.end,

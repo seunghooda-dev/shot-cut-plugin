@@ -1082,8 +1082,15 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(body, /loadedCueSheet\.broadcastDate !== date/u, "생성 시점 회차 대조가 없다");
     assert.match(body, /activity\.add\(\s*"info"/u, "어느 경로로 갔든 로그를 남겨야 한다");
     // 이름은 참고용이라 경계를 만들지 않는다 — 생성 입력의 start/end는 제목과 무관해야 한다.
-    const create = indexSource.indexOf("const titles = newsCutItemTitles(");
-    assert.ok(create > 0, "생성 경로가 제목을 받아야 한다");
+    // 제목 정렬은 전체 아이템으로 돌린 뒤 선택 인덱스로 집어야 한다(§CUE-4 보강) — 부분집합의
+    // start만 정렬에 넘기면 비연속 선택에서 큐 간격이 어긋나 헤드라인이 한 칸 밀린다.
+    const create = indexSource.indexOf("const allTitles = newsCutItemTitles(newsCutItems.map(");
+    assert.ok(create > 0, "생성 경로가 전체 아이템으로 제목을 정렬해야 한다");
+    assert.match(
+      indexSource.slice(create, create + 400),
+      /const titles = selected\.map\(\(\{ index \}\) => allTitles\[index\] \?\? ""\)/u,
+      "선택 인덱스로 제목을 집어야 한다(부분 선택 오정렬 방지)",
+    );
     assert.match(
       indexSource.slice(create, create + 400),
       /name: newsItemName\(today, startIndex \+ order, titles\[order\] \?\? ""\)/u,
