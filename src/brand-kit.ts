@@ -720,7 +720,24 @@ export class BrandKitLibrary {
       this.activeIdValue = null;
       return this.kits;
     }
-    const document = parseDocument(raw);
+    // 저장분이 손상됐거나(앱이 쓰기 중 종료) 스키마 버전이 올라가면 parseDocument가 던진다.
+    // import 경로에서는 던지는 게 맞지만(사용자 파일 오류), load에서 던지면 initialize가
+    // 실패해 **브랜드 키트 컨트롤러 전체가 null이 되어 기능이 꺼진다**(index.ts 초기화 catch).
+    // 형제 저장소(style-corpus·shot-plan·vision-cache)처럼 빈 목록으로 자가치유하고, 손상
+    // 원본은 .corrupt로 백업해 진단 여지를 남긴다(recovery.ts와 같은 방식).
+    let document: PortableBrandKitDocument;
+    try {
+      document = parseDocument(raw);
+    } catch {
+      try {
+        await this.adapter.storage.setItem(`${this.storageKey}.corrupt`, raw);
+      } catch {
+        // 백업 실패는 자가치유를 막지 않는다 — 손상 원본을 못 살려도 패널은 살아야 한다.
+      }
+      this.kitValues = [];
+      this.activeIdValue = null;
+      return this.kits;
+    }
     const used = new Set<string>();
     const loaded: BrandKit[] = [];
     for (const candidate of document.kits.slice(0, this.maxKits)) {

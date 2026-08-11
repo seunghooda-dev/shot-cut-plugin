@@ -782,29 +782,33 @@ describe("BrandKitLibrary limit and stored-document hardening", () => {
     assert.equal(library.activeKitId, null);
   });
 
-  it("surfaces corrupt persisted JSON as a typed INVALID_IMPORT error", async () => {
+  // 계약 변경(에러경계 감사 2026-08-11): load()는 손상 persisted JSON에 **던지지 않고** 형제
+  // 저장소(style-corpus·shot-plan·vision-cache)처럼 빈 목록으로 자가치유한다. 종전엔 던졌는데,
+  // 그러면 initialize가 실패해 브랜드 키트 컨트롤러 전체가 null이 되어(index.ts 초기화 catch)
+  // 기능이 통째로 꺼졌다. 손상 원본은 .corrupt로 백업한다(recovery.ts와 같은 방식). import
+  // 경로(importJSON)는 여전히 INVALID_IMPORT/UNSUPPORTED_VERSION을 던진다 — 위 import 테스트 참조.
+  it("load()의 손상 persisted JSON은 던지지 않고 자가치유하며 .corrupt로 백업한다", async () => {
     const storage = new MemoryStorage();
     storage.values.set(BRAND_KIT_STORAGE_KEY, "{corrupt");
     const { library } = deterministicLibrary(storage);
-    await assert.rejects(
-      library.load(),
-      (error: unknown) => error instanceof BrandKitError && error.code === "INVALID_IMPORT",
-    );
+    assert.deepEqual(await library.load(), []);
     assert.deepEqual(library.kits, []);
+    assert.equal(library.activeKitId, null);
+    assert.equal(storage.values.get(`${BRAND_KIT_STORAGE_KEY}.corrupt`), "{corrupt");
+    // 회복 후 정상 동작 — 컨트롤러가 살아 있어 새 키트를 만들 수 있다.
+    const created = await library.create({ name: "회복" });
+    assert.equal(created.name, "회복");
+    assert.equal(library.kits.length, 1);
   });
 
-  it("rejects a stored document with an unsupported schema version", async () => {
+  it("load()의 미지원 스키마 버전 저장분도 던지지 않고 자가치유한다", async () => {
     const storage = new MemoryStorage();
-    storage.values.set(BRAND_KIT_STORAGE_KEY, JSON.stringify({
-      schemaVersion: 2,
-      activeKitId: null,
-      kits: [],
-    }));
+    const raw = JSON.stringify({ schemaVersion: 2, activeKitId: null, kits: [] });
+    storage.values.set(BRAND_KIT_STORAGE_KEY, raw);
     const { library } = deterministicLibrary(storage);
-    await assert.rejects(
-      library.load(),
-      (error: unknown) => error instanceof BrandKitError && error.code === "UNSUPPORTED_VERSION",
-    );
+    assert.deepEqual(await library.load(), []);
+    assert.equal(library.activeKitId, null);
+    assert.equal(storage.values.get(`${BRAND_KIT_STORAGE_KEY}.corrupt`), raw);
   });
 
   it("skips non-object stored kit entries on load", async () => {

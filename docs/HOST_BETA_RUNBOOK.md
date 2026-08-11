@@ -108,6 +108,24 @@ FP는 안 는다. **비결정 실기 경로라 오프라인으로 거동 게이�
 분할 순수 4모듈(checksum 정수 비교·정렬 DP 역추적 `from[-1]` 불가·m>n 스왑 재귀 안전·
 `predictMissingCueItems` span/predicted 가드·`parseClock` 범위·정리 패턴 정합). 고심각 0.
 
+### 실결함 ③ — 브랜드 키트 load() 손상 저장분에 던짐 (LOW, 3차 에이전트)
+
+3차 에이전트로 나머지 서브시스템(recovery·automation·asset·thumbnail·job-queue·
+vision-cache·brand-kit)을 훑었다. 크래시급 0. 라이선스 게이트(본인 감사)도 clean —
+서명이 payload 원문에 대해 parseInfo **앞에서** 검증되고 시계 역행·만료 순서가 맞다
+(exp 정규식이 `2026-02-30` 같은 불가능한 날짜를 통과시키는 나이트는 서명된 issuer만
+만들 수 있어 비위협).
+
+실결함 하나: `BrandKitLibrary.load()`가 손상 persisted JSON/스키마 상승에 **던졌다.**
+형제 저장소(style-corpus·shot-plan·vision-cache)는 전부 빈 목록으로 자가치유하는데 이것만
+예외였다. 던지면 `initialize`가 실패해 **브랜드 키트 컨트롤러 전체가 null**이 되어(index.ts
+초기화 catch) 기능이 통째로 꺼진다. 시나리오: 앱이 쓰기 중 종료돼 blob이 잘리거나 향후
+스키마 버전이 오르면 매 실행 패널이 죽는다. → `load()`에서 parseDocument 실패를 잡아 빈
+목록으로 자가치유하고 손상 원본을 `.corrupt`로 백업(recovery.ts 방식). **parseDocument
+자체는 import 경로용으로 계속 던진다**(사용자 파일 오류는 던지는 게 맞다). 종전 계약을
+고정하던 테스트 2건(reject 단언)을 새 계약으로 바꾸고 사유를 테스트에 적었다 — 근거 없이
+단언만 뒤집으면 다음 사람이 회귀로 오해한다.
+
 ## §195 배포 전 회귀 2건 — 패키징이 남긴 dist, §193 재발 (2026-08-11)
 
 내부 베타 CCX를 만든 뒤 실기를 한 번도 안 돌린 채 배포 준비를 마쳤다는 것을 알고 회귀
