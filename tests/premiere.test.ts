@@ -1373,6 +1373,25 @@ describe("automation clone preparation and clip-local punch planning", () => {
     assert.match(body, /catch \(error\)[\s\S]*removeKnownClonedSequenceFromProject\(project, source, clone\)/u);
   });
 
+  it("createShortFromSource도 클론 후 실패 시 고아를 지운다(에러경계 감사 2026-08-11)", () => {
+    // 클론 생성 뒤 setSequenceFrame·setSequenceRange·reframeSequence 중 하나가 던지면
+    // 전체 길이 고아 시퀀스가 남는다. 형제 경로(applyAutomationPlan·createNewsItemSequences)와
+    // 같은 정리 계약을 소스로 고정한다 — 던지는 단계가 try 안에 들어가야 한다.
+    const source = readFileSync(path.resolve(__dirname, "../../src/premiere.ts"), "utf8");
+    const functionStart = source.indexOf("async function createShortFromSource");
+    const functionEnd = source.indexOf("export async function createShort", functionStart);
+    assert.ok(functionStart >= 0 && functionEnd > functionStart);
+    const body = source.slice(functionStart, functionEnd);
+    const cloneAt = body.indexOf("const clone = await cloneSequence");
+    const tryAt = body.indexOf("try {", cloneAt);
+    assert.ok(cloneAt >= 0 && tryAt > cloneAt, "클론 생성 뒤에 try가 있어야 한다");
+    // 던지는 세 단계가 전부 try 뒤에 있어야 한다.
+    assert.ok(tryAt < body.indexOf("await setSequenceFrame"), "setSequenceFrame이 try 안에 있어야 한다");
+    assert.ok(tryAt < body.indexOf("setSequenceRange(project, clone"), "setSequenceRange가 try 안에 있어야 한다");
+    assert.ok(tryAt < body.indexOf("await reframeSequence"), "reframeSequence가 try 안에 있어야 한다");
+    assert.match(body, /catch \(error\)[\s\S]*removeKnownClonedSequenceFromProject\(project, source, clone\)/u);
+  });
+
   it("renames, opens, and activates the newly discovered clone on the happy path", async () => {
     const sequences: Array<Record<string, unknown>> = [];
     const events: string[] = [];

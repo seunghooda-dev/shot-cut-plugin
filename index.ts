@@ -3777,21 +3777,26 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
             const backHits = await judge(backProbes);
             // 연속성 판정 — 직전 시작과 60초 이내면 중간점을 한 장 더 봐서 같은 블록인지 가른다.
             // 60초: 실측 최장 앵커 블록이 40초 안쪽이라 그보다 멀면 물어볼 필요가 없다(프레임 절약).
-            const midCandidates: number[] = [];
-            const midOwner = new Map<number, number>();
+            // owner(되짚기 발견 시각)마다 독립 항목으로 담는다 — mid로 Map 키를 잡으면 두 owner가
+            // 같은 0.25초 버킷으로 양자화될 때(근접 띠 이벤트에서 backoffTimes가 <0.25초로 붙는 경우)
+            // 뒤 owner가 앞 owner를 덮어 연속성 판정이 조용히 한 건 사라졌다(에러경계 감사 2026-08-11).
+            // 근접 owner는 아래 ±8초 병합이 어차피 걷으므로 둘 다 평가해도 FP가 늘지 않는다.
+            const midChecks: Array<{ mid: number; owner: number }> = [];
             for (const [time, isAnchor] of backHits) {
               if (!isAnchor) continue;
               const starts = [...verified, ...found].filter((start) => start < time).sort((a, b) => b - a);
               const prev = starts[0];
               if (prev === undefined || time - prev >= 60) { backAccepted.push(time); continue; }
-              const mid = Math.round((prev + time) / 2 * 4) / 4;
-              midCandidates.push(mid);
-              midOwner.set(mid, time);
+              midChecks.push({ mid: Math.round((prev + time) / 2 * 4) / 4, owner: time });
             }
-            if (midCandidates.length > 0) {
-              setText("busy-message", `회수 되짚기 · 연속성 확인 ${midCandidates.length}곳…`);
+            if (midChecks.length > 0) {
+              setText("busy-message", `회수 되짚기 · 연속성 확인 ${midChecks.length}곳…`);
               const midProbes: Array<{ time: number; bytes: Uint8Array }> = [];
-              for (const mid of midCandidates) {
+              // 같은 mid는 한 번만 내보낸다(양자화 충돌 시 중복 프레임 방지) — 판정은 mid로 조회한다.
+              const grabbedMids = new Set<number>();
+              for (const { mid } of midChecks) {
+                if (grabbedMids.has(mid)) continue;
+                grabbedMids.add(mid);
                 const bytes = await grab(mid);
                 if (bytes) midProbes.push({ time: mid, bytes });
               }
@@ -3799,8 +3804,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
               // 카드 확인도 한도를 존중한다 — 도달 후 남은 중간점마다 실패 호출을 반복하면
               // 그 지점들이 "카드 아님"으로 위장된다(안정화 감사, §110-c와 같은 부류).
               let cardBudgetStopped = false;
-              for (const mid of midCandidates) {
-                const owner = midOwner.get(mid)!;
+              for (const { mid, owner } of midChecks) {
                 // 중간점 판정을 못 받았으면(내보내기·응답 유실) 보수적으로 버린다 — 되짚기 FP가
                 // §121-c의 실패 모드였으므로 불확실할 때는 추가하지 않는 쪽이 맞다.
                 if (midHits.get(mid) === false) backAccepted.push(owner);

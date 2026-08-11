@@ -2043,43 +2043,56 @@ async function createShortFromSource(
     throw new ShortFlowError("EMPTY_RANGE", "선택한 숏폼 구간의 길이가 0초입니다.");
   }
   const clone = await cloneSequence(project, source, options.name);
-  const frameResult = await setSequenceFrame(project, clone, options.width, options.height);
-  setSequenceRange(project, clone, sourceRange);
-  const reframe = await reframeSequence(
-    project,
-    clone,
-    sourceRange,
-    frameResult.oldWidth,
-    frameResult.oldHeight,
-    options,
-  );
-  // 샷 단위 초점 스팬이 있으면(fill 크롭에서만 의미) 정적 초점 위에 위치 키프레임을 얹는다.
-  const shotWarnings: string[] = [];
-  if (options.reframeMode === "fill" && Array.isArray(options.focalSpans) && options.focalSpans.length > 0) {
-    try {
-      const shot = await applyShotFocalPositionKeyframes(
-        project,
-        clone,
-        options.focalSpans,
-        options.width,
-        options.height,
-        frameResult.oldWidth,
-        frameResult.oldHeight,
-      );
-      shotWarnings.push(...shot.warnings);
-    } catch (error) {
-      shotWarnings.push(`샷 초점 키프레임을 건너뛰었습니다: ${errorMessage(error)}`);
+  // 클론 성공 후 프레임·범위·리프레임 커밋이 실패하면(§40 간헐) 고아 클론을 지우고 던진다 —
+  // createNewsItemSequences(아래 buildOne)와 같은 이유다: 안 지우면 전체 길이 고아 시퀀스가
+  // 프로젝트에 쌓이고, 배치 경로(createShortsFromMarkers)는 실패를 기록만 하므로 마커 수만큼
+  // 누적된다. 원본은 절대 건드리지 않으므로 데이터 무결성 위험은 없다(비파괴 모델).
+  try {
+    const frameResult = await setSequenceFrame(project, clone, options.width, options.height);
+    setSequenceRange(project, clone, sourceRange);
+    const reframe = await reframeSequence(
+      project,
+      clone,
+      sourceRange,
+      frameResult.oldWidth,
+      frameResult.oldHeight,
+      options,
+    );
+    // 샷 단위 초점 스팬이 있으면(fill 크롭에서만 의미) 정적 초점 위에 위치 키프레임을 얹는다.
+    const shotWarnings: string[] = [];
+    if (options.reframeMode === "fill" && Array.isArray(options.focalSpans) && options.focalSpans.length > 0) {
+      try {
+        const shot = await applyShotFocalPositionKeyframes(
+          project,
+          clone,
+          options.focalSpans,
+          options.width,
+          options.height,
+          frameResult.oldWidth,
+          frameResult.oldHeight,
+        );
+        shotWarnings.push(...shot.warnings);
+      } catch (error) {
+        shotWarnings.push(`샷 초점 키프레임을 건너뛰었습니다: ${errorMessage(error)}`);
+      }
     }
+    return {
+      sequence: clone,
+      sequenceName: String(clone.name ?? sanitizeSequenceName(options.name)),
+      width: options.width,
+      height: options.height,
+      range: sourceRange,
+      reframe,
+      warnings: [...frameResult.warnings, ...reframe.warningMessages, ...shotWarnings],
+    };
+  } catch (error) {
+    try {
+      await removeKnownClonedSequenceFromProject(project, source, clone);
+    } catch {
+      // 정리 실패는 원래 오류를 가리지 않는다 — 고아는 다음 정리 도구가 잡는다.
+    }
+    throw error;
   }
-  return {
-    sequence: clone,
-    sequenceName: String(clone.name ?? sanitizeSequenceName(options.name)),
-    width: options.width,
-    height: options.height,
-    range: sourceRange,
-    reframe,
-    warnings: [...frameResult.warnings, ...reframe.warningMessages, ...shotWarnings],
-  };
 }
 
 export async function createShort(options: CreateShortOptions): Promise<CreateShortResult> {
