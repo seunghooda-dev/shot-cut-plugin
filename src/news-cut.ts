@@ -62,13 +62,42 @@ export function normalizeNewsItems(
  * 개수 0으로 조기 반환돼 안정화 감사 #1의 " 2" 매치가 UI 경로로는 영영 도달 불가였다.
  * `(?: \d+)?`는 클론 재시도의 uniqueSequenceName " 2" 접미를 흡수한다.
  */
-export const NEWS_ITEM_SEQUENCE_PATTERN = /^\d{8}_news_\d{2,}(?: \d+)?$/u;
+export const NEWS_ITEM_SEQUENCE_PATTERN = /^\d{8}_news_\d{2,}(?:_.+?)?(?: \d+)?$/u;
 
-/** 아이템 시퀀스·파일 이름 — 사용자 규칙 `YYYYMMDD_news_NN`(00부터). */
-export function newsItemName(date: Date, index: number): string {
+/**
+ * 이름 뒤에 붙일 기사제목의 최대 길이. 시퀀스 이름은 그대로 **내보내기 파일명**이 되므로
+ * Windows 전체 경로 260자 한도 안에 들어와야 한다(출력 폴더 ~40자 + 접두 16자 + 확장자).
+ */
+export const NEWS_ITEM_TITLE_MAX = 40;
+
+/**
+ * 시퀀스·파일 이름에 넣을 수 있게 다듬은 기사제목. 남는 것이 없으면 빈 문자열이고,
+ * 그때는 제목 없이 종전 이름을 쓴다.
+ *
+ * 자르기를 **금지 문자 치환 뒤에** 하는 것이 중요하다 — 먼저 자르면 잘린 끝에 남은 공백·
+ * 마침표를 Windows가 파일명에서 조용히 떼어 내 시퀀스 이름과 산출 파일명이 갈린다.
+ */
+export function sanitizeNewsItemTitle(title: string): string {
+  return String(title ?? "")
+    .replace(/[\\/:*?"<>|]/gu, " ")
+    // 제어문자는 파일명에서 조용히 깨진다 — 눈에 안 보이므로 여기서 걷는다.
+    .replace(/[\u0000-\u001f\u007f]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, NEWS_ITEM_TITLE_MAX)
+    .replace(/[ .]+$/u, "");
+}
+
+/**
+ * 아이템 시퀀스·파일 이름 — 사용자 규칙 `YYYYMMDD_news_NN`(00부터). 큐시트 기사제목이
+ * 있으면 `_제목`을 덧붙인다(§CUE-4). **번호가 앞에 남으므로 정렬·정리·이어붙이기 규약은
+ * 그대로다** — 제목은 편집에서 찾기 위한 꼬리표일 뿐이다.
+ */
+export function newsItemName(date: Date, index: number, title = ""): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   const day = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
-  return `${day}_news_${pad(index)}`;
+  const suffix = sanitizeNewsItemTitle(title);
+  return suffix ? `${day}_news_${pad(index)}_${suffix}` : `${day}_news_${pad(index)}`;
 }
 
 /** 같은 날짜의 기존 `YYYYMMDD_news_NN` 시퀀스 뒤에 이어 붙일 다음 번호(없으면 0). */
@@ -80,7 +109,9 @@ export function nextNewsItemIndex(existingNames: readonly string[], date: Date):
     const suffix = name.slice(prefix.length);
     // " 2" 접미 고아도 카운터에 반영한다(§184 감사 #12) — 건너뛰면 `..._03 2`만 남은 날
     // 카운터가 03을 다시 배정해 접미만 다른 동명 쌍이 재발한다.
-    const match = /^(\d{2,})(?: \d+)?$/u.exec(suffix);
+    // `_제목` 꼬리표(§CUE-4)도 카운터에 반영한다 — 건너뛰면 제목이 붙은 회차 다음에
+    // 번호가 00부터 다시 배정돼 접미만 다른 동명 쌍이 재발한다(§184 감사 #12와 같은 결함).
+    const match = /^(\d{2,})(?:_.+?)?(?: \d+)?$/u.exec(suffix);
     if (!match) continue;
     next = Math.max(next, Number(match[1]) + 1);
   }

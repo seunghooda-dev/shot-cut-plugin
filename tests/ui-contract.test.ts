@@ -1056,6 +1056,24 @@ describe("audio signoff cue contract (§152)", () => {
     assert.match(indexSource.slice(Math.max(0, at - 700), at), /newsCutCreatedNames = \[\];/u, "생성 시작 전에 이전 배치를 비워야 한다");
   });
 
+  it("아이템 이름의 큐시트 제목은 회차 대조를 거치고 로그를 남긴다(§CUE-4)", () => {
+    const at = indexSource.indexOf("function newsCutItemTitles(");
+    assert.ok(at > 0, "제목 배정 함수가 있어야 한다");
+    const body = indexSource.slice(at, at + 1400);
+    // 1단계(분석)와 2단계(생성) 사이에 다른 회차를 열 수 있다 — 여기서 다시 대조하지 않으면
+    // 한 칸 밀린 제목이 조용히 남는다.
+    assert.match(body, /loadedCueSheet\.broadcastDate !== date/u, "생성 시점 회차 대조가 없다");
+    assert.match(body, /activity\.add\(\s*"info"/u, "어느 경로로 갔든 로그를 남겨야 한다");
+    // 이름은 참고용이라 경계를 만들지 않는다 — 생성 입력의 start/end는 제목과 무관해야 한다.
+    const create = indexSource.indexOf("const titles = newsCutItemTitles(");
+    assert.ok(create > 0, "생성 경로가 제목을 받아야 한다");
+    assert.match(
+      indexSource.slice(create, create + 400),
+      /name: newsItemName\(today, startIndex \+ order, titles\[order\] \?\? ""\)/u,
+      "제목이 이름에만 반영돼야 한다",
+    );
+  });
+
   it("생성 인덱스 조회 실패는 무음이 아니라 경고를 남긴다(§186-b)", () => {
     const at = indexSource.indexOf("const existingNames = await listSequenceNames().catch(");
     assert.ok(at > 0, "조회 실패 처리 블록이 있어야 한다");

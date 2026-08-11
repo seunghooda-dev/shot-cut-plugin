@@ -109,6 +109,30 @@ export function alignCueToBoundaries(cueStarts: readonly number[], boundaries: r
 }
 
 /**
+ * 산출 아이템마다 붙일 큐시트 기사제목을 정한다(§CUE-4). **경계를 만들지도 지우지도 않는다** —
+ * 이름만 바꾸므로 F1과 무관하고, 틀려도 분할 결과는 그대로다.
+ *
+ * 짝을 못 얻은 아이템은 **빈 문자열**이다. 남는 꼭지를 순서대로 밀어 넣지 않는 것이 핵심이다 —
+ * 8뉴스는 미출고가 잦아(§CUE-2) 한 꼭지가 빠지면 그 뒤가 전부 한 칸씩 밀린 제목을 달게 된다.
+ * 이름은 편집자가 눈으로 믿는 정보라 **틀린 제목이 없는 제목보다 나쁘다.**
+ *
+ * 정렬은 회수와 **같은 DP**를 쓴다. 별도 매칭을 두면 같은 회차에서 회수와 이름이 서로 다른
+ * 꼭지를 가리키게 된다.
+ */
+export function titleItemsFromCueSheet(
+  itemStarts: readonly number[],
+  items: readonly CueSheetItemStart[],
+): string[] {
+  const titles = itemStarts.map(() => "");
+  if (itemStarts.length === 0 || items.length === 0) return titles;
+  for (const pair of alignCueToBoundaries(items.map((item) => item.start), itemStarts)) {
+    if (pair.boundaryIndex < 0 || pair.boundaryIndex >= titles.length) continue;
+    titles[pair.boundaryIndex] = items[pair.cueIndex]?.title ?? "";
+  }
+  return titles;
+}
+
+/**
  * 짝을 못 찾은 큐시트 꼭지마다 예측 시각을 낸다. 양쪽 확정 이웃이 있으면 두 이웃의
  * (검출−큐시트) 편차를 큐시트 간격 비율로 섞고, 한쪽뿐이면 그 이웃에 간격을 더한다.
  * 이웃이 하나도 없으면 예측하지 않는다 — 큐시트 절대 시각을 그대로 쓰는 셈이라 못 믿는다.

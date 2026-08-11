@@ -126,6 +126,7 @@ import {
   newsItemName,
   nextNewsItemIndex,
   normalizeNewsItems,
+  sanitizeNewsItemTitle,
   snapItemsToAnchorStarts,
   splitItemsAtInteriorAnchors,
   type NewsItem,
@@ -199,7 +200,7 @@ import {
   type CueSheet,
   type CueSheetChecksum,
 } from "./src/cue-sheet";
-import { recoverFromCueSheet } from "./src/cue-sheet-align";
+import { recoverFromCueSheet, titleItemsFromCueSheet } from "./src/cue-sheet-align";
 import {
   buildReferencePrompt,
   type ReferenceFileEntry,
@@ -2411,7 +2412,39 @@ async function handleNewsCutAnalyze(): Promise<void> {
   toast(`보도 아이템 ${newsCutItems.length}개를 찾았습니다. 목록에서 확인 후 생성하세요.`, "success");
 }
 
-// 2단계 — 선택 아이템을 원본 복제·트림으로 개별 시퀀스화(YYYYMMDD_news_NN).
+/**
+ * 이번 배치 아이템에 붙일 큐시트 기사제목(§CUE-4). 큐시트가 없거나 회차가 다르면 전부 빈
+ * 문자열이고, 그때는 종전 `YYYYMMDD_news_NN` 이름 그대로다.
+ *
+ * **회차 대조를 여기서 한 번 더 한다.** 큐시트는 1단계(분석)에서 실렸고 2단계(생성)는 따로
+ * 눌리므로 그 사이에 다른 회차를 열 수 있다 — `resolveCueSheetForSource`의 대조는 그 시점의
+ * 것이라 여기까지 보증하지 않는다. 회수와 달리 이름은 편집자가 눈으로 믿는 정보라, 한 칸
+ * 밀린 제목이 조용히 남으면 오검출보다 발견이 늦다.
+ *
+ * 어느 경로로 갔든 로그를 남긴다 — 침묵하는 가드는 없느니만 못하다(§7-aw).
+ */
+function newsCutItemTitles(starts: readonly number[]): string[] {
+  const blank = starts.map(() => "");
+  if (!loadedCueSheet) return blank;
+  const match = /(20\d{2})[-_]?(\d{2})[-_]?(\d{2})/u.exec(newsCutSourceName);
+  const date = match ? `${match[1]}-${match[2]}-${match[3]}` : "";
+  if (date === "" || loadedCueSheet.broadcastDate !== date) {
+    activity.add(
+      "info",
+      `아이템 이름: 큐시트(${loadedCueSheet.broadcastDate || "날짜미상"})가 이 회차(${date || "날짜미상"})와 달라 제목을 붙이지 않습니다.`,
+    );
+    return blank;
+  }
+  const titles = titleItemsFromCueSheet(starts, cueSheetItemStarts(loadedCueSheet));
+  const filled = titles.filter((title) => sanitizeNewsItemTitle(title) !== "").length;
+  activity.add(
+    "info",
+    `아이템 이름: 큐시트 제목 ${filled}/${starts.length}개를 붙입니다 — 참고용이라 경계는 바꾸지 않습니다.`,
+  );
+  return titles;
+}
+
+// 2단계 — 선택 아이템을 원본 복제·트림으로 개별 시퀀스화(YYYYMMDD_news_NN[_제목]).
 async function handleNewsCutCreate(): Promise<void> {
   const selected = selectedNewsItems();
   if (selected.length === 0) {
@@ -2430,10 +2463,11 @@ async function handleNewsCutCreate(): Promise<void> {
     return [] as string[];
   });
   const startIndex = nextNewsItemIndex(existingNames, today);
+  const titles = newsCutItemTitles(selected.map(({ item }) => item.start));
   const inputs = selected.map(({ item }, order) => ({
     start: item.start,
     end: item.end,
-    name: newsItemName(today, startIndex + order),
+    name: newsItemName(today, startIndex + order, titles[order] ?? ""),
   }));
   const result = await busy.during(`아이템 시퀀스 ${inputs.length}개를 만들고 있습니다…`, () =>
     createNewsItemSequences(inputs, (completed, total, name) => {

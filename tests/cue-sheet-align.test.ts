@@ -9,6 +9,7 @@ import {
   pickCueRecovery,
   predictMissingCueItems,
   recoverFromCueSheet,
+  titleItemsFromCueSheet,
   trimByCueSheetCount,
 } from "../src/cue-sheet-align";
 import type { CueSheetItemStart } from "../src/cue-sheet";
@@ -17,6 +18,37 @@ const items = (starts: number[], reports: number[] = []): CueSheetItemStart[] =>
   starts.map((start, index) => ({
     order: index + 2, start, title: `꼭지${index + 1}`, isReport: reports.includes(index),
   }));
+
+describe("titleItemsFromCueSheet (§CUE-4)", () => {
+  it("짝지어진 아이템에만 제목을 붙인다", () => {
+    const titles = titleItemsFromCueSheet([28, 162, 264], items([26, 169, 275]));
+    assert.deepEqual(titles, ["꼭지1", "꼭지2", "꼭지3"]);
+  });
+
+  it("미출고 꼭지가 있어도 뒤쪽 제목이 한 칸씩 밀리지 않는다", () => {
+    // 큐시트 4개 중 세 번째(275)가 방송에 안 나갔다 — 검출은 3개다.
+    const titles = titleItemsFromCueSheet([28, 162, 372], items([26, 169, 275, 380]));
+    assert.deepEqual(titles, ["꼭지1", "꼭지2", "꼭지4"]);
+  });
+
+  it("짝을 못 얻은 아이템은 빈 문자열이다 — 억지로 밀어 넣지 않는다", () => {
+    // 검출 4개 · 꼭지 3개. 남는 하나는 오검출 후보이므로 제목이 없어야 한다.
+    const titles = titleItemsFromCueSheet([28, 162, 264, 900], items([26, 169, 275]));
+    assert.equal(titles.length, 4);
+    assert.equal(titles.filter((title) => title === "").length, 1);
+  });
+
+  it("큐시트나 아이템이 비면 전부 빈 문자열이고 길이는 보존된다", () => {
+    assert.deepEqual(titleItemsFromCueSheet([28, 162], []), ["", ""]);
+    assert.deepEqual(titleItemsFromCueSheet([], items([26])), []);
+  });
+
+  it("경계를 만들지도 지우지도 않는다 — 길이가 입력과 항상 같다", () => {
+    const starts = [28, 162, 264, 372, 480];
+    assert.equal(titleItemsFromCueSheet(starts, items([26, 169])).length, starts.length);
+    assert.equal(titleItemsFromCueSheet(starts, items([26, 169, 275, 380, 490, 600])).length, starts.length);
+  });
+});
 
 describe("alignCueToBoundaries", () => {
   it("전부 짝이 맞으면 순서대로 짝짓는다", () => {

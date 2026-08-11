@@ -5,9 +5,11 @@ import {
   describeNewsItem,
   findShotSegments,
   NEWS_ITEM_SEQUENCE_PATTERN,
+  NEWS_ITEM_TITLE_MAX,
   newsItemName,
   nextNewsItemIndex,
   normalizeNewsItems,
+  sanitizeNewsItemTitle,
   mergeShortItemsForward,
   snapItemsToAnchorStarts,
   splitItemsAtInteriorAnchors,
@@ -224,16 +226,64 @@ describe("nextNewsItemIndex — ' 2' 접미 고아 반영(§184 감사 #12)", ()
   });
 });
 
-describe("NEWS_ITEM_SEQUENCE_PATTERN (§184)", () => {
+describe("NEWS_ITEM_SEQUENCE_PATTERN (§184 · §CUE-4)", () => {
   it("정상 아이템과 클론 재시도의 ' 2' 접미 고아를 모두 매치한다", () => {
     assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_news_00"), true);
     assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_news_03 2"), true);
   });
 
+  // §CUE-4에서 **의도적으로 넓혔다.** 제품이 `_제목`을 붙여 만드는 이상 정리(삭제)와 개수
+  // 계산이 그 이름을 못 보면 산출물이 지워지지 않고 프로젝트에 쌓인다. 넓힌 범위는
+  // `YYYYMMDD_news_NN_` 이하로 제품이 소유하는 이름 공간뿐이다.
+  it("기사제목 꼬리표가 붙은 산출물도 매치한다 — 안 그러면 정리에서 새어 나간다", () => {
+    assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_news_00_여수산단 도로"), true);
+    assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_news_00_여수산단 도로 2"), true);
+    assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_news_00_final"), true);
+  });
+
   it("사용자 시퀀스류는 매치하지 않는다 — 파괴적 정리의 오폭 방지", () => {
     assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("내 편집본"), false);
     assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_news_"), false);
-    assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_news_00_final"), false);
+    assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_news_00_"), false);
     assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("x20260730_news_00"), false);
+    assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test("20260730_뉴스_00_제목"), false);
+  });
+});
+
+describe("sanitizeNewsItemTitle + 제목 붙은 이름 (§CUE-4)", () => {
+  it("파일명 금지 문자와 제어문자를 걷고 공백을 정리한다", () => {
+    assert.equal(sanitizeNewsItemTitle("여수산단  도로"), "여수산단 도로");
+    assert.equal(sanitizeNewsItemTitle('집단/식중독:"확산"'), "집단 식중독 확산");
+    assert.equal(sanitizeNewsItemTitle("석면\u0009제거\u0007공사"), "석면 제거 공사");
+    // 하이픈은 파일명에서 합법이라 살아남아야 한다 — 문자군을 잘못 쓰면 조용히 사라진다.
+    assert.equal(sanitizeNewsItemTitle("코로나-19 확산"), "코로나-19 확산");
+  });
+
+  it("남는 것이 없으면 빈 문자열이고, 그때 이름은 종전 그대로다", () => {
+    const date = new Date(2026, 6, 15);
+    assert.equal(sanitizeNewsItemTitle("   "), "");
+    assert.equal(sanitizeNewsItemTitle("///"), "");
+    assert.equal(newsItemName(date, 2, "  "), "20260715_news_02");
+    assert.equal(newsItemName(date, 2), "20260715_news_02");
+  });
+
+  it("길이를 자른 뒤 끝에 남은 공백·마침표를 떼어 낸다 — 파일명이 시퀀스명과 갈리지 않게", () => {
+    const long = `${"가".repeat(NEWS_ITEM_TITLE_MAX - 1)} 나`;
+    const cut = sanitizeNewsItemTitle(long);
+    assert.equal(cut, "가".repeat(NEWS_ITEM_TITLE_MAX - 1));
+    assert.ok(cut.length <= NEWS_ITEM_TITLE_MAX);
+    assert.equal(sanitizeNewsItemTitle(`${"나".repeat(NEWS_ITEM_TITLE_MAX)}...`).endsWith("."), false);
+  });
+
+  it("제목이 있으면 번호 뒤에 붙고, 번호 규약은 그대로다", () => {
+    const date = new Date(2026, 6, 15);
+    assert.equal(newsItemName(date, 0, "여수산단 도로"), "20260715_news_00_여수산단 도로");
+    assert.equal(NEWS_ITEM_SEQUENCE_PATTERN.test(newsItemName(date, 0, "여수산단 도로")), true);
+  });
+
+  it("제목이 붙은 기존 시퀀스도 다음 번호 계산에 반영된다 — 동명 쌍 재발 방지", () => {
+    const date = new Date(2026, 6, 15);
+    assert.equal(nextNewsItemIndex(["20260715_news_03_여수산단 도로"], date), 4);
+    assert.equal(nextNewsItemIndex(["20260715_news_03_여수산단 도로 2"], date), 4);
   });
 });
