@@ -39,23 +39,39 @@
 
 1. [x] **실기 판정 — 가지치기 기각·원복**(§7-bm). 7/16이 97.4 → 91.9로 떨어졌고 깎은 3개 중
    2개가 TP였다. **F1 100 회차를 대조에 넣은 것이 결정적이었다** — 이득 회차만 봤으면 못 잡는다.
-2. [x] `npm run check` 2081/2081 · `check:news` 6회차 100 · `check:mw` 19회차 통과
-3. [x] 작업 트리 clean · 커밋 `93c7a97` 푸시
-4. [x] `npm run beta:evidence:verified` — CCX 재생성
-   - `release/ShortFlow-Studio-1.0.0.ccx` · 448,669 bytes
-   - SHA-256 `e43406d190b453bdca92cb80c175ee77930058266ba5d473835301fd7aebe64c`
-   - 증거 `beta-evidence/ShortFlow_Beta_Evidence_20260810T235503Z.md` · commit `93c7a97` · tree clean
-5. [x] `npm run host:smoke:full` — **11/11 통과**
+2. [x] `npm run check` **2093/2093** · `check:news` 6회차 100 · `check:mw` 19회차 통과
+3. [x] 작업 트리 clean · 커밋 `8cfdff7` 푸시
+4. [x] **배포 전 실기 회귀(§195)** — 배포물을 만든 뒤 실기를 한 번도 안 돌렸다는 것을 알고
+   두 프로그램을 비전 ON으로 다시 쟀다. 전부 기준값 유지.
+
+   | 프로그램 | 회차 | F1 | 의미 |
+   |---|---|---|---|
+   | 모닝 | 7/16 | **97.4** | 가지치기 배선 시 91.9 → 원복이 **빌드에 반영됐다는 직접 증거** |
+   | 모닝 | 8/05 | **100.0** | §CUE-4 제목 17/17 부착에도 F1 불변 |
+   | 8뉴스 | 1/06 | **100.0** | 과거 FP 250 이력 · FP 0 |
+   | 8뉴스 | 4/07 | **96.3** | FN 220.8 — §125 4형 상수 |
+   | 8뉴스 | 7/27 | **100.0** | 유지 |
+
+   과정에서 결함 2건을 잡았다 — `package:ccx`가 dist에 난독화 빌드를 남기는 것(실기 관문에
+   가드 추가), §193 옵트아웃 영속의 8뉴스 실행기 재발(유료 배치기 파생으로 시정).
+5. [x] `npm run beta:evidence:verified` — CCX 재생성
+   - `release/ShortFlow-Studio-1.0.0.ccx` · 448,883 bytes
+   - SHA-256 `8f627072d655c0ba5bf16d297241c71a3acad45ecfea3fa89c74f297aff61bd6`
+   - 증거 `beta-evidence/ShortFlow_Beta_Evidence_20260811T040346Z.md` · commit `8cfdff7` · tree clean
+6. [x] `npm run host:smoke:full` — **11/11 통과**
    (panel-boot · tab-sweep 13탭 · host-context · ui-contract-live · subtitle-roundtrip ·
    transcript-attach · hangul-path-io · listener-lifecycle 누적 0 · source-untouched 불변 ·
    sequence-switch-recover · status-truth)
-6. [ ] `BETA_RELEASE_CHECKLIST.md`의 **[수동]** 항목 — TTS 저장·음악 폴더 동기화·Safe Zone
+7. [ ] `BETA_RELEASE_CHECKLIST.md`의 **[수동]** 항목 — TTS 저장·음악 폴더 동기화·Safe Zone
    export 경고·썸네일 PNG/SVG·복제본 rollback 등. **사용자가 직접 확인해야 하는 부분이다.**
 
 ## 3-b. 이번 후보에 들어간 것 (8/03 이후 184커밋)
 
 - **큐시트 기능 전체** — 사진 판독·검산(행별)·회차/프로그램별 저장·회수(§7-ax·§7-bi 인과 실증
   97.4 → 100)·종(R) 판독. **가지치기는 기각돼 들어가지 않는다**(§7-bm).
+- **산출 시퀀스에 기사제목 부착**(§CUE-4) — `20260811_news_03_여수산단 도로`. 경계를 만들지도
+  지우지도 않아 F1과 무관하고, 짝 못 얻은 아이템은 번호만 남는다(틀린 제목보다 없는 제목).
+  **정리(삭제) 패턴을 함께 넓혔다** — 안 넓혔으면 산출물이 정리에서 새어 나가 쌓였다.
 - **결함 12건 시정** — 침묵 조기반환 2 · 회수 문턱 무동작 · 저장분 왕복 불일치 · 정렬 m>n
   가드 · 회차 대조 누락 · 검산 중간행 · 종 AI 계약 누락 · 감사 4건.
 - **모닝와이드 실기** — 학습셋 6회차 100 · 홀드아웃 6회차 98.5 · 블라인드 3회차 99.0.
