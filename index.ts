@@ -2625,7 +2625,7 @@ async function exportNewsSequencesWith(presetFile: any, outputFolder: any): Prom
   if (!ameInstalled()) {
     activity.add("info", "AME 미설치 — Premiere 직접 렌더로 내보냅니다.");
     const result = await busy.during(`${newsCutCreatedNames.length}개 렌더 중…`, () =>
-      renderSequenceExportsByName(newsCutCreatedNames, presetFile, outputFolder, (completed, total, name) => {
+      renderSequenceExportsByName(newsCutCreatedNames, presetFile, outputFolder, newsCutCreatedGuids, (completed, total, name) => {
         setText("busy-message", `${completed + 1}/${total} · ${name} 렌더 중…`);
         busy.progress((completed / Math.max(1, total)) * 100);
       }));
@@ -2633,6 +2633,10 @@ async function exportNewsSequencesWith(presetFile: any, outputFolder: any): Prom
       result.failures.length ? "warning" : "success",
       `뉴스 분할 직접 렌더 · 성공 ${result.queued.length} · 실패 ${result.failures.length}`,
     );
+    // GUID 미일치 이름 폴백(§184 #14) — AME 경로와 대칭. 동명 stale 시퀀스 오해석을 고지한다.
+    if (result.usedNameFallback.length > 0) {
+      activity.add("warning", `GUID가 일치하지 않아 이름으로 해석한 시퀀스 ${result.usedNameFallback.length}개 — 프로젝트를 전환했거나 시퀀스를 다시 만들었다면 산출물을 확인하세요: ${result.usedNameFallback.join(", ")}`);
+    }
     result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
     // 실패 개수를 토스트에도 싣는다(§183 감사 #5) — 활동 로그를 안 여는 사용자가 전량
     // 실패를 "0개를 내보냈습니다"라는 완료 문구로 읽었다.

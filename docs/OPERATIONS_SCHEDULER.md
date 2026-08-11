@@ -127,6 +127,16 @@ Plugins\External\com.seunghooda.shortflow.studio.direct_1.0.0\`에 심어 시작
 
 ## 백로그 (2026-08-09 갱신 — 완료 시 취소선, 3개 미만이면 P4 발굴 강제)
 
+**독립 코드검토 스윕(2026-08-12) — 큐시트·premiere.ts 안정화.** 발굴 루프에서 bkit:code-analyzer
+2회 고용. ✅ 큐시트 실결함 2건 수정(72cb83c). ✅ premiere.ts: GUID 결속이 직접 렌더 폴백
+(`renderSequenceExportsByName`)에 미적용이라 동명 stale 시퀀스를 엉뚱한 내용으로 무경고 렌더하던
+위험을 AME 경로 대칭으로 수정(GUID 우선·usedNameFallback 경고·호출부 GUID 전달·소스 이빨, 실기
+스모크 대기). **잔여 백로그 3건**(코드 현재 정상, 강화·선재): ②`createShortFromSource` 고아 정리가
+소스-문자열 테스트뿐 — cloneSequence 거동 하네스(premiere.test.ts:1320)로 격상 필요 ③`cloneSequence`
+CLONE_NOT_FOUND+재시도 이중 고아(선재·§40 타이밍 의존, 4400시퀀스 축적 성격) ④`buildHighlightReel`
+이름 기반 project-item 조회(선재·릴 범위 밖 — `findImportedItem` 경로조회로 교체 가능, 동명 미디어
+오구성 위험).
+
 **P0 진행분 — 8/11 신규 회차 취득·초벌 라벨 완료, 측정 대기(2026-08-12 스케줄러 사이클).**
 YouTube에서 유일한 미보유 정규 회차 `OBeIgbbW3MU`(8/11)를 취득(dl-0811.sh, 557MB H.264,
 §151 무오염 — 코퍼스 8/07까지). 5초 시트 4장으로 **17 아이템 초벌 라벨** 완료

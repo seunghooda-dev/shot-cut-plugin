@@ -1392,6 +1392,28 @@ describe("automation clone preparation and clip-local punch planning", () => {
     assert.match(body, /catch \(error\)[\s\S]*removeKnownClonedSequenceFromProject\(project, source, clone\)/u);
   });
 
+  it("renderSequenceExportsByName도 GUID 우선 해석·이름 폴백 경고를 한다(§184 #14 대칭)", () => {
+    // AME 직접 렌더 폴백도 대기열 경로와 대칭이어야 한다 — 이름 전용 해석은 같은 날 재실행
+    // (인덱스 01 재시작)·프로젝트 전환에서 동명 stale 시퀀스를 골라 엉뚱한 내용을 올바른
+    // 파일명으로 무경고 렌더한다(premiere.ts 독립검토 2026-08-12).
+    const source = readFileSync(path.resolve(__dirname, "../../src/premiere.ts"), "utf8");
+    const start = source.indexOf("export async function renderSequenceExportsByName");
+    const end = source.indexOf("export interface ReelSegmentInput", start);
+    assert.ok(start >= 0 && end > start);
+    const body = source.slice(start, end);
+    assert.match(body, /sequenceGuids\?: ReadonlyArray/u, "GUID 파라미터를 받아야 한다");
+    assert.match(body, /guid \? byGuid\.get\(String\(guid\)\) : undefined/u, "GUID를 1차 키로 해석해야 한다");
+    assert.match(body, /usedNameFallback\.push\(name\)/u, "GUID 미일치 시 이름 폴백을 알려야 한다");
+    assert.match(body, /return \{ queued, failures, usedNameFallback \}/u, "usedNameFallback을 반환해야 한다");
+    // 호출부가 GUID를 안 넘기면 타입체크는 통과하나(optional 파라미터) 보호가 무효다.
+    const indexSource = readFileSync(path.resolve(__dirname, "../../index.ts"), "utf8");
+    assert.match(
+      indexSource,
+      /renderSequenceExportsByName\(newsCutCreatedNames, presetFile, outputFolder, newsCutCreatedGuids,/u,
+      "직접 렌더 호출부가 newsCutCreatedGuids를 넘겨야 한다",
+    );
+  });
+
   it("renames, opens, and activates the newly discovered clone on the happy path", async () => {
     const sequences: Array<Record<string, unknown>> = [];
     const events: string[] = [];

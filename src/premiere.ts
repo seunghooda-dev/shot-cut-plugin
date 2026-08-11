@@ -2513,13 +2513,17 @@ async function awaitStableExportOutput(
 /**
  * AME 미설치 환경용 일괄 직접 렌더 — 아이템 시퀀스를 인/아웃 범위로 Premiere가 즉시 렌더한다.
  * 파일명은 시퀀스 이름 그대로(뉴스 분할 규칙 `YYYYMMDD_news_NN.ext`), 순차 실행으로 부하를 막는다.
+ * sequenceGuids가 오면 GUID를 1차 키로 해석한다(§184 #14, AME 대기열 경로와 대칭) — 이름 전용
+ * 해석은 같은 날 재실행(인덱스 01 재시작)·프로젝트 전환에서 동명 stale 시퀀스를 골라 엉뚱한
+ * 내용을 올바른 파일명으로 무경고 렌더한다. GUID 미일치 시 이름 폴백을 쓰되 usedNameFallback으로 알린다.
  */
 export async function renderSequenceExportsByName(
   sequenceNames: string[],
   presetFile: { nativePath?: string },
   outputFolder: { nativePath?: string; getEntry?: (name: string) => Promise<any> },
+  sequenceGuids?: ReadonlyArray<string | null | undefined>,
   onProgress?: (completed: number, total: number, name: string) => void,
-): Promise<{ queued: string[]; failures: Array<{ name: string; error: string }> }> {
+): Promise<{ queued: string[]; failures: Array<{ name: string; error: string }>; usedNameFallback: string[] }> {
   if (!presetFile?.nativePath) {
     throw new ShortFlowError("NO_EXPORT_PRESET", "Adobe Media Encoder .epr 프리셋을 선택해 주세요.");
   }
@@ -2537,12 +2541,26 @@ export async function renderSequenceExportsByName(
   const { project } = await getActiveContext();
   const sequences = await project.getSequences();
   const byName = new Map(sequences.map((sequence) => [String(sequence.name), sequence]));
+  const byGuid = new Map<string, (typeof sequences)[number]>();
+  for (const sequence of sequences) {
+    const guid = (sequence as { guid?: unknown }).guid;
+    if (guid) byGuid.set(String(guid), sequence);
+  }
   const queued: string[] = [];
   const failures: Array<{ name: string; error: string }> = [];
-  for (const name of sequenceNames) {
+  const usedNameFallback: string[] = [];
+  for (let index = 0; index < sequenceNames.length; index += 1) {
+    const name = sequenceNames[index]!;
     onProgress?.(queued.length + failures.length, sequenceNames.length, name);
     try {
-      const sequence = byName.get(name);
+      const guid = sequenceGuids?.[index];
+      let sequence = guid ? byGuid.get(String(guid)) : undefined;
+      if (!sequence) {
+        sequence = byName.get(name);
+        // GUID를 받고도 못 찾아 이름으로 해석한 경우(§184 #14) — 프로젝트 전환·재생성
+        // 가능성이 있으니 호출부가 고지하도록 알린다.
+        if (sequence && guid) usedNameFallback.push(name);
+      }
       if (!sequence) throw new ShortFlowError("SEQUENCE_NOT_FOUND", "시퀀스를 찾지 못했습니다.");
       const extension = normalizeExportExtension(await ppro.EncoderManager.getExportFileExtension(sequence, presetPath));
       // 타임스탬프 파일명(§183 감사 #2) — AME 대기열 경로(buildExportFilename)와 규약을 맞춘다.
@@ -2577,7 +2595,7 @@ export async function renderSequenceExportsByName(
       failures.push({ name, error: errorMessage(error) });
     }
   }
-  return { queued, failures };
+  return { queued, failures, usedNameFallback };
 }
 
 export interface ReelSegmentInput {
