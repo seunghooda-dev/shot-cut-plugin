@@ -44,7 +44,38 @@ export async function warnIfAudioPreviewCacheLarge(thresholdGb = 10) {
   return gb;
 }
 
+/**
+ * dist가 **난독화 배포 빌드**면 중단한다(§195-a).
+ *
+ * `npm run package:ccx`는 `build:release`로 dist를 덮고 그대로 둔다. 그 상태로 실기를 돌리면
+ * 패널이 시리얼 키 화면을 띄워 체인이 통째로 죽는데, 실패가 "패널이 응답 없음"으로만 보여
+ * 원인을 찾는 데 시간을 버린다. 게다가 난독화본은 문자열이 배열로 흩어져 **로그 마커 grep이
+ * 전부 0건**이라 "기능이 없다"로 오독하기 쉽다.
+ *
+ * 여기서 막는 이유는 이곳이 모든 실기 도구가 지나는 **단일 관문**이기 때문이다.
+ * 경고가 아니라 중단인 것은 §40-d와 같은 이유다 — 침묵하는 가드는 없느니만 못하다.
+ */
+async function assertDistIsDevBuild(distPath) {
+  if (!distPath) return;
+  const { readFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  let head;
+  try {
+    const buffer = await readFile(join(distPath, "index.js"));
+    head = buffer.subarray(0, 200).toString("utf8");
+  } catch {
+    return; // dist를 못 읽는 것은 이 가드가 판단할 일이 아니다(접속 단계에서 드러난다).
+  }
+  if (!head.includes("obfuscated-by-shortflow")) return;
+  throw new Error(
+    "dist가 난독화 배포 빌드입니다(package:ccx 잔재) — 패널이 시리얼 키를 요구해 실기가 죽습니다.\n"
+    + "  먼저 `npm run build`로 dev 빌드를 만든 뒤 다시 실행하세요.\n"
+    + "  release/ 안의 CCX는 이미 패키징돼 있어 영향받지 않습니다.",
+  );
+}
+
 export async function connectPanel({ session, distPath, reload = false } = {}) {
+  await assertDistIsDevBuild(distPath);
   const service = new WS("ws://127.0.0.1:14001");
   let requestSeq = 2000;
   const waiters = new Map();
