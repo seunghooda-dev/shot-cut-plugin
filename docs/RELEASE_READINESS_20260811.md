@@ -54,10 +54,10 @@
 
    과정에서 결함 2건을 잡았다 — `package:ccx`가 dist에 난독화 빌드를 남기는 것(실기 관문에
    가드 추가), §193 옵트아웃 영속의 8뉴스 실행기 재발(유료 배치기 파생으로 시정).
-5. [x] `npm run beta:evidence:verified` — CCX 재생성
-   - `release/ShortFlow-Studio-1.0.0.ccx` · 448,883 bytes
-   - SHA-256 `8f627072d655c0ba5bf16d297241c71a3acad45ecfea3fa89c74f297aff61bd6`
-   - 증거 `beta-evidence/ShortFlow_Beta_Evidence_20260811T040346Z.md` · commit `8cfdff7` · tree clean
+5. [x] `npm run beta:evidence:verified` — CCX 재생성(정리 이름 로그 방어 포함)
+   - `release/ShortFlow-Studio-1.0.0.ccx` · 448,614 bytes
+   - SHA-256 `f047681b179ce67dedfee9e2a8b46bcc8e75c1e33256e0c0e1bf4e5770defa5e`
+   - 증거 `beta-evidence/ShortFlow_Beta_Evidence_20260811T083947Z.md` · commit `ce8c627`
 6. [x] `npm run host:smoke:full` — **11/11 통과**
    (panel-boot · tab-sweep 13탭 · host-context · ui-contract-live · subtitle-roundtrip ·
    transcript-attach · hangul-path-io · listener-lifecycle 누적 0 · source-untouched 불변 ·
