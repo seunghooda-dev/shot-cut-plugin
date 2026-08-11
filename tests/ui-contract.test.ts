@@ -1050,6 +1050,23 @@ describe("audio signoff cue contract (§152)", () => {
     assert.equal(inline.length, 0, "index.ts에 인라인 아이템 정규식이 남아 있다");
   });
 
+  it("정리 arm 단계는 개수뿐 아니라 대상 이름을 로그로 남긴다(§CUE-4 후속)", () => {
+    // 제목 부착으로 삭제 이름 공간이 사용자 채택 이름과 겹치므로, 2차 클릭 전에 목록을
+    // 눈으로 검토할 수 있어야 한다. 개수만 보여 주면 보관본 혼입을 못 잡는다.
+    const at = indexSource.indexOf("async function handleNewsCutCleanup");
+    assert.ok(at > 0, "정리 핸들러가 있어야 한다");
+    const body = indexSource.slice(at, at + 1600);
+    assert.match(body, /const targets = cleanupNames\.filter/u, "대상 이름 목록을 계산해야 한다(개수만이 아니라)");
+    assert.match(body, /targets\.slice\(0, 12\)/u, "대상 이름 미리보기를 만들어야 한다");
+    // arm 분기(타이머가 null일 때) 안에서 경고 로그를 남겨야 한다 — 확정 클릭 전에 보여야 한다.
+    const armAt = body.indexOf("newsCutCleanupArmTimer === null");
+    const confirmAt = body.indexOf("() => deleteNewsItemSequences()");
+    // "정리 대상"은 조기반환 주석에도 있어 모호하다 — arm 로그의 고유 문구로 앵커한다.
+    const logAt = body.indexOf("보관할 편집본이 이 목록에");
+    assert.ok(logAt > armAt, "이름 로그는 arm 분기 안에 있어야 한다");
+    assert.ok(confirmAt < 0 || logAt < confirmAt, "이름 로그는 실제 삭제(확정) 이전에 있어야 한다");
+  });
+
   it("시퀀스 생성 시작 시 이전 배치 목록을 비운다(§184 감사 #13)", () => {
     const at = indexSource.indexOf("const startIndex = nextNewsItemIndex(");
     assert.ok(at > 0);

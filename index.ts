@@ -2686,7 +2686,8 @@ async function handleNewsCutCleanup(): Promise<void> {
     toast("시퀀스 목록을 읽지 못해 정리를 진행할 수 없습니다. 잠시 후 다시 시도해 주세요.", "warning");
     return;
   }
-  const count = cleanupNames.filter((name) => NEWS_ITEM_SEQUENCE_PATTERN.test(name)).length;
+  const targets = cleanupNames.filter((name) => NEWS_ITEM_SEQUENCE_PATTERN.test(name));
+  const count = targets.length;
   if (count === 0) {
     disarmNewsCutCleanup();
     toast("정리할 아이템 시퀀스가 없습니다.", "info");
@@ -2698,6 +2699,15 @@ async function handleNewsCutCleanup(): Promise<void> {
       button.textContent = `정말 삭제? (${count}개)`;
       button.classList.add("danger-button");
     }
+    // 대상 **이름**을 활동 로그에 남긴다(§CUE-4 후속). 제목이 붙으면서(20260811_news_03_제목)
+    // 삭제 이름 공간이 사용자가 채택할 수 있는 이름과 겹친다 — 편집 보관본을 `_확정`으로
+    // 표시하면 여전히 이 패턴에 걸린다. 개수만 보여 주면 그 보관본이 섞였는지 확인할 수
+    // 없으므로, 2차 클릭(확정) 전에 목록을 눈으로 검토할 수 있게 남긴다.
+    const preview = targets.slice(0, 12).join(" · ");
+    activity.add(
+      "warning",
+      `정리 대상 ${count}개 — 4초 안에 다시 누르면 삭제합니다. 보관할 편집본이 이 목록에 섞였는지 확인하세요: ${preview}${count > 12 ? ` 외 ${count - 12}개` : ""}`,
+    );
     newsCutCleanupArmTimer = setTimeout(disarmNewsCutCleanup, 4000);
     return;
   }
