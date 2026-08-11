@@ -39,8 +39,8 @@
 
 1. [x] **실기 판정 — 가지치기 기각·원복**(§7-bm). 7/16이 97.4 → 91.9로 떨어졌고 깎은 3개 중
    2개가 TP였다. **F1 100 회차를 대조에 넣은 것이 결정적이었다** — 이득 회차만 봤으면 못 잡는다.
-2. [x] `npm run check` **2094/2094** · `check:news` 6회차 100 · `check:mw` 19회차 통과
-3. [x] 작업 트리 clean · CCX를 담은 커밋 `213614e` 푸시
+2. [x] `npm run check` **2095/2095** · `check:news` 6회차 100 · `check:mw` 19회차 통과
+3. [x] 작업 트리 clean · CCX를 담은 커밋 `7688972` 푸시
 4. [x] **배포 전 실기 회귀(§195)** — 배포물을 만든 뒤 실기를 한 번도 안 돌렸다는 것을 알고
    두 프로그램을 비전 ON으로 다시 쟀다. 전부 기준값 유지.
 
@@ -54,10 +54,10 @@
 
    과정에서 결함 2건을 잡았다 — `package:ccx`가 dist에 난독화 빌드를 남기는 것(실기 관문에
    가드 추가), §193 옵트아웃 영속의 8뉴스 실행기 재발(유료 배치기 파생으로 시정).
-5. [x] `npm run beta:evidence:verified` — CCX 재생성(정리 이름 로그 방어 포함)
-   - `release/ShortFlow-Studio-1.0.0.ccx` · 448,614 bytes
-   - SHA-256 `f047681b179ce67dedfee9e2a8b46bcc8e75c1e33256e0c0e1bf4e5770defa5e`
-   - 증거 `beta-evidence/ShortFlow_Beta_Evidence_20260811T083947Z.md` · commit `ce8c627`
+5. [x] `npm run beta:evidence:verified` — CCX 재생성(§196 안정성 감사 2건 포함)
+   - `release/ShortFlow-Studio-1.0.0.ccx` · 449,553 bytes
+   - SHA-256 `99e398dc45d257f312ecfb84e2418c2980fd6ce35decd72319f26aece66ab701`
+   - 증거 `beta-evidence/ShortFlow_Beta_Evidence_20260811T111232Z.md` · commit `7688972`
 6. [x] `npm run host:smoke:full` — **11/11 통과**
    (panel-boot · tab-sweep 13탭 · host-context · ui-contract-live · subtitle-roundtrip ·
    transcript-attach · hangul-path-io · listener-lifecycle 누적 0 · source-untouched 불변 ·
