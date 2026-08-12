@@ -390,6 +390,17 @@ export function validateAiSubtitleResponse(
         throw new Error("AI 줄바꿈은 큐의 사용·숨김 상태를 변경할 수 없습니다.");
       }
     });
+    // 큐 텍스트 ↔ 단어 내용 정합(견고성 감사 A1) — 단어를 전부 보존해도 cue.text만 바꿔치기하면
+    // maxChars 검사(텍스트 길이)와 단어 보존 검사를 모두 통과한 채 SRT가 실제 내용과 어긋난다.
+    // 공백은 줄바꿈 재배치에서 달라질 수 있으므로 공백 무시로 비문자 내용만 대조한다.
+    const flatText = (value: string): string => value.replace(/\s+/gu, "");
+    normalized.cues.forEach((cue) => {
+      if (cue.words.length === 0) return;
+      const wordsFlat = flatText(cue.words.filter((word) => !word.hidden).map((word) => word.t).join(""));
+      if (flatText(cue.text) !== wordsFlat) {
+        throw new Error("AI 줄바꿈 결과의 큐 텍스트가 보존된 단어 내용과 일치하지 않습니다.");
+      }
+    });
   }
   return normalized;
 }
@@ -478,16 +489,21 @@ export function validateAnalysisResponse(
     return { action: "news-items", items };
   }
 
-  const title = typeof payload.title === "string" ? payload.title.trim().slice(0, 100) : "";
-  const description = typeof payload.description === "string" ? payload.description.trim().slice(0, 5_000) : "";
-  const tags = Array.isArray(payload.tags)
-    ? payload.tags
-      .filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
-      .map((tag) => tag.trim().slice(0, 30))
-      .slice(0, 15)
-    : [];
-  if (!title) throw new Error("AI 유튜브 메타데이터 응답에 제목이 없습니다.");
-  return { action: "youtube-metadata", title, description, tags };
+  // youtube-metadata도 명시 분기로 처리한다(§185 재발 방지 — 견고성 감사 B1). 종전에는 이것이
+  // 폴스루 기본값이라, 새 분석 액션을 추가하며 분기를 빠뜨리면 조용히 메타데이터 형태로 오작동했다.
+  if (request.action === "youtube-metadata") {
+    const title = typeof payload.title === "string" ? payload.title.trim().slice(0, 100) : "";
+    const description = typeof payload.description === "string" ? payload.description.trim().slice(0, 5_000) : "";
+    const tags = Array.isArray(payload.tags)
+      ? payload.tags
+        .filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
+        .map((tag) => tag.trim().slice(0, 30))
+        .slice(0, 15)
+      : [];
+    if (!title) throw new Error("AI 유튜브 메타데이터 응답에 제목이 없습니다.");
+    return { action: "youtube-metadata", title, description, tags };
+  }
+  throw new Error(`지원하지 않는 자막 분석 동작입니다: ${String((request as { action?: unknown }).action)}`);
 }
 
 function defaultDom(): SubtitleDomDocument {

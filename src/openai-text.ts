@@ -549,7 +549,10 @@ export class OpenAITextClient {
     this.model = validateModel(options.model ?? OPENAI_TEXT_MODEL);
     this.fetcher = options.fetcher ?? fetch;
     this.apiKeyProvider = options.apiKeyProvider ?? defaultApiKeyProvider();
-    this.timeoutMs = Math.min(180_000, Math.max(5_000, Math.round(options.timeoutMs ?? 120_000)));
+    // NaN이 ??를 통과해 setTimeout(_, NaN)=0ms 즉시 중단이 되는 것을 막는다(ai.ts와 동일 가드).
+    const requestedTimeout = options.timeoutMs;
+    this.timeoutMs = Math.min(180_000, Math.max(5_000, Math.round(
+      typeof requestedTimeout === "number" && Number.isFinite(requestedTimeout) ? requestedTimeout : 120_000)));
     this.setTimer = options.setTimer ?? ((handler, milliseconds) => setTimeout(handler, milliseconds));
     this.clearTimer = options.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
   }

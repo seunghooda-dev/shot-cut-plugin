@@ -8,6 +8,7 @@ import {
   assertAudioInsertRangeAvailable,
   assertAutomationPlan,
   audioProjectItemDurationSeconds,
+  awaitStableExportOutput,
   buildExportFilename,
   buildSafeZoneItemAlignmentActions,
   centeredPosition,
@@ -32,6 +33,7 @@ import {
   setSequencePlayerPosition,
   tickTimeSeconds,
   translateSafeZonePosition,
+  uniqueSequenceName,
   validatePremiereImportPath,
   zeroBasedTrackIndex,
 } from "../src/premiere";
@@ -1942,6 +1944,74 @@ describe("focalReframePosition zoom (punch-in)", () => {
     assert.deepEqual(
       focalReframePosition([600, 400], 1000, 2000, 2000, 1000, 0.35, 0.5, Number.NaN),
       focalReframePosition([600, 400], 1000, 2000, 2000, 1000, 0.35, 0.5),
+    );
+  });
+});
+
+describe("uniqueSequenceName (견고성 감사 C2 — 거동)", () => {
+  const projectWith = (names: string[]): Project =>
+    ({ getSequences: async () => names.map((name) => ({ name })) }) as unknown as Project;
+
+  it("충돌이 없으면 요청 이름을 그대로 쓴다", async () => {
+    assert.equal(await uniqueSequenceName(projectWith(["다른것"]), "20260812_news_01"), "20260812_news_01");
+  });
+
+  it("대소문자 무시 충돌에 ' 2'부터 순서대로 접미를 붙인다", async () => {
+    const project = projectWith(["Base", "base 2"]);
+    assert.equal(await uniqueSequenceName(project, "bASe"), "bASe 3");
+  });
+
+  it("긴 이름은 접미 포함 120자를 넘지 않게 본문을 자른다", async () => {
+    const long = `뉴스_${"가".repeat(200)}`;
+    const base = await uniqueSequenceName(projectWith([]), long);
+    const next = await uniqueSequenceName(projectWith([base]), long);
+    assert.notEqual(next.toLocaleLowerCase(), base.toLocaleLowerCase());
+    assert.ok(next.length <= 120, `접미 결과가 120자를 넘었다: ${next.length}`);
+    assert.match(next, / 2$/u);
+  });
+
+  it("2~999 접미가 모두 차면 타임스탬프 폴백으로도 유일해야 한다", async () => {
+    const base = await uniqueSequenceName(projectWith([]), "충돌많은이름");
+    const taken = [base, ...Array.from({ length: 998 }, (_unused, index) => `${base} ${index + 2}`)];
+    const fallback = await uniqueSequenceName(projectWith(taken), "충돌많은이름");
+    const lower = new Set(taken.map((name) => name.toLocaleLowerCase()));
+    assert.ok(!lower.has(fallback.toLocaleLowerCase()), "폴백 이름이 기존 이름과 겹친다");
+    assert.ok(fallback.startsWith(base.slice(0, 100)));
+  });
+});
+
+describe("awaitStableExportOutput (견고성 감사 C1 — 거동)", () => {
+  const folderWithSizes = (steps: Array<number | null>, modifiedMs: number) => {
+    let call = 0;
+    return {
+      getEntry: async () => {
+        const size = steps[Math.min(call, steps.length - 1)];
+        call += 1;
+        if (size === null) throw new Error("아직 없음");
+        return { getMetadata: async () => ({ size, dateModified: new Date(modifiedMs) }) };
+      },
+    };
+  };
+
+  it("파일이 늦게 나타나도 크기가 두 번 연속 같으면 완료로 본다", async () => {
+    const folder = folderWithSizes([null, 100, 250, 250], Date.now());
+    assert.equal(await awaitStableExportOutput(folder, "out.mp4", { pollIntervalMs: 1 }), true);
+  });
+
+  it("렌더 시작 이전에 수정된 파일(이전 실행 완성본)은 완료로 인정하지 않는다", async () => {
+    const startedAt = Date.now();
+    const folder = folderWithSizes([500, 500, 500], startedAt - 60_000);
+    await assert.rejects(
+      () => awaitStableExportOutput(folder, "out.mp4", { startedAt, pollIntervalMs: 0 }),
+      /시간 초과/u,
+    );
+  });
+
+  it("취소 플래그가 서면 즉시 참으로 끝난다", async () => {
+    const folder = folderWithSizes([null], Date.now());
+    assert.equal(
+      await awaitStableExportOutput(folder, "out.mp4", { cancel: { cancelled: true }, pollIntervalMs: 1 }),
+      true,
     );
   });
 });

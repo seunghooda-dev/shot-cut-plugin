@@ -301,6 +301,9 @@ export function toast(message: string, level: LogLevel = "info", timeoutMs = 320
   item.className = `toast toast-${level}`;
   item.setAttribute("role", level === "error" ? "alert" : "status");
   item.textContent = message;
+  // 긴 경고를 다 읽기 전에 사라지는 것을 보완(UX 감사 C-4) — 클릭으로 즉시 닫을 수 있게 한다.
+  item.title = "클릭하여 닫기";
+  item.addEventListener("click", () => item.remove());
   region.append(item);
   setTimeout(() => item.remove(), timeoutMs);
 }

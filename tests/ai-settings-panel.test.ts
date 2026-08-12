@@ -309,9 +309,10 @@ describe("createAiSettingsPanel save", () => {
       assert.deepEqual(client.calls.setApiKey, ["sk-new-key"]);
       assert.equal(dom.input.value, "");
       assert.equal(dom.input.placeholder, "저장된 API 키 유지");
-      assert.equal(dom.doc.getElementById("ai-status")?.dataset.status, "connected");
-      assert.equal(dom.aiLabel.textContent, "설정 저장됨");
-      assert.equal(dom.speechLabel.textContent, "AI 연결 준비됨");
+      // 저장은 검증이 아니다(UX 감사 A-4) — "연결됨"은 연결 테스트 통과 후에만 표시한다.
+      assert.equal(dom.doc.getElementById("ai-status")?.dataset.status, "idle");
+      assert.equal(dom.aiLabel.textContent, "키 저장됨 — '연결 테스트'로 확인 권장");
+      assert.equal(dom.speechLabel.textContent, "키 저장됨");
       assert.ok(activities.some(([level, message]) =>
         level === "success" && message.startsWith("AI 연결 설정을 저장했습니다.")));
     } finally {

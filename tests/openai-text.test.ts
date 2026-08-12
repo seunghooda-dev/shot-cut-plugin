@@ -738,3 +738,25 @@ describe("readCueSheet — 종(typeCode) 계약", () => {
     assert.match(instruction, /never guess a letter/u);
   });
 });
+
+describe("클라이언트 생성 가드(견고성 감사 B2·C3)", () => {
+  it("엔드포인트 핀 — http·타 호스트·포트·자격증명 내장 URL을 생성 시점에 거부한다", () => {
+    for (const bad of [
+      "http://api.openai.com/v1",
+      "https://evil.example.com/v1",
+      "https://api.openai.com:8443/v1",
+      "https://user:pw@api.openai.com/v1",
+      "https://api.openai.com.evil.com/v1",
+    ]) {
+      assert.throws(() => new OpenAITextClient({ endpoint: bad }), Error, `허용되면 안 되는 엔드포인트: ${bad}`);
+    }
+    assert.doesNotThrow(() => new OpenAITextClient({ endpoint: "https://api.openai.com/v1" }));
+  });
+
+  it("timeoutMs에 NaN이 오면 기본 120초로 강하한다(0ms 즉시 중단 방지)", () => {
+    const withNaN = new OpenAITextClient({ timeoutMs: Number.NaN });
+    assert.equal((withNaN as unknown as { timeoutMs: number }).timeoutMs, 120_000);
+    const clamped = new OpenAITextClient({ timeoutMs: 1 });
+    assert.equal((clamped as unknown as { timeoutMs: number }).timeoutMs, 5_000);
+  });
+});

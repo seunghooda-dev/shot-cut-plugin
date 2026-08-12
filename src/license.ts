@@ -3,8 +3,12 @@ import nacl from "tweetnacl";
 
 export const LICENSE_STORAGE_KEY = "shortflow.license.v1";
 export const LICENSE_CLOCK_KEY = "shortflow.license.lastSeen.v1";
-/** 시계 역행 허용 오차 — 표준시 변경·이중 부팅 수준은 눈감고, 날짜 되돌리기는 잡는다. */
-export const LICENSE_CLOCK_TOLERANCE_MS = 6 * 60 * 60 * 1000;
+/**
+ * 시계 역행 허용 오차 — 표준시 변경·이중 부팅·NTP 재동기 수준은 눈감고, 날짜 되돌리기는 잡는다.
+ * 6h → 48h(2026-08-12 운영 감사): CMOS 방전·VM 복원·NTP 오류로 시계가 하루쯤 어긋났다 돌아오는
+ * 정직한 사용자를 영구 잠그는 오탐이 실익(만료 우회는 며칠 되돌려야 의미)보다 컸다.
+ */
+export const LICENSE_CLOCK_TOLERANCE_MS = 48 * 60 * 60 * 1000;
 const KEY_PREFIX = "SFS1";
 
 export interface LicenseInfo {
@@ -102,6 +106,6 @@ export function licenseFailureMessage(reason: Extract<LicenseCheck, { ok: false 
     case "SIGNATURE": return "유효하지 않은 시리얼 키입니다.";
     case "PAYLOAD": return "시리얼 키 내용이 손상되었습니다. 발급자에게 재발급을 요청해 주세요.";
     case "EXPIRED": return "시리얼 키 사용 기간이 만료되었습니다. 연장 키를 요청해 주세요.";
-    case "CLOCK_ROLLBACK": return "시스템 시계가 과거로 변경된 것이 감지되었습니다. 시계를 맞춘 뒤 다시 실행해 주세요.";
+    case "CLOCK_ROLLBACK": return "시스템 시계가 과거로 변경된 것이 감지되었습니다. 시계를 올바르게 맞춘 뒤에도 이 메시지가 계속되면 발급 담당자에게 문의해 주세요(시계 오류 잔재를 초기화해 드립니다).";
   }
 }

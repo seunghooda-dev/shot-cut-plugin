@@ -47,6 +47,20 @@ async function issue() {
     console.error("사용법: node scripts/license-issue.mjs --id <이름> --days <일수> [--plan <표시명>]");
     process.exit(1);
   }
+  // 발급 시점 검증(운영 감사 F3) — 검증기(license.ts parseInfo)는 id 80자 초과·plan 40자 초과를
+  // PAYLOAD 오류로 거부한다. 발급기가 안 막으면 "발급은 되는데 어디서도 안 통하는 키"가 나간다.
+  if (id.length > 80) {
+    console.error(`--id가 너무 깁니다(${id.length}자) — 검증기가 80자 초과를 거부합니다. 짧은 식별자를 쓰세요.`);
+    process.exit(1);
+  }
+  if (plan && plan.length > 40) {
+    console.error(`--plan이 너무 깁니다(${plan.length}자) — 검증기가 40자 초과를 거부합니다.`);
+    process.exit(1);
+  }
+  if (days > 3650) {
+    console.error(`--days ${days}는 상한(3650일=10년)을 넘습니다 — 회수 수단이 없는 배포이니 과도한 만료는 위험합니다.`);
+    process.exit(1);
+  }
   const secretKey = fromB64Url(await readFile(privateKeyPath, "utf8"));
   const expiry = new Date();
   expiry.setDate(expiry.getDate() + Math.floor(days));

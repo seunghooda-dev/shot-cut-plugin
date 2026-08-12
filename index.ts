@@ -723,12 +723,6 @@ const adjustPanel = createAdjustPanel({
     const dataFolder = await api.fileSystem.getDataFolder();
     const { filename } = await exportSequenceFrameByName(record.sequenceName, seconds, String(dataFolder.nativePath), 180);
     const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-    try {
-      const entry = await dataFolder.getEntry(filename);
-      await entry.delete();
-    } catch {
-      // 임시 파일 삭제 실패는 무시(다음 부팅 정리 대상)
-    }
     return bytes;
   },
   runBusy: (message, task) => busy.during(message, task),
@@ -885,7 +879,7 @@ function ensureAiConsent(context: string): void {
   syncSettingsFromUI();
   if (!settings.aiConsentAccepted) {
     optionalElement<HTMLInputElement>("ai-consent-checkbox")?.focus();
-    throw new Error(`${context} 실행 전 AI 전송·개인정보·권리·AI 음성 고지 동의가 필요합니다.`);
+    throw new Error(`${context} 실행 전 AI 전송·개인정보·권리·AI 음성 고지 동의가 필요합니다 — 'AI 설정' 탭의 동의 체크박스를 켜 주세요.`);
   }
 }
 
@@ -1201,8 +1195,12 @@ function frameDataFolderApi(): { fileSystem: any; formats: any } | null {
 async function readExportedFrameBytes(dataFolder: any, formats: any, filename: string): Promise<Uint8Array | null> {
   const kind = filename.toLowerCase().endsWith(".bmp") ? ("bmp" as const) : ("png" as const);
   let bytes: Uint8Array | null = null;
+  // 먼저 읽고, 불완전할 때만 잔다(성능 감사 F1) — 종전 "무조건 400ms 선수면"은 모든 경로의 모든
+  // 프레임(스캔·비전·재스냅·회수, 실행당 1,000장+)에 400ms 바닥을 깔아 순수 대기만 수 분이었다.
+  // 완결성 게이트(looksCompleteImage)는 그대로라 잘린/미도착 프레임은 종전처럼 재시도로 걸러진다.
+  // 재시도 대기는 100ms부터 800ms 상한 백오프(최대 총 ~6.6s — 종전 4.8s보다 느린 플러시에도 여유).
   for (let attempt = 0; attempt < 12 && (!bytes || !looksCompleteImage(bytes, kind)); attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(800, 100 * attempt)));
     try {
       const entry = await dataFolder.getEntry(filename);
       const data = await entry.read({ format: formats?.binary });
@@ -1223,6 +1221,58 @@ async function readExportedFrameBytes(dataFolder: any, formats: any, filename: s
     await entry.delete();
   } catch { /* 임시 파일 삭제 실패는 무시 — 다음 실행이 같은 이름으로 덮어쓴다 */ }
   return bytes && looksCompleteImage(bytes, kind) ? bytes.slice() : null;
+}
+
+// 부팅 임시파일 스윕(운영 감사) — 크래시로 남은 프레임 이미지(sf_frame_*)와 오디오 WAV가
+// 플러그인 데이터 폴더에 영구 누적되는 것을 회수한다(§167 계열: 회차당 ~30MB·하루 2.8GB 실측).
+// 부팅 시점엔 실행 중인 분할이 없어 sf_frame_*은 전부 잔재다. WAV는 정상 경로가 즉시 지우므로
+// 남은 것도 잔재지만, 만일을 위해 1시간 넘게 묵은 것만 지운다.
+async function sweepDataFolderTemps(): Promise<void> {
+  try {
+    const api = frameDataFolderApi();
+    if (!api) return;
+    const dataFolder = await api.fileSystem.getDataFolder();
+    const entries = await dataFolder.getEntries?.();
+    if (!Array.isArray(entries)) return;
+    let removed = 0;
+    const now = Date.now();
+    for (const entry of entries) {
+      const name = String(entry?.name ?? "");
+      const isFrame = /^sf_frame_.*\.(?:bmp|png)$/iu.test(name);
+      const isWav = /\.wav$/iu.test(name);
+      if (!isFrame && !isWav) continue;
+      if (isWav) {
+        try {
+          const meta = await entry.getMetadata?.();
+          const modified = meta?.dateModified instanceof Date
+            ? meta.dateModified.getTime()
+            : Number(meta?.dateModified ?? Number.NaN);
+          if (!Number.isFinite(modified) || now - modified < 3_600_000) continue;
+        } catch {
+          continue;
+        }
+      }
+      try {
+        await entry.delete();
+        removed += 1;
+      } catch { /* 잠금 등 삭제 실패는 다음 부팅에 재시도 */ }
+    }
+    if (removed > 0) activity.add("info", `임시 파일 정리 — 이전 실행이 남긴 ${removed}개(프레임/WAV)를 지웠습니다.`);
+  } catch { /* 스윕 실패는 기능에 영향 없음 */ }
+}
+
+// 뉴스 분할 탭 첫 실행 배너(UX 감사 A-1·A-2) — API 키·전송 동의가 없으면 비전 없이 무료로
+// 동작한다는 사실을 핵심 탭에서 바로 보여주고, AI 설정 탭으로 안내한다.
+async function refreshNewsCutSetupBanner(): Promise<void> {
+  const banner = optionalElement<HTMLElement>("newscut-setup-banner");
+  if (!banner) return;
+  try {
+    syncSettingsFromUI();
+    const hasKey = await hasStoredOpenAIApiKey();
+    banner.hidden = Boolean(settings.aiConsentAccepted && hasKey);
+  } catch {
+    banner.hidden = true;
+  }
 }
 
 // 세그먼트의 프레임 샘플 3장을 비전으로 감지해 컷 초점을 구한다. 실패 시 null(슬라이더 폴백).
@@ -2141,12 +2191,6 @@ async function openNewsThumbLightbox(index: number): Promise<void> {
       640,
     );
     const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-    try {
-      const entry = await dataFolder.getEntry(filename);
-      await entry.delete();
-    } catch {
-      // 임시 파일 삭제 실패는 무시
-    }
     if (!overlay.hidden && bytes && bytes.byteLength > 0) {
       image.src = `data:image/png;base64,${bytesToBase64(bytes)}`;
     }
@@ -2175,12 +2219,6 @@ async function loadNewsCutThumbnails(): Promise<void> {
         192,
       );
       const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-      try {
-        const entry = await dataFolder.getEntry(filename);
-        await entry.delete();
-      } catch {
-        // 임시 파일 삭제 실패는 무시
-      }
       if (token !== newsCutThumbToken || !bytes || bytes.byteLength === 0) continue;
       image.src = `data:image/png;base64,${bytesToBase64(bytes)}`;
       image.hidden = false;
@@ -2213,12 +2251,6 @@ async function snapNewsItemsToAnchors(items: NewsItem[], titleAt: (time: number)
     try {
       const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 96, undefined, "bmp");
       const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-      try {
-        const entry = await dataFolder.getEntry(filename);
-        await entry.delete();
-      } catch {
-        // 임시 파일 삭제 실패는 무시
-      }
       const bmp = bytes ? parseBmp24(bytes) : null;
       return bmp ? lumaGrid(bmp) : null;
     } catch {
@@ -2246,12 +2278,6 @@ async function snapNewsItemsToAnchors(items: NewsItem[], titleAt: (time: number)
       try {
         const { filename } = await exportFrameToFolder(shot.midTime, String(dataFolder.nativePath), 272);
         const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-        try {
-          const entry = await dataFolder.getEntry(filename);
-          await entry.delete();
-        } catch {
-          // 임시 파일 삭제 실패는 무시
-        }
         if (bytes) shotFrames.push({ boundary, shotStart: shot.start, bytes });
       } catch {
         // 대표 프레임 하나 실패는 무시
@@ -2334,12 +2360,6 @@ async function snapNewsItemsToAnchors(items: NewsItem[], titleAt: (time: number)
       try {
         const { filename } = await exportFrameToFolder(shot.midTime, String(dataFolder.nativePath), 272);
         const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-        try {
-          const entry = await dataFolder.getEntry(filename);
-          await entry.delete();
-        } catch {
-          // 임시 파일 삭제 실패는 무시
-        }
         if (bytes) candidates.push({ shotStart: shot.start, bytes });
       } catch {
         // 대표 프레임 하나 실패는 무시
@@ -2810,6 +2830,15 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
   newsCutSourceKey = await readActiveContextKey().catch(() => "");
   newsCutSourceName = String(status.sequenceName ?? "");
   await resolveCueSheetForSource(newsCutSourceName, program);
+  // 과부하 넛지(운영 감사) — 시퀀스가 수백 개 쌓인 프로젝트는 Premiere가 눈에 띄게 느려진다
+  // (4,400시퀀스 멈춤 실측). 자동 조치는 하지 않고 새 프로젝트 권장만 고지한다(분할은 계속).
+  try {
+    const existingSequenceCount = (await listSequenceNames()).length;
+    if (existingSequenceCount > 200) {
+      activity.add("warning", `프로젝트에 시퀀스가 ${existingSequenceCount}개 있습니다 — Premiere가 느려질 수 있으니 새 프로젝트에서 진행하는 것을 권장합니다.`);
+      toast(`시퀀스 ${existingSequenceCount}개 누적 — 새 프로젝트 사용을 권장합니다.`, "warning", 6000);
+    }
+  } catch { /* 조회 실패는 넛지 생략 — 분할 자체를 막지 않는다 */ }
   // 다단계 스텝바 — busy 오버레이에 현재 단계를 칩으로 표시한다(hide 시 자동 소거라 각 단계 진입마다 다시 세팅).
   const newsCutSteps = exportAfter
     ? ["프레임 점검", "화면 스캔", "앵커 검증", "경계 재스냅", "시퀀스 생성", "내보내기"]
@@ -2833,12 +2862,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
       try {
         const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 96, undefined, "bmp");
         const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-        try {
-          const entry = await dataFolder.getEntry(filename);
-          await entry.delete();
-        } catch {
-          // 임시 파일 삭제 실패는 무시
-        }
         const bmp = bytes ? parseBmp24(bytes) : null;
         grid = bmp ? lumaGrid(bmp) : null;
         band = bmp ? bandRow(bmp) : null;
@@ -2879,6 +2902,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
     const samples: GridSample[] = [];
     const total = Math.floor((duration - 1) / 2) + 1;
     for (let time = 0; time <= duration - 1; time += 2) {
+      throwIfNewsCutCancelled();
       samples.push({ time, grid: await grabGrid(time) });
       if (samples.length % 10 === 0) {
         const percent = Math.round((samples.length / Math.max(1, total)) * 100);
@@ -3019,12 +3043,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
           try {
             const warm = await exportFrameToFolder(Math.max(0, accepted[0]!), String(dataFolder.nativePath), 480);
             await readExportedFrameBytes(dataFolder, api.formats, warm.filename);
-            try {
-              const entry = await dataFolder.getEntry(warm.filename);
-              await entry.delete();
-            } catch {
-              // 임시 파일 삭제 실패는 무시
-            }
           } catch {
             // 워밍업 실패는 무시 — 본 루프가 재시도한다
           }
@@ -3037,6 +3055,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
         // 오배제로 이어지지 않는다(5/07 회귀 12/12 확인).
         const requiredVotes = new Map<number, number>();
         for (const [frameIndex, time] of accepted.entries()) {
+          throwIfNewsCutCancelled();
           setText("busy-message", `비전 검증 프레임 ${frameIndex + 1}/${accepted.length}…`);
           const leaks = accepted.some((other) => other < time && time - 3 >= other && time - 3 <= other + 25);
           const offsets = leaks ? [1.2, 4, 7] : [-3, 1.2, 4, 7];
@@ -3049,12 +3068,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
             for (let attempt = 0; attempt < 2 && !frameBytes; attempt += 1) {
               const { filename } = await exportFrameToFolder(Math.max(0, time + offset), String(dataFolder.nativePath), 480);
               frameBytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-              try {
-                const entry = await dataFolder.getEntry(filename);
-                await entry.delete();
-              } catch {
-                // 임시 파일 삭제 실패는 무시
-              }
             }
             if (frameBytes) frames.push({ time, offset, bytes: frameBytes });
           }
@@ -3093,12 +3106,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
               setText("busy-message", `비전 검증 · 부족분 재수집 ${index + 1}/${pending.length}(${round + 1}차)…`);
               const { filename } = await exportFrameToFolder(Math.max(0, entry.time + entry.offset), String(dataFolder.nativePath), 480);
               const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-              try {
-                const fileEntry = await dataFolder.getEntry(filename);
-                await fileEntry.delete();
-              } catch {
-                // 임시 파일 삭제 실패는 무시
-              }
               if (bytes) frames.push({ time: entry.time, offset: entry.offset, bytes });
               else stillMissing.push(entry);
             }
@@ -3327,7 +3334,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
         // 하단 띠 검사(§149)를 살린다 — 종전에는 플래그가 안 내려가 띠 필터가 꺼진 채
         // 완주했고, 로그 문구("무료 결과 그대로 진행")가 그 사실을 가렸다.
         visionEnabled = false;
-        activity.add("warning", `비전 검증 실패 — 무료 경로로 강등합니다(하단 띠 검사 활성): ${error instanceof Error ? error.message : String(error)}`);
+        activity.add("warning", `비전 검증 실패 — 무료 경로로 강등합니다(하단 띠 검사 활성 · 크레딧/키는 'AI 설정' 탭에서 확인): ${error instanceof Error ? error.message : String(error)}`);
         toast("비전 검증이 실패해 이번 분할은 무료 경로로 진행했습니다.", "warning", 6000);
       }
     }
@@ -3453,6 +3460,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
           activity.add("info", `회수 프로브 시각: ${plan.times.slice(0, 60).map((time) => time.toFixed(1)).join(" ")}${plan.times.length > 60 ? " …" : ""}`);
           const probes: Array<{ time: number; bytes: Uint8Array }> = [];
           for (const [probeIndex, time] of plan.times.entries()) {
+            throwIfNewsCutCancelled();
             setText("busy-message", `회수 훑기 ${probeIndex + 1}/${plan.times.length}…`);
             // 내보내기 재시도(§121-b) — 검증 경로(§92)에만 있던 재시도가 여기엔 없어서, 내보내기가
             // 조용히 빈손으로 끝나면 그 지점의 회수 기회가 통째로 사라졌다. 3/24 재실행 실측:
@@ -3461,12 +3469,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
             for (let attempt = 0; attempt < 2 && !bytes; attempt += 1) {
               const { filename } = await exportFrameToFolder(Math.max(0, time), String(dataFolder.nativePath), 480);
               bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-              try {
-                const entry = await dataFolder.getEntry(filename);
-                await entry.delete();
-              } catch {
-                // 임시 파일 삭제 실패는 무시
-              }
             }
             if (bytes) probes.push({ time, bytes });
           }
@@ -3480,12 +3482,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
             for (const time of lost) {
               const { filename } = await exportFrameToFolder(Math.max(0, time), String(dataFolder.nativePath), 480);
               const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-              try {
-                const entry = await dataFolder.getEntry(filename);
-                await entry.delete();
-              } catch {
-                // 임시 파일 삭제 실패는 무시
-              }
               if (bytes) probes.push({ time, bytes });
             }
             probes.sort((a, b) => a.time - b.time);
@@ -3504,12 +3500,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
           for (const anchorTime of verified.slice(0, 3)) {
             const { filename } = await exportFrameToFolder(Math.max(0, anchorTime + 1.2), String(dataFolder.nativePath), 480);
             const bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-            try {
-              const entry = await dataFolder.getEntry(filename);
-              await entry.delete();
-            } catch {
-              // 임시 파일 삭제 실패는 무시
-            }
             if (bytes && looksCompleteImage(bytes, "png")) sameEpisodeRefs.push({ bytes, mimeType: "image/png" });
           }
           const rescueRefs = [
@@ -3731,12 +3721,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
               for (let attempt = 0; attempt < 2 && !bytes; attempt += 1) {
                 const { filename } = await exportFrameToFolder(Math.max(0, time), String(dataFolder.nativePath), 480);
                 bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-                try {
-                  const entry = await dataFolder.getEntry(filename);
-                  await entry.delete();
-                } catch {
-                  // 임시 파일 삭제 실패는 무시
-                }
               }
               return bytes;
             };
@@ -4054,12 +4038,6 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
           for (let attempt = 0; attempt < 2 && !bytes; attempt += 1) {
             const { filename } = await exportFrameToFolder(time, String(dataFolder.nativePath), 480, undefined, "bmp");
             bytes = await readExportedFrameBytes(dataFolder, api.formats, filename);
-            try {
-              const entry = await dataFolder.getEntry(filename);
-              await entry.delete();
-            } catch {
-              // 임시 파일 삭제 실패는 무시
-            }
           }
           const bmp = bytes ? parseBmp24(bytes) : null;
           return bmp ? isQuoteBandStats(lowerThirdRowStats(bmp), bmp.height) : null;
@@ -4113,6 +4091,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
     const refined: number[] = [];
     for (const [index, bound] of bounds.entries()) {
       const percent = Math.round((index / Math.max(1, bounds.length)) * 100);
+      throwIfNewsCutCancelled();
       setText("busy-message", `2/4 경계 재스냅 ${index + 1}/${bounds.length} · ${percent}%`);
       busy.progress(percent);
       refined.push(await refineBoundaryToTransition(grabGrid, bound));
@@ -4139,6 +4118,8 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
   // 근사치가 되고, 그 값은 띠 필터·재스냅 **이전**이라 실제 산출물과 다르다(2026-07-29 실측:
   // 4/09를 90.9로 적었으나 실제는 95.2, 1/28은 83.9가 아니라 82.8이었다).
   activity.add("info", `최종 아이템 시작: ${items.map((item) => item.start.toFixed(1)).join(" ")}`);
+  // 시퀀스 생성 직전이 마지막 취소 지점 — 생성이 시작되면 완주가 더 안전하다(부분 산출물 방지).
+  throwIfNewsCutCancelled();
   setNewsCutStep(4);
   await handleNewsCutCreate();
   if (newsCutCreatedNames.length === 0) {
@@ -4165,20 +4146,45 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
   activity.add("success", "원클릭 분할 완료 — 출력 폴더를 확인하세요.");
 }
 
+// 원클릭 분할 취소(UX 감사 C-1) — busy 오버레이의 '분할 취소' 버튼이 토큰을 세우면 다음 검사
+// 지점(스캔 프레임·비전 후보·회수 훑기·재스냅 경계·시퀀스 생성 직전)에서 예외로 중단한다.
+// 원본은 비파괴라 잃는 것이 없고, 유료 비전 호출도 다음 후보 경계에서 멈춘다.
+let newsCutCancel: { cancelled: boolean } | null = null;
+
+function throwIfNewsCutCancelled(): void {
+  if (newsCutCancel?.cancelled) throw new Error("사용자가 분할을 취소했습니다.");
+}
+
+async function runNewsCutAutoFlowCancellable(exportAfter: boolean, program: NewsCutProgram = "news8"): Promise<void> {
+  newsCutCancel = { cancelled: false };
+  const cancelButton = optionalElement<HTMLButtonElement>("busy-cancel-btn");
+  if (cancelButton) {
+    cancelButton.hidden = false;
+    cancelButton.disabled = false;
+    cancelButton.textContent = "분할 취소";
+  }
+  try {
+    await runNewsCutAutoFlow(exportAfter, program);
+  } finally {
+    newsCutCancel = null;
+    if (cancelButton) cancelButton.hidden = true;
+  }
+}
+
 async function handleNewsCutAuto(): Promise<void> {
-  await runNewsCutAutoFlow(true);
+  await runNewsCutAutoFlowCancellable(true);
 }
 
 async function handleNewsCutSplitOnly(): Promise<void> {
-  await runNewsCutAutoFlow(false);
+  await runNewsCutAutoFlowCancellable(false);
 }
 
 async function handleMorningCutAuto(): Promise<void> {
-  await runNewsCutAutoFlow(true, "morningwide");
+  await runNewsCutAutoFlowCancellable(true, "morningwide");
 }
 
 async function handleMorningCutSplitOnly(): Promise<void> {
-  await runNewsCutAutoFlow(false, "morningwide");
+  await runNewsCutAutoFlowCancellable(false, "morningwide");
 }
 
 // 업로드 패키지 내보내기 — 자막 SRT·유튜브 메타·썸네일 SVG·권리 리포트를 폴더 하나로 묶는다(로드맵 18).
@@ -4651,6 +4657,25 @@ function bindCoreEvents(): void {
   bind("news-cut-analyze-btn", "click", guarded(handleNewsCutAnalyze, "뉴스 분할 분석 실패"));
   bind("news-cut-create-btn", "click", guarded(handleNewsCutCreate, "뉴스 분할 시퀀스 생성 실패"));
   bind("news-cut-export-btn", "click", guarded(handleNewsCutExport, "뉴스 분할 내보내기 실패"));
+  // 분할 취소(UX 감사 C-1) — 토큰만 세우고, 실제 중단은 흐름 안의 검사 지점이 수행한다.
+  bind("busy-cancel-btn", "click", () => {
+    if (!newsCutCancel) return;
+    newsCutCancel.cancelled = true;
+    const cancelButton = optionalElement<HTMLButtonElement>("busy-cancel-btn");
+    if (cancelButton) {
+      cancelButton.disabled = true;
+      cancelButton.textContent = "취소 중…";
+    }
+    setText("busy-message", "취소 중 — 현재 단계에서 멈춥니다…");
+  });
+  // 첫 실행 배너의 'AI 설정 열기' — 키·동의가 있는 탭으로 바로 이동한다(UX 감사 A-2).
+  bind("newscut-setup-open-btn", "click", () => {
+    document.querySelector<HTMLButtonElement>('.nav-tab[data-tab="ai-settings"]')?.click();
+  });
+  // 동의 토글이 바뀌면 배너 상태를 즉시 갱신한다.
+  bind("ai-consent-checkbox", "change", () => {
+    void refreshNewsCutSetupBanner();
+  });
   bind("news-cut-cleanup-btn", "click", guarded(handleNewsCutCleanup, "뉴스 분할 아이템 정리 실패"));
   bind("news-cut-folder-btn", "click", guarded(handleChooseOutput, "내보내기 폴더 선택 실패"));
   bind("license-apply-btn", "click", handleLicenseApply);
@@ -4675,7 +4700,11 @@ function bindCoreEvents(): void {
   bind("asset-category-select", "change", () => assetBrowserPanel.render());
   bind("open-asset-category-btn", "click", guarded(() => assetBrowserPanel.openCategory(), "선택 폴더 열기 실패"));
   bind("asset-rights-save-btn", "click", guarded(handleSaveAssetRights, "에셋 권리 정보 저장 실패"));
-  bind("ai-save-btn", "click", guarded(() => aiSettingsPanel.save(), "AI 설정 저장 실패"));
+  bind("ai-save-btn", "click", guarded(async () => {
+    await aiSettingsPanel.save();
+    // 키 저장 직후 뉴스 분할 탭 첫 실행 배너를 갱신한다(UX 감사 A-2).
+    void refreshNewsCutSetupBanner();
+  }, "AI 설정 저장 실패"));
   bind("ai-test-btn", "click", guarded(() => aiSettingsPanel.test(), "AI 연결 테스트 실패"));
   bind("clear-log-btn", "click", () => activity.clear());
   bind("run-diagnostics-btn", "click", guarded(() => diagnosticsPanel.run(), "시스템 진단 실패"));
@@ -5094,6 +5123,9 @@ async function bootstrap(): Promise<void> {
     void refreshStatus(true);
   }, 2500);
   updateLicenseOverlay();
+  // 부팅 위생·안내(운영·UX 감사) — 임시파일 잔재 회수와 첫 실행 배너 갱신. 둘 다 실패해도 무해.
+  void sweepDataFolderTemps();
+  void refreshNewsCutSetupBanner();
   activity.add("info", "ShortFlow Studio가 준비되었습니다.");
 }
 
@@ -5106,7 +5138,14 @@ function licenseEnforced(): boolean {
 
 function readLicenseLastSeenMs(): number {
   const value = Number(localStorage.getItem(LICENSE_CLOCK_KEY));
-  return Number.isFinite(value) && value > 0 ? value : 0;
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  // 시계 이상(CMOS 방전·VM 복원)이 심은 비현실적 미래 스탬프는 폐기한다(운영 감사) — 이 값이
+  // 남으면 시계를 올바로 되돌린 순간부터 영구 잠금이 된다. 1년+ 미래는 정상 사용에서 불가능.
+  if (value > Date.now() + 365 * 86_400_000) {
+    try { localStorage.removeItem(LICENSE_CLOCK_KEY); } catch { /* 제거 실패는 다음 실행에 재시도 */ }
+    return 0;
+  }
+  return value;
 }
 
 function stampLicenseLastSeen(nowMs: number): void {
@@ -5127,7 +5166,9 @@ function updateLicenseOverlay(): void {
     stampLicenseLastSeen(now);
     overlay.hidden = true;
     if (check.daysLeft <= 7) {
+      // 로그 한 줄로는 안 보인다(운영 감사 F5) — 만료 임박은 toast로도 알린다.
       activity.add("warning", `시리얼 키 만료까지 ${check.daysLeft}일 남았습니다 — 연장 키를 준비하세요.`);
+      toast(`시리얼 키 만료까지 ${check.daysLeft}일 — 발급 담당자에게 연장 키를 요청하세요.`, "warning", 8000);
     } else {
       activity.add("info", `시리얼 키 확인 · ${check.info.id} · 만료까지 ${check.daysLeft}일`);
     }

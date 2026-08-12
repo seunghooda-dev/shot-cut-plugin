@@ -1334,7 +1334,9 @@ export async function runSequenceQC(
   };
 }
 
-async function uniqueSequenceName(project: Project, requested: string): Promise<string> {
+// export는 거동 테스트용(견고성 감사 C2) — 대소문자 무시 충돌·120자 클램프·타임스탬프 폴백이
+// 깨지면 동명 시퀀스가 생겨 내보내기 이름 폴백이 엉뚱한 시퀀스를 집는다(§CUE-4류 위험).
+export async function uniqueSequenceName(project: Project, requested: string): Promise<string> {
   const base = sanitizeSequenceName(requested);
   const sequences = await project.getSequences();
   const names = new Set(sequences.map((sequence) => String(sequence.name ?? "").toLocaleLowerCase()));
@@ -2473,19 +2475,23 @@ export function ameInstalled(): boolean {
 
 // §40 실측: 장시간 즉시 렌더에서 exportSequence promise가 파일이 다 써진 뒤에도 해소되지
 // 않는 경우가 있다 — 출력 파일이 나타나고 크기가 안정되면 완료로 간주하는 폴링.
-async function awaitStableExportOutput(
+export async function awaitStableExportOutput(
   outputFolder: { getEntry?: (name: string) => Promise<any> },
   filename: string,
-  options: { startedAt?: number; cancel?: { cancelled: boolean } } = {},
+  options: { startedAt?: number; cancel?: { cancelled: boolean }; pollIntervalMs?: number } = {},
 ): Promise<true> {
   // startedAt(안정화 감사 #7) — 파일명에 타임스탬프가 없는 직접 렌더는 같은 폴더의 **이전
   // 실행 완성본**이 "크기 안정" 조건을 즉시 만족시켜, 렌더 시작 ~6초 만에 가짜 성공이 날 수
   // 있다. 렌더 시작 이후에 수정된 파일만 완료로 인정한다(수정 시각을 못 읽는 Host에서는
   // 종전 동작 유지 — 강화만 하고 강등은 없다).
   // cancel(안정화 감사 #8) — race에서 진 폴러가 최대 30분 돌던 잔존을 호출부가 끊는다.
+  // 먼저 확인하고 미완일 때만 잔다(성능 감사 F2) — 종전 "선(先)3초 수면"은 파일이 이미 완성돼
+  // 있어도 아이템마다 3초를 강제로 태웠다. "두 번 연속 같은 크기" 안정 판정은 반복 사이의
+  // 수면이 그대로 보장한다. pollIntervalMs는 테스트 주입용(기본 3초, 제품 동작 불변).
+  const pollMs = options.pollIntervalMs ?? 3000;
   let previousSize = -1;
   for (let attempt = 0; attempt < 600; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, pollMs));
     if (options.cancel?.cancelled) return true;
     try {
       const entry = await outputFolder.getEntry?.(filename);

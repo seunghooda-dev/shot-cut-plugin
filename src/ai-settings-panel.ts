@@ -58,8 +58,10 @@ export function createAiSettingsPanel(options: AiSettingsPanelOptions): {
     }
     const hasKey = Boolean(await client.getApiKey());
     if (input) input.placeholder = hasKey ? "저장된 API 키 유지" : "API 키 입력";
-    setConnectionStatus("ai-status", hasKey ? "connected" : "idle", hasKey ? "설정 저장됨" : "API 키 필요");
-    setConnectionStatus("speech-status", hasKey ? "connected" : "idle", hasKey ? "AI 연결 준비됨" : "AI 설정 필요");
+    // 저장은 검증이 아니다(UX 감사 A-4) — 오타·무효 키도 "연결됨"으로 보이던 것을 중립 표시로
+    // 바꾼다. "연결됨" 배지는 연결 테스트를 통과했을 때만 붙는다.
+    setConnectionStatus("ai-status", "idle", hasKey ? "키 저장됨 — '연결 테스트'로 확인 권장" : "API 키 필요");
+    setConnectionStatus("speech-status", "idle", hasKey ? "키 저장됨" : "AI 설정 필요");
     options.onActivity("success", "AI 연결 설정을 저장했습니다. API 키는 UXP 보안 저장소에만 보관됩니다.");
     toast("AI 설정을 저장했습니다.", "success");
   }

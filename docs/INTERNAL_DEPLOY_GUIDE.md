@@ -65,7 +65,7 @@ node scripts/license-issue.mjs --id "홍길동-편집실1" --days 365
 
 ## 배포 전 확인 (자동 항목은 완료)
 
-- [x] 게이트 3종 — `check` 2081/2081 · `check:news` 6회차 100 · `check:mw` 19회차
+- [x] 게이트 3종 — `check` 전량 그린(현재 수치는 문서 상단 배포물 표 기준) · `check:news` 6회차 100 · `check:mw` 19회차
 - [x] `host:smoke:full` 11/11 (리스너·타이머 누적 0 · 원본 트랙 불변 · 상태 표시 일치)
 - [x] CCX·SHA-256·Git 증거 묶음 재생성
 - [x] 시리얼 키 게이트 6/6
