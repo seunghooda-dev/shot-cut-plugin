@@ -131,8 +131,12 @@ Plugins\External\com.seunghooda.shortflow.studio.direct_1.0.0\`에 심어 시작
 2회 고용. ✅ 큐시트 실결함 2건 수정(72cb83c). ✅ premiere.ts: GUID 결속이 직접 렌더 폴백
 (`renderSequenceExportsByName`)에 미적용이라 동명 stale 시퀀스를 엉뚱한 내용으로 무경고 렌더하던
 위험을 AME 경로 대칭으로 수정(GUID 우선·usedNameFallback 경고·호출부 GUID 전달·소스 이빨, 실기
-스모크 대기). **잔여 백로그 3건**(코드 현재 정상, 강화·선재): ②`createShortFromSource` 고아 정리가
-소스-문자열 테스트뿐 — cloneSequence 거동 하네스(premiere.test.ts:1320)로 격상 필요 ③`cloneSequence`
+스모크 대기). **잔여 백로그 3건**(코드 현재 정상, 강화·선재): ②`createShortFromSource` 고아 정리 거동테스트
+격상 — **평가 후 보류(2026-08-12)**: 비공개 함수라 export 필요 + `resolveSequenceRange`·
+`cloneSequence`·`setSequenceFrame` throw 지점을 정밀 mock해야 하는데, throw가 엉뚱한 단계
+(고아 생성 전 `resolveSequenceRange`)에서 나면 고아 미생성으로 **가짜 그린** 위험(리뷰가 경고한 그
+유형). 코드 정상 확인·소스-문자열 테스트가 try 경계+정리 호출을 이미 고정하므로 이득<위험.
+전역 ppro mock 하네스가 생기면 재검토 ③`cloneSequence`
 CLONE_NOT_FOUND+재시도 이중 고아(선재·§40 타이밍 의존, 4400시퀀스 축적 성격) ④`buildHighlightReel`
 이름 기반 project-item 조회(선재·릴 범위 밖 — `findImportedItem` 경로조회로 교체 가능, 동명 미디어
 오구성 위험).
