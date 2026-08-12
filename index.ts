@@ -2982,11 +2982,15 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
     // 사라졌다. 다른 AI 경로와 달리 예외를 던지지 않는 이유는 무료 분할까지 막으면 안 되기
     // 때문이다 — 비전만 건너뛰고 무료 결과로 완주시킨다.
     if (visionEnabled && optionalElement<HTMLInputElement>("ai-consent-checkbox")?.checked !== true) {
-      activity.add("info", "비전 검증 건너뜀 — AI 전송 동의가 없어 무료 결과로 진행합니다(AI 설정 탭에서 동의 시 자동 활성).");
+      // #2 가시화(2026-08-12): 비전을 켜둔 채(체크됨) 동의가 없으면 조용히 무료로 강등돼
+      // 사용자가 비전이 도는 줄 안다. info 로그만으로는 안 보이므로 toast+warning으로 즉시 알린다.
+      activity.add("warning", "⚠ 비전 검증을 건너뛰고 무료 결과로 진행합니다 — AI 전송 동의가 꺼져 있습니다. 정확도 높은 비전 분할을 쓰려면 'AI 설정' 탭에서 동의를 켜세요.");
+      toast("비전 없이(무료) 진행합니다 — 'AI 설정' 탭에서 전송 동의를 켜야 비전 분할이 됩니다.", "warning", 7000);
       visionEnabled = false;
     }
     if (visionEnabled && !(await hasStoredOpenAIApiKey())) {
-      activity.add("info", "비전 검증 건너뜀 — OpenAI API 키가 없어 무료 결과로 진행합니다(AI 설정 탭에서 저장 시 자동 활성).");
+      activity.add("warning", "⚠ 비전 검증을 건너뛰고 무료 결과로 진행합니다 — OpenAI API 키가 없습니다. 'AI 설정' 탭에서 키를 저장하세요.");
+      toast("비전 없이(무료) 진행합니다 — 'AI 설정' 탭에서 OpenAI API 키를 저장해야 비전 분할이 됩니다.", "warning", 7000);
       visionEnabled = false;
     }
     // 설정 OFF·DOM 결손도 로그를 남긴다(§182 감사 #5) — "비전 검증 시작"의 부재만으로는
