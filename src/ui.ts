@@ -192,11 +192,16 @@ function clockText(date = new Date()): string {
 export class ActivityLog {
   private readonly target: HTMLOListElement | null;
 
-  constructor(id = "log-list") {
+  // onEntry(지속 로그 싱크) — DOM 표시와 별개로 모든 항목을 받아 파일 로그 등에 흘린다.
+  // DOM 타깃이 없어도 호출된다(재로드 직후·헤드리스에서도 기록이 남아야 진단이 된다).
+  constructor(id = "log-list", private readonly onEntry?: (level: LogLevel, message: string) => void) {
     this.target = optionalElement<HTMLOListElement>(id);
   }
 
   add(level: LogLevel, message: string): void {
+    try {
+      this.onEntry?.(level, message);
+    } catch { /* 싱크 실패가 UI 로그를 막으면 안 된다 */ }
     if (!this.target) return;
     const empty = this.target.querySelector(".log-empty");
     empty?.remove();

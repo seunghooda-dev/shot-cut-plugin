@@ -78,6 +78,15 @@ node scripts/license-issue.mjs --id "홍길동-편집실1" --days 365
 2. 뉴스 분할 탭에서 원클릭 분할이 끝까지 도는가(시퀀스 생성까지)
 3. 작업 후 **원본 시퀀스가 그대로인가** — 스모크가 자동으로 보지만 눈으로 한 번
 
+## 원격 PC 문제 진단 — 지속 로그
+
+설치된 PC에서 분할 오류·플러그인 오류가 나면 **플러그인 데이터 폴더의
+`shortflow-log-YYYYMMDD.log`**(일자별·7일 보관)를 받아 보면 된다. 활동 로그 전체와
+잡히지 않은 오류(uncaught error·unhandled rejection)가 자동 기록된다. 정확한 경로는
+패널 부팅 시 로그 탭의 "지속 로그 기록 중 — <경로>" 줄에 찍힌다(통상
+`%APPDATA%\Adobe\UXP\PluginsStorage\PPRO\…\PluginData\`). 사용자에게는 "로그 탭 맨 아래
+부팅 메시지의 경로에 있는 오늘 날짜 log 파일을 보내 달라"고 안내하면 된다.
+
 ## 알아 둘 것
 
 - **AI 기능은 API 키가 필요하다.** 비전 검증·큐시트 판독은 OpenAI 유료 호출이다. AI 설정

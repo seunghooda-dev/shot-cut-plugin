@@ -219,6 +219,7 @@ import {
   clearChildren,
   numberOf,
   optionalElement,
+  redactUiError,
   setChecked,
   setText,
   setValue,
@@ -226,6 +227,7 @@ import {
   toast,
   valueOf,
 } from "./src/ui";
+import { PersistentLog } from "./src/persistent-log";
 
 const { entrypoints } = require("uxp") as any;
 const ASSET_RIGHTS_EMPTY_STATUS = "선택한 음악·효과음·이미지·영상·AI 에셋의 권리 정보를 기록하면 최종 QC에 반영됩니다.";
@@ -233,8 +235,22 @@ const SESSION_FALLBACK_PROJECT_KEY = "session";
 
 installTextEncodingPolyfill();
 
-const activity = new ActivityLog();
+// 지속 로그(운영 감사·사용자 요청 2026-08-12) — 활동 로그는 DOM 인메모리라 패널을 다시 열면
+// 사라져, 다른 PC에서 분할 오류의 사후 진단이 불가능했다. 모든 활동 로그와 잡히지 않은 플러그인
+// 오류를 플러그인 데이터 폴더의 일자별 파일(shortflow-log-YYYYMMDD.log)에 남긴다.
+const persistentLog = new PersistentLog();
+const activity = new ActivityLog("log-list", (level, message) => persistentLog.log(level, message));
 const busy = new BusyState();
+// 잡히지 않은 오류도 파일에 남긴다 — "플러그인이 왜 죽었는지"의 마지막 단서.
+try {
+  window.addEventListener("error", (event) => {
+    persistentLog.log("error", `잡히지 않은 오류: ${redactUiError(String((event as ErrorEvent)?.message ?? event))}`);
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = (event as PromiseRejectionEvent)?.reason as { message?: unknown } | undefined;
+    persistentLog.log("error", `처리되지 않은 거부: ${redactUiError(String(reason?.message ?? reason ?? ""))}`);
+  });
+} catch { /* 리스너 설치 실패는 무시 */ }
 let settings: PluginSettings = loadSettings();
 let initialized = false;
 const sessionGeneratedAssetRightsIdsByProject = new Map<string, Set<string>>();
@@ -5123,9 +5139,20 @@ async function bootstrap(): Promise<void> {
     void refreshStatus(true);
   }, 2500);
   updateLicenseOverlay();
-  // 부팅 위생·안내(운영·UX 감사) — 임시파일 잔재 회수와 첫 실행 배너 갱신. 둘 다 실패해도 무해.
+  // 부팅 위생·안내(운영·UX 감사) — 임시파일 잔재 회수·첫 실행 배너·지속 로그 시작. 전부 실패해도 무해.
   void sweepDataFolderTemps();
   void refreshNewsCutSetupBanner();
+  void (async () => {
+    try {
+      const api = frameDataFolderApi();
+      if (!api) return;
+      const dataFolder = await api.fileSystem.getDataFolder();
+      await persistentLog.init(dataFolder);
+      persistentLog.start();
+      // 사용자·지원자가 파일을 찾을 수 있게 정확한 위치를 로그로 남긴다(가이드가 이 줄을 안내).
+      activity.add("info", `지속 로그 기록 중 — ${persistentLog.folderPath() ?? "플러그인 데이터 폴더"}\\${persistentLog.fileName()}`);
+    } catch { /* 지속 로그 실패는 기능에 영향 없음 */ }
+  })();
   activity.add("info", "ShortFlow Studio가 준비되었습니다.");
 }
 
