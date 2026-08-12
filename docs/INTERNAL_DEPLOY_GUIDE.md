@@ -8,10 +8,11 @@
 | 항목 | 값 |
 |---|---|
 | 파일 | `release/ShortFlow-Studio-1.0.0.ccx` |
-| 크기 | 449,605 bytes |
-| SHA-256 | `28f8f201d3eb230d07dbe3f59c03dc363059fb91f3253b3302945a0861413425` |
-| 소스 커밋 | `032fb03` (§196 안정성 감사 3건 포함) |
-| 증거 | `beta-evidence/ShortFlow_Beta_Evidence_20260811T112915Z.md` |
+| 크기 | 449,315 bytes |
+| SHA-256 | `410677e8889d25bf09a66b10106be6dc83b7fa2598c7edf047a104be18266b7e` |
+| 소스 커밋 | `e916af9` (2026-08-12 재빌드 — 큐시트 실결함 2건·premiere.ts GUID 결속 수정 포함) |
+| 게이트 | check 2097/2097 · dist 난독화·검증 통과 |
+| 이전 빌드 | `release/archive/ShortFlow-Studio-1.0.0.032fb03.ccx`(SHA 28f8f201, 커밋 032fb03) 아카이브 보존 |
 
 받는 쪽에서 SHA-256을 대조하면 전달 중 손상·교체를 잡을 수 있다.
 
