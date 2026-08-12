@@ -117,6 +117,18 @@ Plugins\External\com.seunghooda.shortflow.studio.direct_1.0.0\`에 심어 시작
 자율 Load 폴백). **라이브 재시작 판정은 실행 중 세션을 무인 강행하지 않고 다음 자연 재시작
 경계(5h 로테이션·크래시 복구)에서 수행**한다 — 실패 시 (C)로 자가 복구.
 
+**§192-c 콜드부트 완전 자율 실증(2026-08-12, 사용자 "프리미어 직접 실행" 지시).** Premiere·UDT
+둘 다 꺼진 상태에서 **①시작메뉴 .lnk로 UDT 실행(14001 리슨 확인) ②`explorer.exe`로 Premiere
+실행(스플래시 행 방지) ③connectPanel(Plugin.load) — app 자율접속·패널 로드 성공 ④`ppro.Project.
+createProject(경로)`로 새 프로젝트 자동 생성**까지 **사람 개입 0**으로 완주했다. 즉 §192의
+"재시작 후 Load 사용자 필요"는 **42h 행 후 하드리스타트에 한정**이고, **깨끗한 콜드부트는 위 순서로
+완전 자율**이다. UDT exe: `C:\Program Files\Adobe\Adobe UXP Developer Tools\Adobe UXP Developer
+Tools.exe`(시작메뉴 "Adobe UXP Developer Tools.lnk"). Premiere exe: `C:\Program Files\Adobe\
+Adobe Premiere Pro 2026\Adobe Premiere Pro.exe`. 이어서 **비전 ON E2E(cdt-e2e-render.mjs)로 8/07을
+분할→비전검증→렌더까지 완주** — 20아이템 시퀀스 생성·직접 렌더 성공 20·실패 0, 산출물 20파일
+1.7GB가 `C:\Users\seung\Videos\premiere_내보내기\`에 안착, project.save() 성공. 검문 통과
+(비전 검증 존재·크레딧 0). **실기 분할은 항상 비전 ON**(사용자 지시, [[feedback_always_vision_on]]).
+
 ## 시간대 규칙
 
 - **자정**: 모닝와이드 신규 회차 확인(8뉴스는 보류 지시 유지).
