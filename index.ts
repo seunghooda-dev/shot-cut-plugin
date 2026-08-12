@@ -2495,11 +2495,12 @@ async function handleNewsCutCreate(): Promise<void> {
   await refreshStatus(true);
 }
 
-// 내보내기 기본값(내부 베타, 사용자 지시 2026-07-20) — 내보내기 탭 설정이 없어도 원클릭이
-// 렌더까지 끝나도록 시스템 프리셋과 기존 산출물 폴더를 그대로 쓴다.
+// 기본 렌더 프리셋(내부 베타) — 화질 선택/내보내기 탭 프리셋이 없을 때의 폴백. 존재 여부는
+// resolveNewsCutExportTargets에서 검증한다(다른 Premiere 버전/설치 경로 PC 대비, 2026-08-12).
+// 내보내기 폴더는 더 이상 기본값이 없다 — 사용자가 반드시 지정한다(하드코딩 계정 경로 제거,
+// 다른 PC에서 존재하지 않아 엉뚱한 곳에 쓰거나 조용히 실패하던 문제 시정).
 const DEFAULT_EXPORT_PRESET_PATH =
   "C:\\Program Files\\Adobe\\Adobe Premiere Pro 2026\\MediaIO\\systempresets\\4E49434B_48323634\\YouTube 1080p HD.epr";
-const DEFAULT_EXPORT_OUTPUT_DIR = "C:\\Users\\seung\\Videos\\premiere_내보내기";
 
 /**
  * 회수·되짚기가 새 경계를 **추가**하는 최소 신뢰도(§137).
@@ -2567,35 +2568,30 @@ async function resolveNewsCutExportTargets(): Promise<{ presetFile: any; outputF
   // 뉴스 분할 탭 화질 선택이 있으면 최우선 — 없으면(auto) 내보내기 탭 프리셋 → 기본값 순.
   const chosenPresetPath = selectedNewsCutPresetPath();
   if (chosenPresetPath) await assertPresetFileExists(chosenPresetPath);
-  const presetFile = chosenPresetPath
-    ? { nativePath: chosenPresetPath }
-    : settings.presetToken
-      ? await requireStoredEntry(settings.presetToken, "내보내기 프리셋")
-      : { nativePath: DEFAULT_EXPORT_PRESET_PATH };
-  if (settings.outputFolderToken) {
-    const outputFolder = await requireStoredEntry(settings.outputFolderToken, "출력 폴더");
-    return { presetFile, outputFolder };
+  let presetFile: any;
+  if (chosenPresetPath) {
+    presetFile = { nativePath: chosenPresetPath };
+  } else if (settings.presetToken) {
+    presetFile = await requireStoredEntry(settings.presetToken, "내보내기 프리셋");
+  } else {
+    // 기본 프리셋(Premiere 2026 시스템 경로)도 존재를 검증한다 — 다른 버전/설치 경로 PC에서
+    // 렌더 단계의 불친절한 실패 대신 원인을 바로 알린다(2026-08-12: 폴더와 함께 "검증 안 되면 막기").
+    await assertPresetFileExists(DEFAULT_EXPORT_PRESET_PATH);
+    presetFile = { nativePath: DEFAULT_EXPORT_PRESET_PATH };
   }
-  activity.add("info", `내보내기 폴더 미지정 — 기본 폴더 사용: ${DEFAULT_EXPORT_OUTPUT_DIR}`);
-  let outputFolder: any = { nativePath: DEFAULT_EXPORT_OUTPUT_DIR };
-  try {
-    const lfs = (require("uxp") as any)?.storage?.localFileSystem;
-    const url = `file:${DEFAULT_EXPORT_OUTPUT_DIR.replace(/\\/gu, "/")}`;
-    const entry = await lfs?.getEntryWithUrl?.(url);
-    if (entry?.isFolder) outputFolder = entry;
-  } catch (error) {
-    // 접근이 막히면 경로 셸로 진행 — 렌더 자체는 Host가 경로 문자열로 수행한다. 단 침묵하지
-    // 않는다(§183 감사 #1) — 셸 폴더에서는 쓰기 프로브·직접 렌더 안정화 폴링이 무력해지므로
-    // 사후 진단에 이 사실이 남아야 한다.
-    activity.add("warning", `기본 내보내기 폴더 접근 실패 — 경로 문자열로 진행합니다(사전 쓰기 점검·렌더 안정화 폴링 비활성): ${error instanceof Error ? error.message : String(error)}`);
+  // 내보내기 폴더는 반드시 사용자가 지정해야 한다(2026-08-12) — 하드코딩 계정 폴더 폴백을 제거해
+  // 다른 PC에서 엉뚱한 곳에 쓰거나 조용히 실패하던 문제를 막는다. 미지정이면 렌더를 막고 안내한다.
+  if (!settings.outputFolderToken) {
+    throw new Error("내보내기 폴더를 먼저 지정해 주세요 — 뉴스 분할 탭 또는 '내보내기' 탭의 '폴더 선택'으로 저장 위치를 정하면 그 자리에 렌더됩니다(PC마다 한 번만 지정하면 유지됩니다).");
   }
+  const outputFolder = await requireStoredEntry(settings.outputFolderToken, "출력 폴더");
   return { presetFile, outputFolder };
 }
 
 // 뉴스 분할 탭의 내보내기 폴더 표시 — 선택된 폴더가 없으면 기본 폴더를 안내한다.
 function renderNewsCutFolderLabel(): void {
-  const label = settings.outputFolderName || "기본: premiere_내보내기";
-  setText("news-cut-folder-name", label, settings.outputFolderName ? "" : DEFAULT_EXPORT_OUTPUT_DIR);
+  const label = settings.outputFolderName || "미지정 — '폴더 선택'으로 저장 위치를 정하세요";
+  setText("news-cut-folder-name", label, settings.outputFolderName ? "" : "내보내기 폴더를 지정해야 렌더됩니다");
 }
 
 // 3단계 — 생성된 아이템 시퀀스를 내보내기 탭 프리셋·폴더(없으면 기본값)로 일괄 내보낸다.
