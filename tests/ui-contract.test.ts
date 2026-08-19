@@ -491,7 +491,15 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /setNewsCutRunningLabel\(`⏳ 화면 스캔 \$\{percent\}%`\)/);
   assert.match(source, /runNewsCutAutoFlowCancellable\(false, "news8", "news-cut-split-btn"\)/);
   assert.match(source, /runNewsCutAutoFlowCancellable\(false, "morningwide", "news-cut-mw-split-btn"\)/);
-  assert.match(source, /const bandEventCandidates = program === "news8" \? bandEvents : \[\];/);
+  // 기사 경계 마커 워크플로우(2026-08-19 사용자 지시) — '분할만'은 시퀀스 대신 소스 타임라인에
+  // 기사 구간 마커를 찍고(검토·조정용), '기사별 내보내기'가 (사용자가 조정한) 마커를 되읽어
+  // 기사마다 파일 하나씩 렌더한다. 배선을 계약으로 고정한다.
+  assert.match(source, /writeNewsItemMarkers\(items\.map/);
+  assert.match(source, /async function handleNewsCutMarkerExport\(\): Promise<void>/);
+  assert.match(source, /const segments = await scanNewsItemMarkers\(\);/);
+  assert.match(source, /bind\("news-cut-marker-export-btn", "click", guarded\(handleNewsCutMarkerExport,/);
+  const bandEventCandidatesLine = /const bandEventCandidates = program === "news8" \? bandEvents : \[\];/;
+  assert.match(source, bandEventCandidatesLine);
   // 큐시트 판독은 **유료 비전 호출**이라 동의 게이트와 키 확인을 반드시 먼저 통과해야 하고,
   // AI 응답은 반드시 parseCueSheetResponse를 거쳐야 한다(컨트롤러가 신뢰 경계 — 원시 응답을
   // 그대로 렌더하면 조작된 표가 그대로 화면·저장 파일에 들어간다).

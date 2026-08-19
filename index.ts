@@ -26,6 +26,8 @@ import {
   applyShotFocalAdjustment,
   attachTranscriptToActiveSequence,
   createNewsItemSequences,
+  writeNewsItemMarkers,
+  scanNewsItemMarkers,
   deleteNewsItemSequences,
   exportSequenceFrameByName,
   listSequenceNames,
@@ -2638,6 +2640,57 @@ async function handleNewsCutExport(): Promise<void> {
   await exportNewsSequencesWith(targets.presetFile, targets.outputFolder);
 }
 
+// 마커 이름("#news 01 제목")에서 제목만 뽑아 시퀀스 이름 규약에 넘긴다.
+function newsMarkerTitle(markerName: string): string {
+  return markerName.replace(/^#news\s*/iu, "").replace(/^\d+\s*/u, "").trim();
+}
+
+// 기사별 내보내기(마커 기준, 2026-08-19 사용자 지시) — '분할만'이 소스에 찍고 사장님이 조정한
+// 기사 마커를 되읽어, 각 구간을 아이템 시퀀스로 만든 뒤 파일 N개(기사마다 하나)로 렌더한다.
+// 8뉴스·모닝와이드 공통 — 소스 마커만 읽으므로 프로그램 구분 없이 동작한다.
+async function handleNewsCutMarkerExport(): Promise<void> {
+  // 활성 시퀀스(사장님이 열어둔, 마커가 찍힌 소스)에서 바로 읽고 클론한다 — scanNewsItemMarkers와
+  // createNewsItemSequences 둘 다 getActiveContext를 쓰므로 일관되고, 세션을 리로드해 저장된
+  // 소스 키가 사라진 뒤에도 동작한다(마커는 프로젝트에 남아 있으므로).
+  const segments = await scanNewsItemMarkers();
+  if (segments.length === 0) {
+    throw new Error("소스 타임라인에 기사 마커가 없습니다 — 마커가 찍힌 소스 시퀀스를 활성화한 뒤, 먼저 '분할만'으로 경계를 표시하세요.");
+  }
+  // 프리셋·폴더를 먼저 검증한다 — 시퀀스 생성·렌더 비용을 치르기 전에 실패를 잡는다.
+  const targets = await resolveNewsCutExportTargets();
+  const today = new Date();
+  const existingNames = await listSequenceNames().catch(() => {
+    activity.add("warning", "기존 시퀀스 목록을 읽지 못해 아이템 번호를 01부터 다시 셉니다 — 중복 이름에는 자동 접미가 붙습니다.");
+    return [] as string[];
+  });
+  const startIndex = nextNewsItemIndex(existingNames, today);
+  const inputs = segments.map((segment, order) => ({
+    start: segment.start,
+    end: segment.end,
+    name: newsItemName(today, startIndex + order, newsMarkerTitle(segment.name)),
+  }));
+  newsCutCreatedNames = [];
+  newsCutCreatedGuids = [];
+  const result = await busy.during(`마커 ${inputs.length}개 → 아이템 시퀀스 생성 중…`, () =>
+    createNewsItemSequences(inputs, (completed, total, name) => {
+      setText("busy-message", `${completed}/${total} · ${name}`);
+      busy.progress((completed / Math.max(1, total)) * 100);
+    }));
+  newsCutCreatedNames = result.created;
+  newsCutCreatedGuids = result.createdGuids;
+  result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
+  if (newsCutCreatedNames.length === 0) {
+    throw new Error("마커에서 아이템 시퀀스를 만들지 못했습니다.");
+  }
+  activity.add(
+    result.failures.length ? "warning" : "info",
+    `마커 기준 시퀀스 ${newsCutCreatedNames.length}개 생성 · 실패 ${result.failures.length} — 렌더를 시작합니다.`,
+  );
+  await exportNewsSequencesWith(targets.presetFile, targets.outputFolder);
+  activity.add("success", `기사별 내보내기 완료 — 파일 ${newsCutCreatedNames.length}개.`);
+  toast(`기사 ${newsCutCreatedNames.length}개를 파일로 내보냈습니다.`, "success", 7000);
+}
+
 async function exportNewsSequencesWith(presetFile: any, outputFolder: any): Promise<void> {
   // 출력 폴더 기록 가능 사전 점검 — 분리된 드라이브·권한 문제를 렌더 N개 실패 전에 잡는다
   // (UXP엔 여유 공간 조회 API가 없어 용량까지는 확인 불가 — 쓰기 가능 여부만 검사).
@@ -4149,14 +4202,23 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
   // 시퀀스 생성 직전이 마지막 취소 지점 — 생성이 시작되면 완주가 더 안전하다(부분 산출물 방지).
   throwIfNewsCutCancelled();
   setNewsCutStep(4);
+  if (!exportAfter) {
+    // 분할만 = 마커 검토 모드(2026-08-19 사용자 지시) — 시퀀스를 만들지 않고 소스 타임라인에
+    // 기사 경계 구간 마커를 찍는다. 사장님이 드래그로 In/Out을 검토·조정한 뒤 '기사별 내보내기'를
+    // 누르면 그 조정된 마커대로 파일 N개(기사마다 하나)를 렌더한다 — 시퀀스 난립·프로젝트
+    // 비대화를 피하고, 잘못 잡힌 경계를 최종 확인·수정할 수 있게 한다.
+    await ensureNewsCutSourceActive();
+    const markerCount = await busy.during("기사 경계 마커를 표시하고 있습니다…", () =>
+      writeNewsItemMarkers(items.map((item) => ({ start: item.start, end: item.end, title: item.title }))));
+    setNewsCutRunningLabel(`⏳ 마커 ${markerCount}개 표시`);
+    activity.add("success", `분할만 · 기사 ${markerCount}개 경계를 소스 타임라인에 마커로 표시했습니다.`);
+    activity.add("info", "각 마커 In/Out을 검토·조정한 뒤 '기사별 내보내기'를 누르면 조정값대로 파일 N개가 렌더됩니다.");
+    toast(`기사 ${markerCount}개 경계를 마커로 표시했습니다 — 조정 후 '기사별 내보내기'를 누르세요.`, "success", 8000);
+    return;
+  }
   await handleNewsCutCreate();
   if (newsCutCreatedNames.length === 0) {
     throw new Error("아이템 시퀀스가 만들어지지 않았습니다.");
-  }
-  if (!exportAfter) {
-    activity.add("success", `분할 완료 — 시퀀스 ${newsCutCreatedNames.length}개 생성(내보내기 생략). 검토 후 '일괄 내보내기'를 누르세요.`);
-    toast("분할이 끝났습니다. '일괄 내보내기'로 내보낼 수 있습니다.", "success", 6000);
-    return;
   }
   // 내보내기 단계 실패는 분할 실패가 아니다(§183 감사 #5) — 시퀀스는 이미 생성돼 있고
   // '일괄 내보내기'로 이어갈 수 있는데, 종전에는 "원클릭 분할 실패"로만 보고돼 성공한
@@ -4718,6 +4780,7 @@ function bindCoreEvents(): void {
   bind("news-cut-analyze-btn", "click", guarded(handleNewsCutAnalyze, "뉴스 분할 분석 실패"));
   bind("news-cut-create-btn", "click", guarded(handleNewsCutCreate, "뉴스 분할 시퀀스 생성 실패"));
   bind("news-cut-export-btn", "click", guarded(handleNewsCutExport, "뉴스 분할 내보내기 실패"));
+  bind("news-cut-marker-export-btn", "click", guarded(handleNewsCutMarkerExport, "기사별 내보내기 실패"));
   // 분할 취소(UX 감사 C-1) — 토큰만 세우고, 실제 중단은 흐름 안의 검사 지점이 수행한다.
   bind("busy-cancel-btn", "click", () => {
     if (!newsCutCancel) return;

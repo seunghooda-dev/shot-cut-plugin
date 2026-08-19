@@ -2278,6 +2278,81 @@ export async function writeShortsMarkers(segments: ShortsMarkerInput[]): Promise
   return actions.length;
 }
 
+export interface NewsMarkerInput {
+  start: number;
+  end: number;
+  title?: string;
+}
+
+// 기사 경계를 소스 타임라인에 구간 마커로 표시한다(2026-08-19 사용자 지시) — "#news" 태그로
+// 숏폼 #sf 마커와 구별한다. 사용자가 드래그로 조정한 시작·길이는 scanNewsItemMarkers가 되읽어
+// '기사별 내보내기'가 그대로 렌더한다. writeShortsMarkers와 동일한 createAddMarkerAction 패턴.
+export async function writeNewsItemMarkers(items: NewsMarkerInput[]): Promise<number> {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new ShortFlowError("NO_MARKERS_TO_ADD", "타임라인에 표시할 기사 구간이 없습니다.");
+  }
+  const { project, sequence } = await getActiveContext();
+  const sequenceEnd = await safeTime(sequence, "getEndTime", 0);
+  const cap = sequenceEnd > 0 ? sequenceEnd : Number.POSITIVE_INFINITY;
+  const markerCollection = await ppro.Markers.getMarkers(sequence);
+  const commentMarkerType = ppro.Marker.MARKER_TYPE_COMMENT;
+  const actions: ActionFactory[] = [];
+  for (const item of items) {
+    if (!item || !Number.isFinite(item.start) || !Number.isFinite(item.end)) continue;
+    const start = Math.max(0, Math.min(cap, item.start));
+    const end = Math.max(start, Math.min(cap, item.end));
+    const duration = end - start;
+    if (!(duration > 0)) continue;
+    const order = String(actions.length + 1).padStart(2, "0");
+    const title = String(item.title ?? "").trim().slice(0, 80);
+    const name = `#news ${order}${title ? ` ${title}` : ""}`.slice(0, 120);
+    actions.push(() => markerCollection.createAddMarkerAction(
+      name,
+      commentMarkerType,
+      ppro.TickTime.createWithSeconds(start),
+      ppro.TickTime.createWithSeconds(duration),
+      "기사 경계 — 드래그로 조정 후 '기사별 내보내기'",
+    ));
+  }
+  if (actions.length === 0) {
+    throw new ShortFlowError("NO_MARKERS_TO_ADD", "유효한 기사 구간이 없습니다.");
+  }
+  if (!commitActionFactories(project, actions, "ShortFlow: 기사 경계 마커 표시")) {
+    throw new ShortFlowError("MARKER_COMMIT_FAILED", "기사 경계 마커를 추가하지 못했습니다.");
+  }
+  return actions.length;
+}
+
+function isNewsItemMarker(name: string, comments: string): boolean {
+  return `${name} ${comments}`.toLocaleLowerCase().includes("#news");
+}
+
+// 소스의 기사 마커를 되읽는다 — 사용자가 조정한 시작·길이가 그대로 반영된다('기사별 내보내기' 입력).
+// scanShortMarkers와 동일 패턴이되 #news 태그만 거른다.
+export async function scanNewsItemMarkers(): Promise<MarkerSegment[]> {
+  const { sequence } = await getActiveContext();
+  const sequenceEnd = await safeTime(sequence, "getEndTime", 0);
+  const markerCollection = await ppro.Markers.getMarkers(sequence);
+  const markers = markerCollection.getMarkers();
+  const segments: MarkerSegment[] = [];
+  for (let index = 0; index < markers.length; index += 1) {
+    const marker = markers[index];
+    if (!marker) continue;
+    const name = String(marker.getName());
+    const comments = String(marker.getComments());
+    if (!isNewsItemMarker(name, comments)) continue;
+    const segment = markerToSegment({
+      name,
+      comments,
+      start: tickTimeSeconds(marker.getStart(), Number.NaN),
+      duration: tickTimeSeconds(marker.getDuration(), 0),
+      index,
+    }, sequenceEnd, 1);
+    if (segment) segments.push(segment);
+  }
+  return segments.sort((a, b) => a.start - b.start || a.index - b.index);
+}
+
 export interface NewsItemSequenceInput {
   start: number;
   end: number;
