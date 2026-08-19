@@ -480,8 +480,8 @@ function assertOperationalSourceContracts(source: string): void {
   // newsCutCancel을 덮어쓰면 동시 다중 실행이 유료로 돌고 서로 자원을 뺏어 더 느려진다.
   // 가드·버튼 잠금·즉시 오버레이(선검증 구간의 빈 화면 제거)를 계약으로 고정해 조용히
   // 사라지지 못하게 한다.
-  assert.match(source, /if \(newsCutCancel\) \{[\s\S]{0,220}?return;/);
-  assert.match(source, /이미 분할이 진행 중입니다/);
+  assert.match(source, /if \(newsCutCancel \|\| newsCutMarkerExportRunning\) \{[\s\S]{0,220}?return;/);
+  assert.match(source, /이미 분할 또는 내보내기가 진행 중입니다/);
   assert.match(source, /function setNewsCutButtonsDisabled\(disabled: boolean\)/);
   assert.match(source, /await busy\.during\("분할 준비 중…", \(\) => runNewsCutAutoFlow\(exportAfter, program\)\)/);
   // 버튼 글씨 진행률 채널(2026-08-19 사용자 실측) — busy 오버레이가 UXP position:fixed 미지원으로
@@ -498,6 +498,11 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /async function handleNewsCutMarkerExport\(\): Promise<void>/);
   assert.match(source, /const segments = await scanNewsItemMarkers\(\);/);
   assert.match(source, /bind\("news-cut-marker-export-btn", "click", guarded\(handleNewsCutMarkerExport,/);
+  // 기사별 내보내기 재진입/교차 충돌 가드(2026-08-19 자기검토) — 분할과 렌더 전역을 공유하므로
+  // 상호 배타로 하나만 돈다. 가드·플래그 수명(try/finally에서 해제)·버튼 글씨 진행률을 고정한다.
+  assert.match(source, /newsCutMarkerExportRunning = true;/);
+  assert.match(source, /finally \{[\s\S]{0,200}?newsCutMarkerExportRunning = false;/);
+  assert.match(source, /setNewsCutRunningLabel\(`⏳ 렌더 \$\{completed \+ 1\}\/\$\{total\}`\)/);
   const bandEventCandidatesLine = /const bandEventCandidates = program === "news8" \? bandEvents : \[\];/;
   assert.match(source, bandEventCandidatesLine);
   // 큐시트 판독은 **유료 비전 호출**이라 동의 게이트와 키 확인을 반드시 먼저 통과해야 하고,

@@ -2649,46 +2649,68 @@ function newsMarkerTitle(markerName: string): string {
 // 기사 마커를 되읽어, 각 구간을 아이템 시퀀스로 만든 뒤 파일 N개(기사마다 하나)로 렌더한다.
 // 8뉴스·모닝와이드 공통 — 소스 마커만 읽으므로 프로그램 구분 없이 동작한다.
 async function handleNewsCutMarkerExport(): Promise<void> {
-  // 활성 시퀀스(사장님이 열어둔, 마커가 찍힌 소스)에서 바로 읽고 클론한다 — scanNewsItemMarkers와
-  // createNewsItemSequences 둘 다 getActiveContext를 쓰므로 일관되고, 세션을 리로드해 저장된
-  // 소스 키가 사라진 뒤에도 동작한다(마커는 프로젝트에 남아 있으므로).
-  const segments = await scanNewsItemMarkers();
-  if (segments.length === 0) {
-    throw new Error("소스 타임라인에 기사 마커가 없습니다 — 마커가 찍힌 소스 시퀀스를 활성화한 뒤, 먼저 '분할만'으로 경계를 표시하세요.");
+  // 재진입/교차 충돌 가드(2026-08-19 자기검토) — 분할 흐름과 렌더 전역(newsCutCreatedNames/
+  // newsCutCreatedGuids)을 공유하므로 하나만 돈다. 더블클릭·분할 동시 실행 시 두 렌더가 서로
+  // 그 전역을 덮어써 잘못된 집합을 렌더하는 것을 막는다(분할 재진입 사고와 동일 부류).
+  if (newsCutCancel || newsCutMarkerExportRunning) {
+    toast("이미 분할 또는 내보내기가 진행 중입니다 — 끝날 때까지 기다려 주세요.", "warning", 5000);
+    return;
   }
-  // 프리셋·폴더를 먼저 검증한다 — 시퀀스 생성·렌더 비용을 치르기 전에 실패를 잡는다.
-  const targets = await resolveNewsCutExportTargets();
-  const today = new Date();
-  const existingNames = await listSequenceNames().catch(() => {
-    activity.add("warning", "기존 시퀀스 목록을 읽지 못해 아이템 번호를 01부터 다시 셉니다 — 중복 이름에는 자동 접미가 붙습니다.");
-    return [] as string[];
-  });
-  const startIndex = nextNewsItemIndex(existingNames, today);
-  const inputs = segments.map((segment, order) => ({
-    start: segment.start,
-    end: segment.end,
-    name: newsItemName(today, startIndex + order, newsMarkerTitle(segment.name)),
-  }));
-  newsCutCreatedNames = [];
-  newsCutCreatedGuids = [];
-  const result = await busy.during(`마커 ${inputs.length}개 → 아이템 시퀀스 생성 중…`, () =>
-    createNewsItemSequences(inputs, (completed, total, name) => {
-      setText("busy-message", `${completed}/${total} · ${name}`);
-      busy.progress((completed / Math.max(1, total)) * 100);
+  newsCutMarkerExportRunning = true;
+  setNewsCutButtonsDisabled(true);
+  // 진행률을 내보내기 버튼 글씨에 직접 표시한다 — busy 오버레이가 UXP position:fixed 미지원으로
+  // 안 뜨는 환경에서도 진행률이 보이게(분할과 동일 채널). 렌더는 수 분이 걸려 채널이 특히 중요하다.
+  const exportButton = optionalElement<HTMLButtonElement>("news-cut-marker-export-btn");
+  newsCutRunningButton = exportButton ? { btn: exportButton, label: exportButton.textContent ?? "" } : null;
+  setNewsCutRunningLabel("⏳ 내보내기 준비 중…");
+  try {
+    // 활성 시퀀스(사장님이 열어둔, 마커가 찍힌 소스)에서 바로 읽고 클론한다 — scanNewsItemMarkers와
+    // createNewsItemSequences 둘 다 getActiveContext를 쓰므로 일관되고, 세션을 리로드해 저장된
+    // 소스 키가 사라진 뒤에도 동작한다(마커는 프로젝트에 남아 있으므로).
+    const segments = await scanNewsItemMarkers();
+    if (segments.length === 0) {
+      throw new Error("소스 타임라인에 기사 마커가 없습니다 — 마커가 찍힌 소스 시퀀스를 활성화한 뒤, 먼저 '분할만'으로 경계를 표시하세요.");
+    }
+    // 프리셋·폴더를 먼저 검증한다 — 시퀀스 생성·렌더 비용을 치르기 전에 실패를 잡는다.
+    const targets = await resolveNewsCutExportTargets();
+    const today = new Date();
+    const existingNames = await listSequenceNames().catch(() => {
+      activity.add("warning", "기존 시퀀스 목록을 읽지 못해 아이템 번호를 01부터 다시 셉니다 — 중복 이름에는 자동 접미가 붙습니다.");
+      return [] as string[];
+    });
+    const startIndex = nextNewsItemIndex(existingNames, today);
+    const inputs = segments.map((segment, order) => ({
+      start: segment.start,
+      end: segment.end,
+      name: newsItemName(today, startIndex + order, newsMarkerTitle(segment.name)),
     }));
-  newsCutCreatedNames = result.created;
-  newsCutCreatedGuids = result.createdGuids;
-  result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
-  if (newsCutCreatedNames.length === 0) {
-    throw new Error("마커에서 아이템 시퀀스를 만들지 못했습니다.");
+    newsCutCreatedNames = [];
+    newsCutCreatedGuids = [];
+    const result = await busy.during(`마커 ${inputs.length}개 → 아이템 시퀀스 생성 중…`, () =>
+      createNewsItemSequences(inputs, (completed, total, name) => {
+        setText("busy-message", `${completed}/${total} · ${name}`);
+        busy.progress((completed / Math.max(1, total)) * 100);
+        setNewsCutRunningLabel(`⏳ 시퀀스 ${completed}/${total}`);
+      }));
+    newsCutCreatedNames = result.created;
+    newsCutCreatedGuids = result.createdGuids;
+    result.failures.forEach((failure) => activity.add("error", `${failure.name}: ${failure.error}`));
+    if (newsCutCreatedNames.length === 0) {
+      throw new Error("마커에서 아이템 시퀀스를 만들지 못했습니다.");
+    }
+    activity.add(
+      result.failures.length ? "warning" : "info",
+      `마커 기준 시퀀스 ${newsCutCreatedNames.length}개 생성 · 실패 ${result.failures.length} — 렌더를 시작합니다.`,
+    );
+    await exportNewsSequencesWith(targets.presetFile, targets.outputFolder);
+    activity.add("success", `기사별 내보내기 완료 — 파일 ${newsCutCreatedNames.length}개.`);
+    toast(`기사 ${newsCutCreatedNames.length}개를 파일로 내보냈습니다.`, "success", 7000);
+  } finally {
+    if (newsCutRunningButton) newsCutRunningButton.btn.textContent = newsCutRunningButton.label;
+    newsCutRunningButton = null;
+    newsCutMarkerExportRunning = false;
+    setNewsCutButtonsDisabled(false);
   }
-  activity.add(
-    result.failures.length ? "warning" : "info",
-    `마커 기준 시퀀스 ${newsCutCreatedNames.length}개 생성 · 실패 ${result.failures.length} — 렌더를 시작합니다.`,
-  );
-  await exportNewsSequencesWith(targets.presetFile, targets.outputFolder);
-  activity.add("success", `기사별 내보내기 완료 — 파일 ${newsCutCreatedNames.length}개.`);
-  toast(`기사 ${newsCutCreatedNames.length}개를 파일로 내보냈습니다.`, "success", 7000);
 }
 
 async function exportNewsSequencesWith(presetFile: any, outputFolder: any): Promise<void> {
@@ -2713,6 +2735,9 @@ async function exportNewsSequencesWith(presetFile: any, outputFolder: any): Prom
       renderSequenceExportsByName(newsCutCreatedNames, presetFile, outputFolder, newsCutCreatedGuids, (completed, total, name) => {
         setText("busy-message", `${completed + 1}/${total} · ${name} 렌더 중…`);
         busy.progress((completed / Math.max(1, total)) * 100);
+        // 렌더 진행률도 버튼 글씨에 싣는다(2026-08-19 자기검토) — 오버레이 미렌더 환경에서 수 분짜리
+        // 렌더가 "멈춘 듯" 보이던 공백을 없앤다. 분할·기사별 내보내기 양쪽에서 동작(버튼 없으면 무해).
+        setNewsCutRunningLabel(`⏳ 렌더 ${completed + 1}/${total}`);
       }));
     activity.add(
       result.failures.length ? "warning" : "success",
@@ -2734,6 +2759,7 @@ async function exportNewsSequencesWith(presetFile: any, outputFolder: any): Prom
     );
     return;
   }
+  setNewsCutRunningLabel(`⏳ AME 대기열 ${newsCutCreatedNames.length}개…`);
   const result = await busy.during(`AME 대기열에 ${newsCutCreatedNames.length}개 추가 중…`, () =>
     queueSequenceExportsByName(newsCutCreatedNames, presetFile, outputFolder, newsCutCreatedGuids));
   activity.add(
@@ -4241,13 +4267,19 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
 // 원본은 비파괴라 잃는 것이 없고, 유료 비전 호출도 다음 후보 경계에서 멈춘다.
 let newsCutCancel: { cancelled: boolean } | null = null;
 
+// 기사별 내보내기 재진입/교차 충돌 가드(2026-08-19 자기검토) — 마커 내보내기도 시퀀스 생성·
+// 렌더로 newsCutCreatedNames/newsCutCreatedGuids 전역을 쓴다. 분할과 동시에 돌면 두 렌더가
+// 그 전역을 서로 덮어써 잘못된 집합을 렌더한다. 분할·내보내기는 상호 배타로 하나만 돈다.
+let newsCutMarkerExportRunning = false;
+
 function throwIfNewsCutCancelled(): void {
   if (newsCutCancel?.cancelled) throw new Error("사용자가 분할을 취소했습니다.");
 }
 
 // 분할 실행 중 4개 분할 버튼을 잠근다(재진입 시각 신호) — DOM 결손엔 무해.
 function setNewsCutButtonsDisabled(disabled: boolean): void {
-  for (const id of ["news-cut-auto-btn", "news-cut-split-btn", "news-cut-mw-auto-btn", "news-cut-mw-split-btn"]) {
+  // 기사별 내보내기도 함께 잠근다(2026-08-19 자기검토) — 분할과 렌더 전역을 공유하므로 상호 배타.
+  for (const id of ["news-cut-auto-btn", "news-cut-split-btn", "news-cut-mw-auto-btn", "news-cut-mw-split-btn", "news-cut-marker-export-btn"]) {
     const btn = optionalElement<HTMLButtonElement>(id);
     if (btn) btn.disabled = disabled;
   }
@@ -4265,8 +4297,8 @@ async function runNewsCutAutoFlowCancellable(exportAfter: boolean, program: News
   // 재진입 가드(2026-08-19 사용자 사고) — 분할이 도는 중에 버튼을 다시 누르면 두 번째 흐름이
   // newsCutCancel을 덮어써, 동시에 여러 개가 유료로 돌고(로그 실측: 3중 실행) 서로 프레임
   // 내보내기 자원을 뺏어 스캔이 8분 넘게 걸렸다. 이미 실행 중이면 새로 시작하지 않는다.
-  if (newsCutCancel) {
-    toast("이미 분할이 진행 중입니다 — 끝날 때까지 기다려 주세요(진행률은 버튼에 표시됩니다).", "warning", 5000);
+  if (newsCutCancel || newsCutMarkerExportRunning) {
+    toast("이미 분할 또는 내보내기가 진행 중입니다 — 끝날 때까지 기다려 주세요(진행률은 버튼에 표시됩니다).", "warning", 5000);
     return;
   }
   newsCutCancel = { cancelled: false };
