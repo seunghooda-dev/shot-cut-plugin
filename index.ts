@@ -2917,6 +2917,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
     // 1/4 코스 스캔(2s 그리드)
     const samples: GridSample[] = [];
     const total = Math.floor((duration - 1) / 2) + 1;
+    let scanLogMilestone = 25;
     for (let time = 0; time <= duration - 1; time += 2) {
       throwIfNewsCutCancelled();
       samples.push({ time, grid: await grabGrid(time) });
@@ -2924,6 +2925,12 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
         const percent = Math.round((samples.length / Math.max(1, total)) * 100);
         setText("busy-message", `1/4 화면 스캔 ${samples.length}/${total} · ${percent}%`);
         busy.progress(percent);
+        // 지속 로그에도 성긴 이정표를 남긴다(원격 진단) — 스캔이 수 분 걸려 로그가 통째로 비어
+        // "멈춤"과 구별이 안 됐다(2026-08-19 사용자 사고). 25%마다 한 줄만.
+        if (percent >= scanLogMilestone) {
+          activity.add("info", `화면 스캔 진행 ${percent}% · ${samples.length}/${total} 프레임`);
+          scanLogMilestone += 25;
+        }
       }
     }
     // 하단 띠 이벤트(§110) — 스캔 BMP에서 함께 뽑은 띠 벡터로 "변화 후 안정" 지점을 계산한다.
@@ -3171,6 +3178,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
             const chunk = chunks[chunkIndex]!;
             done += chunk.length;
             setText("busy-message", round === 0 ? `비전 검증 ${done}/${pending.length}…` : `비전 검증 · 유실 재판정 ${done}/${pending.length}…`);
+            busy.progress(Math.round((done / Math.max(1, pending.length)) * 100));
             try {
               const results = await runVisionBatch(
                 `verify:${round}:${chunk[0]?.time ?? 0}`,
@@ -3478,6 +3486,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
           for (const [probeIndex, time] of plan.times.entries()) {
             throwIfNewsCutCancelled();
             setText("busy-message", `회수 훑기 ${probeIndex + 1}/${plan.times.length}…`);
+            busy.progress(Math.round(((probeIndex + 1) / Math.max(1, plan.times.length)) * 100));
             // 내보내기 재시도(§121-b) — 검증 경로(§92)에만 있던 재시도가 여기엔 없어서, 내보내기가
             // 조용히 빈손으로 끝나면 그 지점의 회수 기회가 통째로 사라졌다. 3/24 재실행 실측:
             // 252 프로브 1장이 유실돼 248 경계가 그대로 FN이 됐다(F1 96.3).
@@ -4171,8 +4180,24 @@ function throwIfNewsCutCancelled(): void {
   if (newsCutCancel?.cancelled) throw new Error("사용자가 분할을 취소했습니다.");
 }
 
+// 분할 실행 중 4개 분할 버튼을 잠근다(재진입 시각 신호) — DOM 결손엔 무해.
+function setNewsCutButtonsDisabled(disabled: boolean): void {
+  for (const id of ["news-cut-auto-btn", "news-cut-split-btn", "news-cut-mw-auto-btn", "news-cut-mw-split-btn"]) {
+    const btn = optionalElement<HTMLButtonElement>(id);
+    if (btn) btn.disabled = disabled;
+  }
+}
+
 async function runNewsCutAutoFlowCancellable(exportAfter: boolean, program: NewsCutProgram = "news8"): Promise<void> {
+  // 재진입 가드(2026-08-19 사용자 사고) — 분할이 도는 중에 버튼을 다시 누르면 두 번째 흐름이
+  // newsCutCancel을 덮어써, 동시에 여러 개가 유료로 돌고(로그 실측: 3중 실행) 서로 프레임
+  // 내보내기 자원을 뺏어 스캔이 8분 넘게 걸렸다. 이미 실행 중이면 새로 시작하지 않는다.
+  if (newsCutCancel) {
+    toast("이미 분할이 진행 중입니다 — 끝날 때까지 기다려 주세요(진행 상황은 오버레이에 표시됩니다).", "warning", 5000);
+    return;
+  }
   newsCutCancel = { cancelled: false };
+  setNewsCutButtonsDisabled(true);
   const cancelButton = optionalElement<HTMLButtonElement>("busy-cancel-btn");
   if (cancelButton) {
     cancelButton.hidden = false;
@@ -4180,9 +4205,13 @@ async function runNewsCutAutoFlowCancellable(exportAfter: boolean, program: News
     cancelButton.textContent = "분할 취소";
   }
   try {
-    await runNewsCutAutoFlow(exportAfter, program);
+    // 오버레이를 클릭 즉시 띄운다(사용자 사고) — 선검증(시퀀스 상태·큐시트·데이터 폴더) 구간이
+    // 첫 busy.during 밖이라 그동안 화면에 아무 표시가 없어 "멈춘 줄" 오해를 샀다. 바깥 during이
+    // 깊이를 1로 유지해 단계 사이 오버레이 깜빡임도 없앤다(BusyState는 깊이 0에서만 숨긴다).
+    await busy.during("분할 준비 중…", () => runNewsCutAutoFlow(exportAfter, program));
   } finally {
     newsCutCancel = null;
+    setNewsCutButtonsDisabled(false);
     if (cancelButton) cancelButton.hidden = true;
   }
 }

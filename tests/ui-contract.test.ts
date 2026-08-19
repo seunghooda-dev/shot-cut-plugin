@@ -476,6 +476,14 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /async function runNewsCutAutoFlow\(exportAfter: boolean, program: NewsCutProgram = "news8"\)/);
   assert.match(source, /bind\("news-cut-mw-auto-btn", "click", guarded\(handleMorningCutAuto, "모닝와이드 원클릭 분할 실패"\)\)/);
   assert.match(source, /bind\("news-cut-mw-split-btn", "click", guarded\(handleMorningCutSplitOnly, "모닝와이드 분할 실패"\)\)/);
+  // 재진입 가드(2026-08-19 사용자 사고) — 분할이 도는 중 재클릭이 두 번째 흐름을 띄워
+  // newsCutCancel을 덮어쓰면 동시 다중 실행이 유료로 돌고 서로 자원을 뺏어 더 느려진다.
+  // 가드·버튼 잠금·즉시 오버레이(선검증 구간의 빈 화면 제거)를 계약으로 고정해 조용히
+  // 사라지지 못하게 한다.
+  assert.match(source, /if \(newsCutCancel\) \{[\s\S]{0,220}?return;/);
+  assert.match(source, /이미 분할이 진행 중입니다/);
+  assert.match(source, /function setNewsCutButtonsDisabled\(disabled: boolean\)/);
+  assert.match(source, /await busy\.during\("분할 준비 중…", \(\) => runNewsCutAutoFlow\(exportAfter, program\)\)/);
   assert.match(source, /const bandEventCandidates = program === "news8" \? bandEvents : \[\];/);
   // 큐시트 판독은 **유료 비전 호출**이라 동의 게이트와 키 확인을 반드시 먼저 통과해야 하고,
   // AI 응답은 반드시 parseCueSheetResponse를 거쳐야 한다(컨트롤러가 신뢰 경계 — 원시 응답을
