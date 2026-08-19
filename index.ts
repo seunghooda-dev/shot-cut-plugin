@@ -2925,6 +2925,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
         const percent = Math.round((samples.length / Math.max(1, total)) * 100);
         setText("busy-message", `1/4 화면 스캔 ${samples.length}/${total} · ${percent}%`);
         busy.progress(percent);
+        setNewsCutRunningLabel(`⏳ 화면 스캔 ${percent}%`);
         // 지속 로그에도 성긴 이정표를 남긴다(원격 진단) — 스캔이 수 분 걸려 로그가 통째로 비어
         // "멈춤"과 구별이 안 됐다(2026-08-19 사용자 사고). 25%마다 한 줄만.
         if (percent >= scanLogMilestone) {
@@ -3179,6 +3180,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
             done += chunk.length;
             setText("busy-message", round === 0 ? `비전 검증 ${done}/${pending.length}…` : `비전 검증 · 유실 재판정 ${done}/${pending.length}…`);
             busy.progress(Math.round((done / Math.max(1, pending.length)) * 100));
+            setNewsCutRunningLabel(`⏳ 비전 검증 ${Math.round((done / Math.max(1, pending.length)) * 100)}%`);
             try {
               const results = await runVisionBatch(
                 `verify:${round}:${chunk[0]?.time ?? 0}`,
@@ -3487,6 +3489,7 @@ async function runNewsCutAutoFlow(exportAfter: boolean, program: NewsCutProgram 
             throwIfNewsCutCancelled();
             setText("busy-message", `회수 훑기 ${probeIndex + 1}/${plan.times.length}…`);
             busy.progress(Math.round(((probeIndex + 1) / Math.max(1, plan.times.length)) * 100));
+            setNewsCutRunningLabel(`⏳ 경계 회수 ${Math.round(((probeIndex + 1) / Math.max(1, plan.times.length)) * 100)}%`);
             // 내보내기 재시도(§121-b) — 검증 경로(§92)에만 있던 재시도가 여기엔 없어서, 내보내기가
             // 조용히 빈손으로 끝나면 그 지점의 회수 기회가 통째로 사라졌다. 3/24 재실행 실측:
             // 252 프로브 1장이 유실돼 248 경계가 그대로 FN이 됐다(F1 96.3).
@@ -4188,16 +4191,27 @@ function setNewsCutButtonsDisabled(disabled: boolean): void {
   }
 }
 
-async function runNewsCutAutoFlowCancellable(exportAfter: boolean, program: NewsCutProgram = "news8"): Promise<void> {
+// 진행률을 클릭된 버튼 글씨에 직접 표시한다(2026-08-19 사용자 실측) — busy 오버레이가 UXP의
+// position:fixed 미지원으로 패널을 안 덮는 환경이 있어(스크린샷 2장 확인), 오버레이와 무관하게
+// 진행률이 반드시 보이는 확실한 채널을 버튼 텍스트로 둔다. 버튼은 회색으로 잠겨도 글씨는 갱신된다.
+let newsCutRunningButton: { btn: HTMLButtonElement; label: string } | null = null;
+function setNewsCutRunningLabel(text: string): void {
+  if (newsCutRunningButton) newsCutRunningButton.btn.textContent = text;
+}
+
+async function runNewsCutAutoFlowCancellable(exportAfter: boolean, program: NewsCutProgram = "news8", buttonId?: string): Promise<void> {
   // 재진입 가드(2026-08-19 사용자 사고) — 분할이 도는 중에 버튼을 다시 누르면 두 번째 흐름이
   // newsCutCancel을 덮어써, 동시에 여러 개가 유료로 돌고(로그 실측: 3중 실행) 서로 프레임
   // 내보내기 자원을 뺏어 스캔이 8분 넘게 걸렸다. 이미 실행 중이면 새로 시작하지 않는다.
   if (newsCutCancel) {
-    toast("이미 분할이 진행 중입니다 — 끝날 때까지 기다려 주세요(진행 상황은 오버레이에 표시됩니다).", "warning", 5000);
+    toast("이미 분할이 진행 중입니다 — 끝날 때까지 기다려 주세요(진행률은 버튼에 표시됩니다).", "warning", 5000);
     return;
   }
   newsCutCancel = { cancelled: false };
   setNewsCutButtonsDisabled(true);
+  const runButton = buttonId ? optionalElement<HTMLButtonElement>(buttonId) : null;
+  newsCutRunningButton = runButton ? { btn: runButton, label: runButton.textContent ?? "" } : null;
+  setNewsCutRunningLabel("⏳ 분할 준비 중…");
   const cancelButton = optionalElement<HTMLButtonElement>("busy-cancel-btn");
   if (cancelButton) {
     cancelButton.hidden = false;
@@ -4205,11 +4219,13 @@ async function runNewsCutAutoFlowCancellable(exportAfter: boolean, program: News
     cancelButton.textContent = "분할 취소";
   }
   try {
-    // 오버레이를 클릭 즉시 띄운다(사용자 사고) — 선검증(시퀀스 상태·큐시트·데이터 폴더) 구간이
-    // 첫 busy.during 밖이라 그동안 화면에 아무 표시가 없어 "멈춘 줄" 오해를 샀다. 바깥 during이
-    // 깊이를 1로 유지해 단계 사이 오버레이 깜빡임도 없앤다(BusyState는 깊이 0에서만 숨긴다).
+    // 오버레이도 클릭 즉시 띄운다(사용자 사고) — 뜨는 환경에서는 단계 칩·바가 보이고, 안 뜨는
+    // 환경에서도 위 버튼 글씨가 진행률을 보장한다. 바깥 during이 깊이를 1로 유지해 단계 사이
+    // 오버레이 깜빡임도 없앤다(BusyState는 깊이 0에서만 숨긴다).
     await busy.during("분할 준비 중…", () => runNewsCutAutoFlow(exportAfter, program));
   } finally {
+    if (newsCutRunningButton) newsCutRunningButton.btn.textContent = newsCutRunningButton.label;
+    newsCutRunningButton = null;
     newsCutCancel = null;
     setNewsCutButtonsDisabled(false);
     if (cancelButton) cancelButton.hidden = true;
@@ -4217,19 +4233,19 @@ async function runNewsCutAutoFlowCancellable(exportAfter: boolean, program: News
 }
 
 async function handleNewsCutAuto(): Promise<void> {
-  await runNewsCutAutoFlowCancellable(true);
+  await runNewsCutAutoFlowCancellable(true, "news8", "news-cut-auto-btn");
 }
 
 async function handleNewsCutSplitOnly(): Promise<void> {
-  await runNewsCutAutoFlowCancellable(false);
+  await runNewsCutAutoFlowCancellable(false, "news8", "news-cut-split-btn");
 }
 
 async function handleMorningCutAuto(): Promise<void> {
-  await runNewsCutAutoFlowCancellable(true, "morningwide");
+  await runNewsCutAutoFlowCancellable(true, "morningwide", "news-cut-mw-auto-btn");
 }
 
 async function handleMorningCutSplitOnly(): Promise<void> {
-  await runNewsCutAutoFlowCancellable(false, "morningwide");
+  await runNewsCutAutoFlowCancellable(false, "morningwide", "news-cut-mw-split-btn");
 }
 
 // 업로드 패키지 내보내기 — 자막 SRT·유튜브 메타·썸네일 SVG·권리 리포트를 폴더 하나로 묶는다(로드맵 18).

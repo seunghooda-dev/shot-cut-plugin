@@ -484,6 +484,13 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /이미 분할이 진행 중입니다/);
   assert.match(source, /function setNewsCutButtonsDisabled\(disabled: boolean\)/);
   assert.match(source, /await busy\.during\("분할 준비 중…", \(\) => runNewsCutAutoFlow\(exportAfter, program\)\)/);
+  // 버튼 글씨 진행률 채널(2026-08-19 사용자 실측) — busy 오버레이가 UXP position:fixed 미지원으로
+  // 패널을 안 덮는 환경에서도 진행률이 보이게, 클릭된 버튼 글씨에 단계·%를 직접 쓴다. 4개
+  // 핸들러가 버튼 ID를 넘기고 스캔·비전·회수 단계마다 라벨을 갱신하는 배선을 계약으로 고정한다.
+  assert.match(source, /function setNewsCutRunningLabel\(text: string\)/);
+  assert.match(source, /setNewsCutRunningLabel\(`⏳ 화면 스캔 \$\{percent\}%`\)/);
+  assert.match(source, /runNewsCutAutoFlowCancellable\(false, "news8", "news-cut-split-btn"\)/);
+  assert.match(source, /runNewsCutAutoFlowCancellable\(false, "morningwide", "news-cut-mw-split-btn"\)/);
   assert.match(source, /const bandEventCandidates = program === "news8" \? bandEvents : \[\];/);
   // 큐시트 판독은 **유료 비전 호출**이라 동의 게이트와 키 확인을 반드시 먼저 통과해야 하고,
   // AI 응답은 반드시 parseCueSheetResponse를 거쳐야 한다(컨트롤러가 신뢰 경계 — 원시 응답을
