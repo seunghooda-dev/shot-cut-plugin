@@ -3,9 +3,11 @@ import { describe, it } from "node:test";
 
 import {
   PROFILES,
+  adjustContiguousStart,
   calculateRelativeScale,
   formatDuration,
   markerToSegment,
+  mergeContiguousItem,
   parseTimecodeSeconds,
   resolveTimeRange,
   sanitizeFileName,
@@ -642,6 +644,102 @@ describe("parseTimecodeSeconds", () => {
     assert.equal(parseTimecodeSeconds("2:xx", 42), 42);
     assert.equal(parseTimecodeSeconds(null, 42), 42);
     assert.equal(parseTimecodeSeconds(undefined, 42), 42);
+  });
+});
+
+describe("adjustContiguousStart", () => {
+  const base = () => [
+    { start: 0, end: 100, title: "a" },
+    { start: 100, end: 200, title: "b" },
+    { start: 200, end: 300, title: "c" },
+  ];
+
+  it("moves a middle item's start and syncs the previous item's end", () => {
+    const out = adjustContiguousStart(base(), 1, 150);
+    assert.equal(out[1]!.start, 150);
+    assert.equal(out[0]!.end, 150);
+    assert.equal(out[2]!.start, 200); // 다음 기사는 그대로
+    assert.equal(out[1]!.title, "b"); // title 보존
+  });
+
+  it("does not mutate the input array", () => {
+    const input = base();
+    adjustContiguousStart(input, 1, 150);
+    assert.equal(input[1]!.start, 100);
+    assert.equal(input[0]!.end, 100);
+  });
+
+  it("clamps to the previous start + minLen (cannot cross the previous boundary)", () => {
+    const out = adjustContiguousStart(base(), 2, 50, 1); // 앞 기사 시작 200... 아니라 100(item1)
+    assert.equal(out[2]!.start, 101); // lowerBound = item1.start(100) + 1
+    assert.equal(out[1]!.end, 101);
+  });
+
+  it("clamps to this item's end - minLen (cannot cross its own end)", () => {
+    const out = adjustContiguousStart(base(), 1, 250, 1);
+    assert.equal(out[1]!.start, 199);
+  });
+
+  it("lets the first item move down to zero with no previous end to touch", () => {
+    const out = adjustContiguousStart(base(), 0, -10);
+    assert.equal(out[0]!.start, 0);
+    assert.equal(out[0]!.end, 100);
+  });
+
+  it("leaves values unchanged when clamping would reach/cross the item's own end (inversion guard)", () => {
+    // item 1은 길이 0.4초 — lowerBound(101) > upperBound(99.8)라 clamped=101 >= end(100.8) → 가드가 원본 유지
+    const tiny = [
+      { start: 100, end: 100.4, title: "a" },
+      { start: 100.4, end: 100.8, title: "b" },
+    ];
+    const out = adjustContiguousStart(tiny, 1, 50, 1);
+    assert.equal(out[1]!.start, 100.4);
+    assert.equal(out[0]!.end, 100.4);
+  });
+
+  it("returns an unchanged copy for a non-finite desired value or bad index", () => {
+    const out = adjustContiguousStart(base(), 1, Number.NaN);
+    assert.deepEqual(out, base());
+    const oob = adjustContiguousStart(base(), 9, 50);
+    assert.deepEqual(oob, base());
+  });
+});
+
+describe("mergeContiguousItem", () => {
+  const base = () => [
+    { start: 0, end: 100, title: "a" },
+    { start: 100, end: 200, title: "b" },
+    { start: 200, end: 300, title: "c" },
+  ];
+
+  it("merges a middle/last item into the previous one (previous absorbs its end)", () => {
+    const out = mergeContiguousItem(base(), 1);
+    assert.equal(out.length, 2);
+    assert.equal(out[0]!.end, 200); // a가 b를 흡수
+    assert.equal(out[0]!.title, "a");
+    assert.equal(out[1]!.start, 200); // c 그대로
+  });
+
+  it("merges the first item into the next one (next absorbs its start)", () => {
+    const out = mergeContiguousItem(base(), 0);
+    assert.equal(out.length, 2);
+    assert.equal(out[0]!.start, 0); // b가 a의 시작을 흡수
+    assert.equal(out[0]!.end, 200);
+    assert.equal(out[0]!.title, "b");
+  });
+
+  it("does not mutate the input and keeps contiguity (no gaps)", () => {
+    const input = base();
+    const out = mergeContiguousItem(input, 1);
+    assert.equal(input.length, 3);
+    for (let i = 1; i < out.length; i += 1) assert.equal(out[i]!.start, out[i - 1]!.end);
+  });
+
+  it("returns an unchanged copy for a single item or out-of-range index", () => {
+    const single = [{ start: 0, end: 100, title: "only" }];
+    assert.deepEqual(mergeContiguousItem(single, 0), single);
+    assert.deepEqual(mergeContiguousItem(base(), 9), base());
+    assert.deepEqual(mergeContiguousItem(base(), -1), base());
   });
 });
 

@@ -275,6 +275,49 @@ export function parseTimecodeSeconds(text: unknown, fallback: number): number {
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
+export interface NewsBoundaryItem {
+  start: number;
+  end: number;
+}
+
+// 기사 마커 조정의 핵심 셈 — 연속 기사(앞 끝 = 뒤 시작) 구간에서 index 기사의 시작을 desired로
+// 옮긴다(연속성 유지). 앞 기사 시작보다 minLen 뒤, 이 기사 끝보다 minLen 앞으로 클램프하고,
+// 첫 기사가 아니면 앞 기사의 끝을 같은 값으로 맞춘다. 잘못된 입력·역전이면 원본 값 그대로 둔다.
+// 순수 함수 — 새 배열을 돌려주고 입력은 건드리지 않는다(index.ts UI 상태에서 호출).
+export function adjustContiguousStart<T extends NewsBoundaryItem>(
+  items: readonly T[],
+  index: number,
+  desiredStart: number,
+  minLen = 1,
+): T[] {
+  const next = items.map((item) => ({ ...item }));
+  const target = next[index];
+  if (!target || !Number.isFinite(desiredStart)) return next;
+  const lowerBound = index > 0 ? next[index - 1]!.start + minLen : 0;
+  const upperBound = target.end - minLen;
+  const clamped = Math.max(lowerBound, Math.min(upperBound, desiredStart));
+  if (!Number.isFinite(clamped) || clamped >= target.end) return next;
+  target.start = clamped;
+  if (index > 0) next[index - 1]!.end = clamped;
+  return next;
+}
+
+// 경계 삭제 = 병합. 첫 기사면 그 구간을 다음 기사가 흡수(다음 시작을 이 시작으로), 아니면 앞
+// 기사가 이 기사를 흡수(앞 끝을 이 끝으로). 1개 이하거나 인덱스가 범위를 벗어나면 그대로 둔다.
+export function mergeContiguousItem<T extends NewsBoundaryItem>(items: readonly T[], index: number): T[] {
+  const next = items.map((item) => ({ ...item }));
+  if (next.length <= 1 || index < 0 || index >= next.length) return next;
+  const target = next[index]!;
+  if (index > 0) {
+    next[index - 1]!.end = target.end;
+    next.splice(index, 1);
+  } else {
+    next[1]!.start = target.start;
+    next.splice(0, 1);
+  }
+  return next;
+}
+
 export type QCLevel = "error" | "warning" | "pass";
 
 export interface QCItem {

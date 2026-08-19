@@ -509,7 +509,9 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /bind\("news-cut-marker-load-btn", "click", guarded\(handleNewsCutMarkerLoad,/);
   assert.match(source, /bind\("news-cut-marker-apply-btn", "click", guarded\(handleNewsCutMarkerApply,/);
   assert.match(source, /replaceNewsItemMarkers\(newsCutMarkerEdits\.map/);
-  assert.match(source, /if \(index > 0\) newsCutMarkerEdits\[index - 1\]!\.end = clamped;/);
+  // 연속성 셈은 core.ts 순수 함수(adjustContiguousStart·mergeContiguousItem, 단위테스트)에 위임한다.
+  assert.match(source, /newsCutMarkerEdits = adjustContiguousStart\(newsCutMarkerEdits, index, seconds, NEWS_MARKER_MIN_LEN\);/);
+  assert.match(source, /newsCutMarkerEdits = mergeContiguousItem\(newsCutMarkerEdits, index\);/);
   assert.match(source, /if \(newsCutCancel \|\| newsCutMarkerExportRunning\) \{[\s\S]{0,160}?분할 또는 내보내기가 진행 중/);
   const bandEventCandidatesLine = /const bandEventCandidates = program === "news8" \? bandEvents : \[\];/;
   assert.match(source, bandEventCandidatesLine);

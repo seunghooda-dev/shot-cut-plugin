@@ -1,4 +1,4 @@
-import { PROFILES, formatDuration, parseTimecodeSeconds } from "./src/core";
+import { PROFILES, adjustContiguousStart, formatDuration, mergeContiguousItem, parseTimecodeSeconds } from "./src/core";
 import type { HighlightCutSegment } from "./src/highlight-cut";
 import { normalizeNativePath, type AssetItem } from "./src/asset-library";
 import { createAssetBrowserPanel } from "./src/asset-browser-panel";
@@ -2768,17 +2768,10 @@ function renderNewsCutMarkerEdits(): void {
   });
 }
 
-// 시작 시각을 설정한다(연속성 유지) — 앞 기사 시작보다 뒤, 이 기사 끝보다 앞으로 클램프하고,
-// 첫 기사가 아니면 앞 기사의 끝을 같은 값으로 맞춘다(경계 = 앞 끝 = 뒤 시작).
+// 시작 시각을 설정한다(연속성 유지) — 셈은 core.ts adjustContiguousStart(순수·단위테스트)에 위임하고,
+// 여기서는 상태 교체와 다시 그리기만 한다. 클램프·역전 가드·앞 기사 끝 동기는 그 함수가 책임진다.
 function setNewsMarkerStart(index: number, seconds: number): void {
-  const item = newsCutMarkerEdits[index];
-  if (!item || !Number.isFinite(seconds)) return;
-  const lowerBound = index > 0 ? newsCutMarkerEdits[index - 1]!.start + NEWS_MARKER_MIN_LEN : 0;
-  const upperBound = item.end - NEWS_MARKER_MIN_LEN;
-  const clamped = Math.max(lowerBound, Math.min(upperBound, seconds));
-  if (!Number.isFinite(clamped) || clamped >= item.end) return;
-  item.start = clamped;
-  if (index > 0) newsCutMarkerEdits[index - 1]!.end = clamped;
+  newsCutMarkerEdits = adjustContiguousStart(newsCutMarkerEdits, index, seconds, NEWS_MARKER_MIN_LEN);
   renderNewsCutMarkerEdits();
 }
 
@@ -2788,21 +2781,14 @@ function nudgeNewsMarkerStart(index: number, delta: number): void {
   setNewsMarkerStart(index, item.start + delta);
 }
 
-// 경계 삭제 = 병합. 첫 기사면 그 구간을 다음 기사가 흡수하고, 아니면 앞 기사가 이 기사를 흡수한다.
+// 경계 삭제 = 병합. 셈은 core.ts mergeContiguousItem(순수·단위테스트)에 위임한다. 1개뿐일 때의
+// 사용자 안내(토스트)만 여기서 처리하고, 병합 규칙(첫 기사→다음 흡수·그 외→앞 기사 흡수)은 그 함수가 책임진다.
 function deleteNewsMarker(index: number): void {
   if (newsCutMarkerEdits.length <= 1) {
     toast("기사가 하나뿐이라 삭제할 수 없습니다.", "warning", 4000);
     return;
   }
-  const item = newsCutMarkerEdits[index];
-  if (!item) return;
-  if (index > 0) {
-    newsCutMarkerEdits[index - 1]!.end = item.end;
-    newsCutMarkerEdits.splice(index, 1);
-  } else {
-    newsCutMarkerEdits[1]!.start = item.start;
-    newsCutMarkerEdits.splice(0, 1);
-  }
+  newsCutMarkerEdits = mergeContiguousItem(newsCutMarkerEdits, index);
   renderNewsCutMarkerEdits();
 }
 
