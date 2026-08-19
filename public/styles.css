@@ -4435,3 +4435,54 @@ input[type="color"],
 .ai-queue-metrics > div span {
   margin-right: 6px;
 }
+
+/* 기사 마커 조정 목록(2026-08-19) — 타임라인 마커 드래그가 작아 어렵다는 문제를 큰 버튼·직접 입력으로 대체 */
+.news-cut-marker-adjust {
+  margin-top: 8px;
+}
+
+.news-marker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.news-marker-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--border, #3a3a3a);
+  border-radius: 6px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+}
+
+.news-marker-head {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.news-marker-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.news-marker-nudge {
+  min-width: 48px;
+  padding: 6px 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.news-marker-entry {
+  width: 88px;
+  padding: 6px 8px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.news-marker-del {
+  margin-left: auto;
+}

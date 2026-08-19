@@ -6,6 +6,7 @@ import {
   calculateRelativeScale,
   formatDuration,
   markerToSegment,
+  parseTimecodeSeconds,
   resolveTimeRange,
   sanitizeFileName,
   sanitizeSequenceName,
@@ -608,6 +609,39 @@ describe("formatDuration", () => {
     assert.equal(formatDuration(-1), "00:00");
     assert.equal(formatDuration(Number.NaN), "00:00");
     assert.equal(formatDuration(Number.POSITIVE_INFINITY), "00:00");
+  });
+});
+
+describe("parseTimecodeSeconds", () => {
+  it("parses M:SS and MM:SS as sexagesimal seconds", () => {
+    assert.equal(parseTimecodeSeconds("2:57", -1), 177);
+    assert.equal(parseTimecodeSeconds("0:52", -1), 52);
+    assert.equal(parseTimecodeSeconds("10:00", -1), 600);
+  });
+
+  it("parses H:MM:SS", () => {
+    assert.equal(parseTimecodeSeconds("1:01:01", -1), 3661);
+  });
+
+  it("parses bare seconds, including fractional", () => {
+    assert.equal(parseTimecodeSeconds("177", -1), 177);
+    assert.equal(parseTimecodeSeconds("177.5", -1), 177.5);
+    assert.equal(parseTimecodeSeconds("0", -1), 0);
+  });
+
+  it("round-trips formatDuration output", () => {
+    assert.equal(parseTimecodeSeconds(formatDuration(643), -1), 643);
+  });
+
+  it("returns the fallback for blank, negative, or non-numeric input", () => {
+    assert.equal(parseTimecodeSeconds("", 42), 42);
+    assert.equal(parseTimecodeSeconds("   ", 42), 42);
+    assert.equal(parseTimecodeSeconds("abc", 42), 42);
+    assert.equal(parseTimecodeSeconds("-5", 42), 42);
+    assert.equal(parseTimecodeSeconds("1:-3", 42), 42);
+    assert.equal(parseTimecodeSeconds("2:xx", 42), 42);
+    assert.equal(parseTimecodeSeconds(null, 42), 42);
+    assert.equal(parseTimecodeSeconds(undefined, 42), 42);
   });
 });
 

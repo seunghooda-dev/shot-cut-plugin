@@ -2353,6 +2353,54 @@ export async function scanNewsItemMarkers(): Promise<MarkerSegment[]> {
   return segments.sort((a, b) => a.start - b.start || a.index - b.index);
 }
 
+// 목록에서 조정한 기사 경계를 타임라인 마커에 반영한다(2026-08-19 사용자 지시 — 타임라인 마커가
+// 너무 작아 드래그로 조정하기 어렵다). 기존 #news 마커를 모두 지우고 조정된 목록으로 다시 쓴다
+// (제거+추가를 한 트랜잭션에 담아, 실패해도 마커만 지워진 중간 상태가 남지 않게 한다).
+export async function replaceNewsItemMarkers(items: NewsMarkerInput[]): Promise<number> {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new ShortFlowError("NO_MARKERS_TO_ADD", "타임라인에 반영할 기사 구간이 없습니다.");
+  }
+  const { project, sequence } = await getActiveContext();
+  const sequenceEnd = await safeTime(sequence, "getEndTime", 0);
+  const cap = sequenceEnd > 0 ? sequenceEnd : Number.POSITIVE_INFINITY;
+  const markerCollection = await ppro.Markers.getMarkers(sequence);
+  const commentMarkerType = ppro.Marker.MARKER_TYPE_COMMENT;
+  const actions: ActionFactory[] = [];
+  // 기존 #news 마커 제거를 먼저 넣는다 — 조정 결과만 남는다(숏폼 #sf 등 다른 마커는 건드리지 않음).
+  for (const marker of markerCollection.getMarkers()) {
+    if (!marker) continue;
+    if (!isNewsItemMarker(String(marker.getName()), String(marker.getComments()))) continue;
+    actions.push(() => markerCollection.createRemoveMarkerAction(marker));
+  }
+  // 조정된 구간을 새 #news 마커로 추가 — writeNewsItemMarkers와 동일 규칙(클램프·번호·이름).
+  let added = 0;
+  for (const item of items) {
+    if (!item || !Number.isFinite(item.start) || !Number.isFinite(item.end)) continue;
+    const start = Math.max(0, Math.min(cap, item.start));
+    const end = Math.max(start, Math.min(cap, item.end));
+    const duration = end - start;
+    if (!(duration > 0)) continue;
+    added += 1;
+    const order = String(added).padStart(2, "0");
+    const title = String(item.title ?? "").trim().slice(0, 80);
+    const name = `#news ${order}${title ? ` ${title}` : ""}`.slice(0, 120);
+    actions.push(() => markerCollection.createAddMarkerAction(
+      name,
+      commentMarkerType,
+      ppro.TickTime.createWithSeconds(start),
+      ppro.TickTime.createWithSeconds(duration),
+      "기사 경계 — 목록에서 조정 후 '기사별 내보내기'",
+    ));
+  }
+  if (added === 0) {
+    throw new ShortFlowError("NO_MARKERS_TO_ADD", "유효한 기사 구간이 없습니다.");
+  }
+  if (!commitActionFactories(project, actions, "ShortFlow: 기사 경계 마커 조정")) {
+    throw new ShortFlowError("MARKER_COMMIT_FAILED", "조정한 기사 경계를 반영하지 못했습니다.");
+  }
+  return added;
+}
+
 export interface NewsItemSequenceInput {
   start: number;
   end: number;

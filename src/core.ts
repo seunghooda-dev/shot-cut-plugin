@@ -259,6 +259,22 @@ export function formatDuration(seconds: number): string {
   return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
+// 기사 마커 조정 UI의 시각 직접 입력을 초로 파싱한다("M:SS"·"MM:SS"·"H:MM:SS"·"177"·"177.5").
+// 콜론 표기는 60진 자리올림으로 해석하고, 잘못된 입력(음수·비수치·빈칸)은 fallback을 돌려준다.
+export function parseTimecodeSeconds(text: unknown, fallback: number): number {
+  const trimmed = typeof text === "string" ? text.trim() : "";
+  if (!trimmed) return fallback;
+  if (trimmed.includes(":")) {
+    const parts = trimmed.split(":").map((part) => Number(part.trim()));
+    if (parts.length === 0 || parts.some((value) => !Number.isFinite(value) || value < 0)) return fallback;
+    let seconds = 0;
+    for (const part of parts) seconds = seconds * 60 + part;
+    return seconds;
+  }
+  const value = Number(trimmed);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 export type QCLevel = "error" | "warning" | "pass";
 
 export interface QCItem {

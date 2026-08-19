@@ -1,4 +1,4 @@
-import { PROFILES, formatDuration } from "./src/core";
+import { PROFILES, formatDuration, parseTimecodeSeconds } from "./src/core";
 import type { HighlightCutSegment } from "./src/highlight-cut";
 import { normalizeNativePath, type AssetItem } from "./src/asset-library";
 import { createAssetBrowserPanel } from "./src/asset-browser-panel";
@@ -28,6 +28,7 @@ import {
   createNewsItemSequences,
   writeNewsItemMarkers,
   scanNewsItemMarkers,
+  replaceNewsItemMarkers,
   deleteNewsItemSequences,
   exportSequenceFrameByName,
   listSequenceNames,
@@ -1930,6 +1931,10 @@ let newsCutThumbToken = 0;
 let newsCutCreatedNames: string[] = [];
 // 생성 시점 GUID(§184 #14) — 이름과 인덱스 1:1, 내보내기 해석의 1차 키.
 let newsCutCreatedGuids: Array<string | null> = [];
+// 기사 마커 조정 목록(2026-08-19 사용자 지시 — 타임라인 마커가 너무 작아 드래그가 어렵다).
+// scanNewsItemMarkers로 채우고 목록에서 시작 시각을 조정한 뒤 replaceNewsItemMarkers로 반영한다.
+// 기사는 연속이라 시작을 옮기면 앞 기사의 끝도 함께 따라간다(경계 = 앞 끝 = 뒤 시작).
+let newsCutMarkerEdits: Array<{ start: number; end: number; title: string }> = [];
 // 플러그인 설치 폴더 경로(부팅 시 1회 조회) — 출력 폴더 오염 경고(speech-controller)에 쓴다.
 let pluginFolderPathValue: string | null = null;
 
@@ -2711,6 +2716,127 @@ async function handleNewsCutMarkerExport(): Promise<void> {
     newsCutMarkerExportRunning = false;
     setNewsCutButtonsDisabled(false);
   }
+}
+
+// 기사 마커 조정 목록 — 최소 기사 길이(초). 시작을 옮겨도 인접 기사가 이보다 짧아지지 않게 한다.
+const NEWS_MARKER_MIN_LEN = 1;
+
+// 조정 목록을 패널에 그린다 — 기사마다 타임코드(시작→끝·길이) + −5/−1/+1/+5 버튼 + 직접 입력 + 삭제.
+// 드래그가 너무 작아 어렵다는 문제(사용자 지시)를 큼직한 버튼·직접 입력으로 대체한다.
+function renderNewsCutMarkerEdits(): void {
+  const container = optionalElement<HTMLElement>("news-cut-marker-list");
+  if (!container) return;
+  clearChildren(container);
+  container.hidden = newsCutMarkerEdits.length === 0;
+  const applyBtn = optionalElement<HTMLButtonElement>("news-cut-marker-apply-btn");
+  if (applyBtn) applyBtn.disabled = newsCutMarkerEdits.length === 0;
+  newsCutMarkerEdits.forEach((item, index) => {
+    const row = document.createElement("div");
+    row.className = "news-marker-row";
+    const head = document.createElement("div");
+    head.className = "news-marker-head";
+    const title = item.title ? ` · ${item.title}` : "";
+    head.textContent = `기사 ${String(index + 1).padStart(2, "0")} · ${formatDuration(item.start)} → ${formatDuration(item.end)} · (${formatDuration(item.end - item.start)})${title}`;
+    const controls = document.createElement("div");
+    controls.className = "news-marker-controls";
+    for (const delta of [-5, -1, 1, 5]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary-button news-marker-nudge";
+      button.textContent = delta > 0 ? `+${delta}s` : `${delta}s`;
+      button.title = `기사 ${index + 1} 시작을 ${delta}초 이동`;
+      button.addEventListener("click", () => nudgeNewsMarkerStart(index, delta));
+      controls.append(button);
+    }
+    const entry = document.createElement("input");
+    entry.type = "text";
+    entry.className = "news-marker-entry";
+    entry.value = formatDuration(item.start);
+    entry.title = "시작 시각 직접 입력 (예: 2:57 또는 177)";
+    entry.setAttribute("aria-label", `기사 ${index + 1} 시작 시각`);
+    entry.addEventListener("change", () => setNewsMarkerStart(index, parseTimecodeSeconds(entry.value, item.start)));
+    controls.append(entry);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "danger-button news-marker-del";
+    del.textContent = "삭제";
+    del.title = index === 0 ? "첫 기사 삭제 — 그 구간을 다음 기사에 합칩니다" : "이 경계 삭제 — 앞 기사와 합칩니다";
+    del.addEventListener("click", () => deleteNewsMarker(index));
+    controls.append(del);
+    row.append(head, controls);
+    container.append(row);
+  });
+}
+
+// 시작 시각을 설정한다(연속성 유지) — 앞 기사 시작보다 뒤, 이 기사 끝보다 앞으로 클램프하고,
+// 첫 기사가 아니면 앞 기사의 끝을 같은 값으로 맞춘다(경계 = 앞 끝 = 뒤 시작).
+function setNewsMarkerStart(index: number, seconds: number): void {
+  const item = newsCutMarkerEdits[index];
+  if (!item || !Number.isFinite(seconds)) return;
+  const lowerBound = index > 0 ? newsCutMarkerEdits[index - 1]!.start + NEWS_MARKER_MIN_LEN : 0;
+  const upperBound = item.end - NEWS_MARKER_MIN_LEN;
+  const clamped = Math.max(lowerBound, Math.min(upperBound, seconds));
+  if (!Number.isFinite(clamped) || clamped >= item.end) return;
+  item.start = clamped;
+  if (index > 0) newsCutMarkerEdits[index - 1]!.end = clamped;
+  renderNewsCutMarkerEdits();
+}
+
+function nudgeNewsMarkerStart(index: number, delta: number): void {
+  const item = newsCutMarkerEdits[index];
+  if (!item) return;
+  setNewsMarkerStart(index, item.start + delta);
+}
+
+// 경계 삭제 = 병합. 첫 기사면 그 구간을 다음 기사가 흡수하고, 아니면 앞 기사가 이 기사를 흡수한다.
+function deleteNewsMarker(index: number): void {
+  if (newsCutMarkerEdits.length <= 1) {
+    toast("기사가 하나뿐이라 삭제할 수 없습니다.", "warning", 4000);
+    return;
+  }
+  const item = newsCutMarkerEdits[index];
+  if (!item) return;
+  if (index > 0) {
+    newsCutMarkerEdits[index - 1]!.end = item.end;
+    newsCutMarkerEdits.splice(index, 1);
+  } else {
+    newsCutMarkerEdits[1]!.start = item.start;
+    newsCutMarkerEdits.splice(0, 1);
+  }
+  renderNewsCutMarkerEdits();
+}
+
+// 타임라인의 #news 마커를 조정 목록으로 불러온다(읽기 전용) — 사용자가 드래그로 옮긴 값도 반영된다.
+async function handleNewsCutMarkerLoad(): Promise<void> {
+  const segments = await scanNewsItemMarkers();
+  if (segments.length === 0) {
+    newsCutMarkerEdits = [];
+    renderNewsCutMarkerEdits();
+    toast("타임라인에 기사 마커가 없습니다 — 먼저 '분할만'으로 경계를 표시하세요.", "warning", 6000);
+    return;
+  }
+  newsCutMarkerEdits = segments.map((segment) => ({ start: segment.start, end: segment.end, title: newsMarkerTitle(segment.name) }));
+  renderNewsCutMarkerEdits();
+  activity.add("info", `기사 마커 ${segments.length}개를 조정 목록으로 불러왔습니다.`);
+  toast(`기사 ${segments.length}개를 목록으로 불러왔습니다 — 버튼·직접 입력으로 조정하세요.`, "success", 4000);
+}
+
+// 조정한 목록을 타임라인 마커에 반영한다. 분할·내보내기와 마커 전역이 겹치므로 상호 배타로 하나만 돈다.
+async function handleNewsCutMarkerApply(): Promise<void> {
+  if (newsCutMarkerEdits.length === 0) {
+    toast("반영할 기사 목록이 없습니다 — '마커 목록 불러오기'를 먼저 누르세요.", "warning", 5000);
+    return;
+  }
+  if (newsCutCancel || newsCutMarkerExportRunning) {
+    toast("분할 또는 내보내기가 진행 중입니다 — 끝난 뒤에 적용하세요.", "warning", 5000);
+    return;
+  }
+  const count = await busy.during("조정한 기사 경계를 타임라인에 반영하고 있습니다…", () =>
+    replaceNewsItemMarkers(newsCutMarkerEdits.map((item) => ({ start: item.start, end: item.end, title: item.title }))));
+  activity.add("success", `기사 경계 ${count}개를 타임라인 마커에 반영했습니다.`);
+  toast(`기사 ${count}개 경계를 타임라인에 반영했습니다 — '기사별 내보내기'로 파일을 뽑으세요.`, "success", 6000);
+  // 반영 후 되읽어 실제 저장값(클램프·정규화 반영)으로 목록을 갱신한다.
+  await handleNewsCutMarkerLoad();
 }
 
 async function exportNewsSequencesWith(presetFile: any, outputFolder: any): Promise<void> {
@@ -4813,6 +4939,8 @@ function bindCoreEvents(): void {
   bind("news-cut-create-btn", "click", guarded(handleNewsCutCreate, "뉴스 분할 시퀀스 생성 실패"));
   bind("news-cut-export-btn", "click", guarded(handleNewsCutExport, "뉴스 분할 내보내기 실패"));
   bind("news-cut-marker-export-btn", "click", guarded(handleNewsCutMarkerExport, "기사별 내보내기 실패"));
+  bind("news-cut-marker-load-btn", "click", guarded(handleNewsCutMarkerLoad, "마커 목록 불러오기 실패"));
+  bind("news-cut-marker-apply-btn", "click", guarded(handleNewsCutMarkerApply, "기사 경계 반영 실패"));
   // 분할 취소(UX 감사 C-1) — 토큰만 세우고, 실제 중단은 흐름 안의 검사 지점이 수행한다.
   bind("busy-cancel-btn", "click", () => {
     if (!newsCutCancel) return;

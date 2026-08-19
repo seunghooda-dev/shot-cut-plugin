@@ -503,6 +503,14 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /newsCutMarkerExportRunning = true;/);
   assert.match(source, /finally \{[\s\S]{0,200}?newsCutMarkerExportRunning = false;/);
   assert.match(source, /setNewsCutRunningLabel\(`⏳ 렌더 \$\{completed \+ 1\}\/\$\{total\}`\)/);
+  // 기사 마커 조정 목록(2026-08-19 사용자 지시 — 타임라인 마커가 너무 작아 드래그가 어렵다).
+  // 목록 불러오기·적용 배선, replaceNewsItemMarkers 사용, 연속성 유지(시작 이동 시 앞 기사 끝 동기)를
+  // 계약으로 고정한다. 적용은 분할·내보내기와 마커 전역을 공유하므로 상호 배타 가드를 확인한다.
+  assert.match(source, /bind\("news-cut-marker-load-btn", "click", guarded\(handleNewsCutMarkerLoad,/);
+  assert.match(source, /bind\("news-cut-marker-apply-btn", "click", guarded\(handleNewsCutMarkerApply,/);
+  assert.match(source, /replaceNewsItemMarkers\(newsCutMarkerEdits\.map/);
+  assert.match(source, /if \(index > 0\) newsCutMarkerEdits\[index - 1\]!\.end = clamped;/);
+  assert.match(source, /if \(newsCutCancel \|\| newsCutMarkerExportRunning\) \{[\s\S]{0,160}?분할 또는 내보내기가 진행 중/);
   const bandEventCandidatesLine = /const bandEventCandidates = program === "news8" \? bandEvents : \[\];/;
   assert.match(source, bandEventCandidatesLine);
   // 큐시트 판독은 **유료 비전 호출**이라 동의 게이트와 키 확인을 반드시 먼저 통과해야 하고,
