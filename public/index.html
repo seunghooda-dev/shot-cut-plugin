@@ -287,18 +287,6 @@
                 <p>활성 시퀀스의 화면(앵커 샷)만 분석해 무료로 분할하고, 시퀀스 생성과 내보내기까지 자동으로 진행합니다.</p>
               </div>
             </div>
-            <div class="file-picker-stack">
-              <div class="file-picker-row">
-                <div class="file-summary">
-                  <span class="file-icon folder-icon" aria-hidden="true">DIR</span>
-                  <div>
-                    <span class="file-label">내보내기 폴더</span>
-                    <strong id="news-cut-folder-name" title="">미지정 — '폴더 선택'으로 저장 위치를 정하세요</strong>
-                  </div>
-                </div>
-                <button id="news-cut-folder-btn" class="secondary-button" type="button" title="분할 결과물이 저장될 폴더를 선택합니다. 폴더를 지정하지 않으면 내보내기가 진행되지 않습니다(PC마다 한 번만 지정하면 유지). 내보내기 탭의 저장 폴더와 같은 설정을 공유합니다.">폴더 선택</button>
-              </div>
-            </div>
             <div class="field">
               <label for="news-cut-vision-check">AI 비전 검증(유료) — 발언자·행사장 오검출을 AI가 재확인해 제거합니다. 실패 시 무료 결과로 진행됩니다.</label>
               <label class="checkbox-row" for="news-cut-vision-check" title="확정된 앵커 후보 프레임을 AI 비전으로 재확인해 발언자·행사장 오검출(과분할)을 제거합니다. 후보 1개당 4프레임(회차당 약 40~100장)을 480px로 내보내 OpenAI로 전송하며, 회차당 수십 원 수준의 비용이 발생합니다. AI 전송 동의나 API 키가 없으면 자동으로 건너뛰고 무료 결과로 진행합니다.">
@@ -324,16 +312,15 @@
             </div>
             <div class="field">
               <label>큐시트 사진 (선택)</label>
-              <span class="field-hint">촬영한 큐시트를 올리면 순서·소요·누적·종·기사제목을 읽고, 소요 합과 누적이 행마다 맞는지 검산합니다. 검산을 통과하면 방송일자·프로그램별로 저장해 같은 회차를 다시 분할할 때 자동으로 씁니다. AI 설정 탭의 전송 동의와 API 키가 필요하며 장당 수 원의 비용이 듭니다. 분할에는 <strong>참고용으로만</strong> 쓰입니다 — 큐시트 시각으로 경계를 만들지 않고, 확정된 앞뒤 경계 사이에 꼭지가 빈 자리가 있을 때 그 부근에 이미 찾아 둔 후보가 있으면 되살립니다. 되살린 경계도 AI 비전 검증을 그대로 거칩니다. 만든 시퀀스에는 <strong>기사제목을 이름 뒤에 붙입니다</strong>(<code>20260811_news_03_여수산단 도로</code>) — 짝이 맞은 아이템에만 붙고, 못 맞춘 아이템은 번호만 남습니다.</span>
               <div class="form-actions automation-actions">
                 <button id="news-cut-cuesheet-btn" class="secondary-button" type="button" title="촬영한 큐시트 사진(PNG·JPG)을 골라 표로 읽어들이고 검산한 뒤 회차별로 저장합니다.">큐시트 사진 올리기</button>
               </div>
               <div id="news-cut-cuesheet-result" class="learn-corpus-list" hidden></div>
             </div>
-            <button id="news-cut-auto-btn" class="primary-button full-width-button" type="button" title="8뉴스 프로필(학습 모델·참조 뱅크·띠 규칙)로 활성 시퀀스를 스캔해 앵커 샷 기준으로 분할하고, 시퀀스 생성과 내보내기까지 한 번에 실행합니다.">8뉴스 원클릭 분할 — 화면 분석부터 내보내기까지</button>
-            <button id="news-cut-split-btn" class="secondary-button full-width-button" type="button" title="8뉴스 프로필로 화면 분석 후 소스 타임라인에 기사별 In/Out 구간 마커를 찍습니다(시퀀스는 만들지 않음). 마커를 드래그로 검토·조정한 뒤 '기사별 내보내기'로 기사마다 파일 하나씩 렌더합니다.">8뉴스 분할만 — 기사 경계 마커 표시</button>
-            <button id="news-cut-mw-auto-btn" class="primary-button full-width-button" type="button" title="모닝와이드 프로필(전용 참조 뱅크·분할 구도 판정)로 분할하고 내보내기까지 실행합니다. 8뉴스 전용 규칙(학습 모델·띠 회수·사인오프)은 사용하지 않습니다.">모닝와이드 원클릭 분할 — 화면 분석부터 내보내기까지</button>
-            <button id="news-cut-mw-split-btn" class="secondary-button full-width-button" type="button" title="모닝와이드 프로필로 화면 분석 후 소스 타임라인에 기사별 In/Out 구간 마커를 찍습니다(시퀀스는 만들지 않음). 조정 후 '기사별 내보내기'로 기사마다 파일 하나씩 렌더합니다.">모닝와이드 분할만 — 기사 경계 마커 표시</button>
+            <button id="news-cut-auto-btn" class="primary-button full-width-button news-cut-mode-auto" type="button" title="8뉴스 프로필(학습 모델·참조 뱅크·띠 규칙)로 활성 시퀀스를 스캔해 앵커 샷 기준으로 분할하고, 시퀀스 생성과 내보내기까지 한 번에 실행합니다.">8뉴스 원클릭 분할 — 화면 분석부터 내보내기까지</button>
+            <button id="news-cut-split-btn" class="secondary-button full-width-button news-cut-mode-split" type="button" title="8뉴스 프로필로 화면 분석 후 소스 타임라인에 기사별 In/Out 구간 마커를 찍습니다(시퀀스는 만들지 않음). 마커를 드래그로 검토·조정한 뒤 '기사별 내보내기'로 기사마다 파일 하나씩 렌더합니다.">8뉴스 분할만 — 기사 경계 마커 표시</button>
+            <button id="news-cut-mw-auto-btn" class="primary-button full-width-button news-cut-mode-auto" type="button" title="모닝와이드 프로필(전용 참조 뱅크·분할 구도 판정)로 분할하고 내보내기까지 실행합니다. 8뉴스 전용 규칙(학습 모델·띠 회수·사인오프)은 사용하지 않습니다.">모닝와이드 원클릭 분할 — 화면 분석부터 내보내기까지</button>
+            <button id="news-cut-mw-split-btn" class="secondary-button full-width-button news-cut-mode-split" type="button" title="모닝와이드 프로필로 화면 분석 후 소스 타임라인에 기사별 In/Out 구간 마커를 찍습니다(시퀀스는 만들지 않음). 조정 후 '기사별 내보내기'로 기사마다 파일 하나씩 렌더합니다.">모닝와이드 분할만 — 기사 경계 마커 표시</button>
             <button id="news-cut-marker-export-btn" class="primary-button full-width-button" type="button" title="'분할만'으로 소스에 찍은 (조정된) 기사 마커를 읽어, 기사마다 아이템 시퀀스를 만든 뒤 파일 하나씩(기사 N개 → 파일 N개) 렌더합니다. 8뉴스·모닝와이드 공통 — 소스 마커만 읽습니다.">기사별 내보내기 — 마커대로 파일 N개(8뉴스·모닝와이드)</button>
             <div class="news-cut-marker-adjust">
               <div class="form-actions">
@@ -351,6 +338,18 @@
             </div>
             <p class="action-note">'아이템 시퀀스 생성'과 '일괄 내보내기'는 보도 아이템 분석 또는 분할 실행 뒤에 활성화됩니다.</p>
             <div id="news-cut-list" class="learn-corpus-list" hidden></div>
+            <div class="file-picker-stack">
+              <div class="file-picker-row">
+                <div class="file-summary">
+                  <span class="file-icon folder-icon" aria-hidden="true">DIR</span>
+                  <div>
+                    <span class="file-label">내보내기 폴더</span>
+                    <strong id="news-cut-folder-name" title="">미지정 — '폴더 선택'으로 저장 위치를 정하세요</strong>
+                  </div>
+                </div>
+                <button id="news-cut-folder-btn" class="secondary-button" type="button" title="분할 결과물이 저장될 폴더를 선택합니다. 폴더를 지정하지 않으면 내보내기가 진행되지 않습니다(PC마다 한 번만 지정하면 유지). 내보내기 탭의 저장 폴더와 같은 설정을 공유합니다.">폴더 선택</button>
+              </div>
+            </div>
           </div>
         </section>
 

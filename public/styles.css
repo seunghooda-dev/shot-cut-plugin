@@ -4493,3 +4493,12 @@ input[type="color"],
   font-weight: 600;
   color: var(--muted, #9a9a9a);
 }
+
+/* 원클릭(전자동) vs 분할만(마커 검토) 모드 색 구분(2026-08-20 사용자 요청) — 왼쪽 색 띠로 한눈에 */
+.news-cut-mode-auto {
+  border-left: 5px solid #3a7bd5; /* 파랑 = 원클릭(분석→내보내기 자동) */
+}
+
+.news-cut-mode-split {
+  border-left: 5px solid #e0913a; /* 주황 = 분할만(마커 검토 후 내보내기) */
+}
