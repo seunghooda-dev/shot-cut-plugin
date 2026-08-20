@@ -275,6 +275,43 @@ export function parseTimecodeSeconds(text: unknown, fallback: number): number {
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
+// 초를 프레임 타임코드(분:초:프레임 또는 시:분:초:프레임)로 만든다 — 인점을 프레임 단위로 보기 위함.
+// fps<=0이면 프레임 자리 없이 분:초(formatDuration). fps는 정수로 반올림해 프레임 자리를 센다(논드롭).
+export function formatTimecodeFrames(seconds: number, fps: number): string {
+  const fpsInt = Number.isFinite(fps) && fps >= 1 ? Math.round(fps) : 0;
+  if (fpsInt <= 0) return formatDuration(seconds);
+  const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  const totalFrames = Math.round(safe * fpsInt);
+  const ff = totalFrames % fpsInt;
+  const whole = Math.floor(totalFrames / fpsInt);
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor((whole % 3600) / 60);
+  const secs = whole % 60;
+  const mm = String(minutes).padStart(2, "0");
+  const ss = String(secs).padStart(2, "0");
+  const fftc = String(ff).padStart(2, "0");
+  return hours > 0 ? `${hours}:${mm}:${ss}:${fftc}` : `${mm}:${ss}:${fftc}`;
+}
+
+// 프레임 타임코드 입력을 초로 파싱한다. 콜론 3개(MM:SS:FF)·4개(H:MM:SS:FF)면 **마지막 자리를
+// 프레임**으로 보고 fps로 초 환산하며, 그 외(초·MM:SS·H:MM:SS)는 parseTimecodeSeconds에 위임한다.
+// fps<=0이면 프레임 개념이 없어 전부 위임한다(이때 콜론 3개는 H:MM:SS로 해석).
+export function parseFrameTimecode(text: unknown, fps: number, fallback: number): number {
+  const trimmed = typeof text === "string" ? text.trim() : "";
+  const fpsInt = Number.isFinite(fps) && fps >= 1 ? Math.round(fps) : 0;
+  if (fpsInt > 0 && trimmed.includes(":")) {
+    const parts = trimmed.split(":").map((part) => part.trim());
+    if (parts.length === 3 || parts.length === 4) {
+      const frames = Number(parts.pop());
+      if (!Number.isFinite(frames) || frames < 0 || frames >= fpsInt) return fallback;
+      const base = parseTimecodeSeconds(parts.join(":"), Number.NaN);
+      if (!Number.isFinite(base)) return fallback;
+      return base + frames / fpsInt;
+    }
+  }
+  return parseTimecodeSeconds(trimmed, fallback);
+}
+
 export interface NewsBoundaryItem {
   start: number;
   end: number;

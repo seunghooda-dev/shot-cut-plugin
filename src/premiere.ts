@@ -1131,6 +1131,13 @@ async function safeFrameRate(sequence: Sequence): Promise<number> {
   }
 }
 
+// 활성 시퀀스의 비디오 프레임레이트(fps)를 돌려준다 — 기사 마커 조정의 프레임 단위 타임코드·
+// ±1프레임 이동에 쓴다(2026-08-20 사용자 지시). 읽지 못하면 0(호출부에서 기본값으로 대체).
+export async function getActiveSequenceFrameRate(): Promise<number> {
+  const { sequence } = await getActiveContext();
+  return safeFrameRate(sequence);
+}
+
 export interface ReadSequenceStatusOptions {
   /** Selection details are unnecessary for basic QC and can be expensive on large selections. */
   includeSelection?: boolean;

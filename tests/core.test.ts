@@ -6,8 +6,10 @@ import {
   adjustContiguousStart,
   calculateRelativeScale,
   formatDuration,
+  formatTimecodeFrames,
   markerToSegment,
   mergeContiguousItem,
+  parseFrameTimecode,
   parseTimecodeSeconds,
   resolveTimeRange,
   sanitizeFileName,
@@ -644,6 +646,65 @@ describe("parseTimecodeSeconds", () => {
     assert.equal(parseTimecodeSeconds("2:xx", 42), 42);
     assert.equal(parseTimecodeSeconds(null, 42), 42);
     assert.equal(parseTimecodeSeconds(undefined, 42), 42);
+  });
+});
+
+describe("formatTimecodeFrames", () => {
+  it("formats seconds as MM:SS:FF at the given fps", () => {
+    assert.equal(formatTimecodeFrames(177.5, 60), "02:57:30");
+    assert.equal(formatTimecodeFrames(288.25, 60), "04:48:15");
+    assert.equal(formatTimecodeFrames(0, 60), "00:00:00");
+  });
+
+  it("adds an hour field only when needed", () => {
+    assert.equal(formatTimecodeFrames(3777.5, 60), "1:02:57:30");
+  });
+
+  it("rounds to the nearest frame and carries into seconds", () => {
+    // 0.999s at 60fps ≈ 59.94 frames → rounds to 60 → carries to 1s, frame 0
+    assert.equal(formatTimecodeFrames(0.999, 60), "00:01:00");
+    assert.equal(formatTimecodeFrames(1 / 60, 60), "00:00:01");
+  });
+
+  it("falls back to MM:SS when fps is unavailable", () => {
+    assert.equal(formatTimecodeFrames(177.5, 0), "02:57");
+    assert.equal(formatTimecodeFrames(177.5, Number.NaN), "02:57");
+  });
+});
+
+describe("parseFrameTimecode", () => {
+  it("parses MM:SS:FF using fps for the frame field", () => {
+    assert.equal(parseFrameTimecode("02:57:30", 60, -1), 177.5);
+    assert.equal(parseFrameTimecode("04:48:15", 60, -1), 288.25);
+    assert.equal(parseFrameTimecode("00:00:01", 60, -1), 1 / 60);
+  });
+
+  it("parses H:MM:SS:FF", () => {
+    assert.equal(parseFrameTimecode("1:02:57:30", 60, -1), 3777.5);
+  });
+
+  it("round-trips formatTimecodeFrames output", () => {
+    assert.equal(parseFrameTimecode(formatTimecodeFrames(643.25, 60), 60, -1), 643.25);
+  });
+
+  it("delegates 2-part / bare / decimal inputs to seconds parsing", () => {
+    assert.equal(parseFrameTimecode("2:57", 60, -1), 177);
+    assert.equal(parseFrameTimecode("177.5", 60, -1), 177.5);
+    assert.equal(parseFrameTimecode("230", 60, -1), 230);
+  });
+
+  it("rejects a frame field at or above fps", () => {
+    assert.equal(parseFrameTimecode("2:57:60", 60, 42), 42);
+    assert.equal(parseFrameTimecode("2:57:99", 60, 42), 42);
+  });
+
+  it("treats 3 colon-parts as H:MM:SS when fps is unavailable (no frame concept)", () => {
+    assert.equal(parseFrameTimecode("2:57:30", 0, -1), 2 * 3600 + 57 * 60 + 30);
+  });
+
+  it("returns the fallback for blank or non-numeric input", () => {
+    assert.equal(parseFrameTimecode("", 60, 42), 42);
+    assert.equal(parseFrameTimecode("ab:cd:ef", 60, 42), 42);
   });
 });
 

@@ -515,7 +515,11 @@ function assertOperationalSourceContracts(source: string): void {
   // 조정·미리보기 시 재생헤드를 그 시작으로 옮겨 프로그램 모니터에 인점 프레임을 띄운다(2026-08-20 사용자 지시).
   assert.match(source, /void setSequencePlayerPosition\(Math\.max\(0, seconds\)\)/);
   assert.match(source, /if \(moved\) previewNewsMarkerAt\(moved\.start\);/);
-  assert.match(source, /head\.addEventListener\("click", \(\) => previewNewsMarkerAt\(item\.start\)\)/);
+  // 인점·아웃점을 각각 클릭하면 그 프레임으로 미리보고, ±1프레임 버튼·프레임 타임코드 입력을 계약으로 고정한다(2026-08-20 사용자 지시).
+  assert.match(source, /span\.addEventListener\("click", \(\) => previewNewsMarkerAt\(seconds\)\)/);
+  assert.match(source, /makeTimeLink\(item\.start, "인점"\)[\s\S]{0,80}?makeTimeLink\(item\.end, "아웃점"\)/);
+  assert.match(source, /const frameSec = 1 \/ Math\.max\(1, Math\.round\(newsCutMarkerFps\)\)/);
+  assert.match(source, /parseFrameTimecode\(entry\.value, newsCutMarkerFps, item\.start\)/);
   // AI '연결 테스트'도 키를 저장하므로 뉴스 분할 배너를 갱신해야 한다(2026-08-20 실측 — 종전엔 '저장'·동의 변경에만 갱신이 걸려 배너가 낡은 채 남았다).
   assert.match(source, /bind\("ai-test-btn", "click", guarded\(async \(\) => \{[\s\S]{0,700}?refreshNewsCutSetupBanner\(\)/);
   assert.match(source, /if \(newsCutCancel \|\| newsCutMarkerExportRunning\) \{[\s\S]{0,160}?분할 또는 내보내기가 진행 중/);
