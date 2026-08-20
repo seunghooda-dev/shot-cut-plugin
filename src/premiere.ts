@@ -1138,6 +1138,13 @@ export async function getActiveSequenceFrameRate(): Promise<number> {
   return safeFrameRate(sequence);
 }
 
+// 활성 시퀀스 길이(초)를 돌려준다 — 기사 아웃점(끝) 독립 조정의 상한 클램프에 쓴다(2026-08-20
+// 사용자 지시, 독립 인/아웃 모델). 읽지 못하면 0(호출부에서 상한 없음으로 처리).
+export async function getActiveSequenceEndSeconds(): Promise<number> {
+  const { sequence } = await getActiveContext();
+  return safeTime(sequence, "getEndTime", 0);
+}
+
 export interface ReadSequenceStatusOptions {
   /** Selection details are unnecessary for basic QC and can be expensive on large selections. */
   includeSelection?: boolean;

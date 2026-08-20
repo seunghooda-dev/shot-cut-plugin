@@ -509,17 +509,22 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /bind\("news-cut-marker-load-btn", "click", guarded\(handleNewsCutMarkerLoad,/);
   assert.match(source, /bind\("news-cut-marker-apply-btn", "click", guarded\(handleNewsCutMarkerApply,/);
   assert.match(source, /replaceNewsItemMarkers\(newsCutMarkerEdits\.map/);
-  // 연속성 셈은 core.ts 순수 함수(adjustContiguousStart·mergeContiguousItem, 단위테스트)에 위임한다.
-  assert.match(source, /newsCutMarkerEdits = adjustContiguousStart\(newsCutMarkerEdits, index, seconds, NEWS_MARKER_MIN_LEN\);/);
+  // 각 기사가 독립된 [인점, 아웃점] — 연속 강제 없이 인/아웃을 따로 조정한다(2026-08-20 사용자 지시,
+  // 10기사=20점). core.ts 순수 함수(adjustItemStart·adjustItemEnd·mergeContiguousItem, 단위테스트)에 위임.
+  assert.match(source, /newsCutMarkerEdits = adjustItemStart\(newsCutMarkerEdits, index, seconds, NEWS_MARKER_MIN_LEN\);/);
+  assert.match(source, /newsCutMarkerEdits = adjustItemEnd\(newsCutMarkerEdits, index, seconds, NEWS_MARKER_MIN_LEN, newsCutMarkerSeqEnd\);/);
   assert.match(source, /newsCutMarkerEdits = mergeContiguousItem\(newsCutMarkerEdits, index\);/);
-  // 조정·미리보기 시 재생헤드를 그 시작으로 옮겨 프로그램 모니터에 인점 프레임을 띄운다(2026-08-20 사용자 지시).
+  // 조정·미리보기 시 재생헤드를 인/아웃 프레임으로 옮긴다(2026-08-20 사용자 지시).
   assert.match(source, /void setSequencePlayerPosition\(Math\.max\(0, seconds\)\)/);
   assert.match(source, /if \(moved\) previewNewsMarkerAt\(moved\.start\);/);
-  // 인점·아웃점을 각각 클릭하면 그 프레임으로 미리보고, ±1프레임 버튼·프레임 타임코드 입력을 계약으로 고정한다(2026-08-20 사용자 지시).
+  assert.match(source, /if \(moved\) previewNewsMarkerAt\(moved\.end\);/);
+  // 인점·아웃점 각각 클릭 미리보기 + 인/아웃 각각 ±1프레임 버튼·프레임 타임코드 입력을 계약으로 고정한다.
   assert.match(source, /span\.addEventListener\("click", \(\) => previewNewsMarkerAt\(seconds\)\)/);
   assert.match(source, /makeTimeLink\(item\.start, "인점"\)[\s\S]{0,80}?makeTimeLink\(item\.end, "아웃점"\)/);
   assert.match(source, /const frameSec = 1 \/ Math\.max\(1, Math\.round\(newsCutMarkerFps\)\)/);
-  assert.match(source, /parseFrameTimecode\(entry\.value, newsCutMarkerFps, item\.start\)/);
+  assert.match(source, /buildEdgeControls\(index, "in", item\.start\)/);
+  assert.match(source, /buildEdgeControls\(index, "out", item\.end\)/);
+  assert.match(source, /parseFrameTimecode\(entry\.value, newsCutMarkerFps, value\)/);
   // AI '연결 테스트'도 키를 저장하므로 뉴스 분할 배너를 갱신해야 한다(2026-08-20 실측 — 종전엔 '저장'·동의 변경에만 갱신이 걸려 배너가 낡은 채 남았다).
   assert.match(source, /bind\("ai-test-btn", "click", guarded\(async \(\) => \{[\s\S]{0,700}?refreshNewsCutSetupBanner\(\)/);
   assert.match(source, /if \(newsCutCancel \|\| newsCutMarkerExportRunning\) \{[\s\S]{0,160}?분할 또는 내보내기가 진행 중/);

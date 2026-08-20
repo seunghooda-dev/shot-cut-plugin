@@ -1,4 +1,4 @@
-import { PROFILES, adjustContiguousStart, formatDuration, formatTimecodeFrames, mergeContiguousItem, parseFrameTimecode } from "./src/core";
+import { PROFILES, adjustItemEnd, adjustItemStart, formatDuration, formatTimecodeFrames, mergeContiguousItem, parseFrameTimecode } from "./src/core";
 import type { HighlightCutSegment } from "./src/highlight-cut";
 import { normalizeNativePath, type AssetItem } from "./src/asset-library";
 import { createAssetBrowserPanel } from "./src/asset-browser-panel";
@@ -30,6 +30,7 @@ import {
   scanNewsItemMarkers,
   replaceNewsItemMarkers,
   getActiveSequenceFrameRate,
+  getActiveSequenceEndSeconds,
   deleteNewsItemSequences,
   exportSequenceFrameByName,
   listSequenceNames,
@@ -1939,6 +1940,8 @@ let newsCutMarkerEdits: Array<{ start: number; end: number; title: string }> = [
 // 활성 시퀀스 fps — 프레임 단위 타임코드(분:초:프레임)·±1프레임 이동에 쓴다(2026-08-20 사용자 지시).
 // 목록 불러올 때 실기에서 읽고, 못 읽으면 30으로 대체한다.
 let newsCutMarkerFps = 30;
+// 활성 시퀀스 길이(초) — 마지막 기사 아웃점(끝) 조정의 상한. 목록 불러올 때 읽는다(독립 인/아웃 모델).
+let newsCutMarkerSeqEnd = 0;
 // 플러그인 설치 폴더 경로(부팅 시 1회 조회) — 출력 폴더 오염 경고(speech-controller)에 쓴다.
 let pluginFolderPathValue: string | null = null;
 
@@ -2746,7 +2749,7 @@ function renderNewsCutMarkerEdits(): void {
     return span;
   };
   const frameSec = 1 / Math.max(1, Math.round(newsCutMarkerFps));
-  // −5s/−1s는 거친 이동, −1f/+1f는 프레임 정밀 이동(전환 컷에 딱 맞추기). 인점(시작)에만 적용된다.
+  // −5s/−1s는 거친 이동, −1f/+1f는 프레임 정밀 이동(전환 컷에 딱 맞추기). 인점·아웃점 각각에 적용된다.
   const nudges: Array<{ label: string; delta: number; hint: string }> = [
     { label: "-5s", delta: -5, hint: "5초 뒤로" },
     { label: "-1s", delta: -1, hint: "1초 뒤로" },
@@ -2755,6 +2758,38 @@ function renderNewsCutMarkerEdits(): void {
     { label: "+1s", delta: 1, hint: "1초 앞으로" },
     { label: "+5s", delta: 5, hint: "5초 앞으로" },
   ];
+  // 인점("in")·아웃점("out") 각각의 조정 줄(라벨 + 버튼 6개 + 직접 입력)을 만든다 — 독립 조정.
+  const buildEdgeControls = (index: number, edge: "in" | "out", value: number): HTMLElement => {
+    const controls = document.createElement("div");
+    controls.className = "news-marker-controls";
+    const edgeName = edge === "in" ? "시작" : "끝";
+    const tag = document.createElement("span");
+    tag.className = "news-marker-edge-label";
+    tag.textContent = edgeName;
+    controls.append(tag);
+    for (const nudge of nudges) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary-button news-marker-nudge";
+      button.textContent = nudge.label;
+      button.title = `기사 ${index + 1} ${edgeName}을 ${nudge.hint}`;
+      button.addEventListener("click", () => (edge === "in" ? nudgeNewsMarkerStart(index, nudge.delta) : nudgeNewsMarkerEnd(index, nudge.delta)));
+      controls.append(button);
+    }
+    const entry = document.createElement("input");
+    entry.type = "text";
+    entry.className = "news-marker-entry";
+    entry.value = formatTimecodeFrames(value, newsCutMarkerFps);
+    entry.title = `${edgeName} 시각 직접 입력 (분:초:프레임, 예: 2:57:30 · 초만도 가능: 177)`;
+    entry.setAttribute("aria-label", `기사 ${index + 1} ${edgeName} 시각`);
+    entry.addEventListener("change", () => {
+      const parsed = parseFrameTimecode(entry.value, newsCutMarkerFps, value);
+      if (edge === "in") setNewsMarkerStart(index, parsed);
+      else setNewsMarkerEnd(index, parsed);
+    });
+    controls.append(entry);
+    return controls;
+  };
   newsCutMarkerEdits.forEach((item, index) => {
     const row = document.createElement("div");
     row.className = "news-marker-row";
@@ -2768,33 +2803,16 @@ function renderNewsCutMarkerEdits(): void {
     tail.textContent = ` · (${formatDuration(item.end - item.start)})${item.title ? ` · ${item.title}` : ""}`;
     // 인점(시작)·아웃점(끝)을 각각 클릭하면 그 프레임으로 재생헤드가 이동한다(사용자 지시).
     head.append(label, makeTimeLink(item.start, "인점"), arrow, makeTimeLink(item.end, "아웃점"), tail);
-    const controls = document.createElement("div");
-    controls.className = "news-marker-controls";
-    for (const nudge of nudges) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "secondary-button news-marker-nudge";
-      button.textContent = nudge.label;
-      button.title = `기사 ${index + 1} 시작을 ${nudge.hint}`;
-      button.addEventListener("click", () => nudgeNewsMarkerStart(index, nudge.delta));
-      controls.append(button);
-    }
-    const entry = document.createElement("input");
-    entry.type = "text";
-    entry.className = "news-marker-entry";
-    entry.value = formatTimecodeFrames(item.start, newsCutMarkerFps);
-    entry.title = "시작 시각 직접 입력 (분:초:프레임, 예: 2:57:30 · 초만도 가능: 177)";
-    entry.setAttribute("aria-label", `기사 ${index + 1} 시작 시각`);
-    entry.addEventListener("change", () => setNewsMarkerStart(index, parseFrameTimecode(entry.value, newsCutMarkerFps, item.start)));
-    controls.append(entry);
+    const outControls = buildEdgeControls(index, "out", item.end);
+    // 삭제는 '끝' 줄 오른쪽에 붙인다 — 기사(인+아웃 한 쌍)를 통째로 앞 기사에 합친다.
     const del = document.createElement("button");
     del.type = "button";
     del.className = "danger-button news-marker-del";
     del.textContent = "삭제";
-    del.title = index === 0 ? "첫 기사 삭제 — 그 구간을 다음 기사에 합칩니다" : "이 경계 삭제 — 앞 기사와 합칩니다";
+    del.title = index === 0 ? "첫 기사 삭제 — 그 구간을 다음 기사에 합칩니다" : "이 기사 삭제 — 앞 기사와 합칩니다";
     del.addEventListener("click", () => deleteNewsMarker(index));
-    controls.append(del);
-    row.append(head, controls);
+    outControls.append(del);
+    row.append(head, buildEdgeControls(index, "in", item.start), outControls);
     container.append(row);
   });
 }
@@ -2807,19 +2825,35 @@ function previewNewsMarkerAt(seconds: number): void {
   void setSequencePlayerPosition(Math.max(0, seconds)).catch(() => { /* 미리보기 이동 실패는 조정에 영향 없음 */ });
 }
 
-// 시작 시각을 설정한다(연속성 유지) — 셈은 core.ts adjustContiguousStart(순수·단위테스트)에 위임하고,
-// 여기서는 상태 교체·다시 그리기·재생헤드 미리보기를 한다. 클램프·역전 가드·앞 기사 끝 동기는 그 함수가 책임진다.
+// 기사 인점(시작)을 독립 조정한다(2026-08-20 사용자 지시 — 인/아웃 독립). 셈은 core.ts
+// adjustItemStart(순수·단위테스트)에 위임하고, 여기서는 상태 교체·다시 그리기·인점 미리보기를 한다.
+// 앞 기사 끝은 건드리지 않는다 — 앞 끝과의 사이는 빈 구간(트림된 무음)이 될 수 있다.
 function setNewsMarkerStart(index: number, seconds: number): void {
-  newsCutMarkerEdits = adjustContiguousStart(newsCutMarkerEdits, index, seconds, NEWS_MARKER_MIN_LEN);
+  newsCutMarkerEdits = adjustItemStart(newsCutMarkerEdits, index, seconds, NEWS_MARKER_MIN_LEN);
   renderNewsCutMarkerEdits();
   const moved = newsCutMarkerEdits[index];
   if (moved) previewNewsMarkerAt(moved.start);
+}
+
+// 기사 아웃점(끝)을 독립 조정한다 — 다음 기사 시작·시퀀스 끝을 넘지 못한다(core.ts adjustItemEnd).
+// 다음 기사 시작과의 사이는 빈 구간이 될 수 있다. 미리보기는 아웃 프레임으로 이동한다.
+function setNewsMarkerEnd(index: number, seconds: number): void {
+  newsCutMarkerEdits = adjustItemEnd(newsCutMarkerEdits, index, seconds, NEWS_MARKER_MIN_LEN, newsCutMarkerSeqEnd);
+  renderNewsCutMarkerEdits();
+  const moved = newsCutMarkerEdits[index];
+  if (moved) previewNewsMarkerAt(moved.end);
 }
 
 function nudgeNewsMarkerStart(index: number, delta: number): void {
   const item = newsCutMarkerEdits[index];
   if (!item) return;
   setNewsMarkerStart(index, item.start + delta);
+}
+
+function nudgeNewsMarkerEnd(index: number, delta: number): void {
+  const item = newsCutMarkerEdits[index];
+  if (!item) return;
+  setNewsMarkerEnd(index, item.end + delta);
 }
 
 // 경계 삭제 = 병합. 셈은 core.ts mergeContiguousItem(순수·단위테스트)에 위임한다. 1개뿐일 때의
@@ -2844,6 +2878,7 @@ async function handleNewsCutMarkerLoad(): Promise<void> {
   }
   const fps = await getActiveSequenceFrameRate().catch(() => 0);
   newsCutMarkerFps = fps > 0 ? fps : 30;
+  newsCutMarkerSeqEnd = await getActiveSequenceEndSeconds().catch(() => 0);
   newsCutMarkerEdits = segments.map((segment) => ({ start: segment.start, end: segment.end, title: newsMarkerTitle(segment.name) }));
   renderNewsCutMarkerEdits();
   activity.add("info", `기사 마커 ${segments.length}개를 조정 목록으로 불러왔습니다(${Math.round(newsCutMarkerFps)}fps · 프레임 단위 조정 가능).`);

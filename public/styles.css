@@ -4486,3 +4486,10 @@ input[type="color"],
 .news-marker-del {
   margin-left: auto;
 }
+
+.news-marker-edge-label {
+  min-width: 30px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted, #9a9a9a);
+}

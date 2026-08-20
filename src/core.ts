@@ -317,11 +317,12 @@ export interface NewsBoundaryItem {
   end: number;
 }
 
-// 기사 마커 조정의 핵심 셈 — 연속 기사(앞 끝 = 뒤 시작) 구간에서 index 기사의 시작을 desired로
-// 옮긴다(연속성 유지). 앞 기사 시작보다 minLen 뒤, 이 기사 끝보다 minLen 앞으로 클램프하고,
-// 첫 기사가 아니면 앞 기사의 끝을 같은 값으로 맞춘다. 잘못된 입력·역전이면 원본 값 그대로 둔다.
-// 순수 함수 — 새 배열을 돌려주고 입력은 건드리지 않는다(index.ts UI 상태에서 호출).
-export function adjustContiguousStart<T extends NewsBoundaryItem>(
+// 기사 마커 조정의 핵심 셈 — 각 기사가 독립된 [시작, 끝]을 가진다(2026-08-20 사용자 지시 —
+// 연속 구조를 끊어 기사마다 인·아웃 2점, 10기사=20점). index 기사의 **시작**을 desired로 옮긴다.
+// 이웃과 독립이라 앞 기사 끝을 건드리지 않는다 — 앞 기사 끝보다 앞으로는 못 가고(겹침 방지),
+// 자기 끝보다 minLen 앞까지만. 앞 기사 끝과의 사이는 빈 구간(트림된 무음)이 될 수 있다.
+// 순수 함수 — 새 배열을 돌려주고 입력은 건드리지 않는다.
+export function adjustItemStart<T extends NewsBoundaryItem>(
   items: readonly T[],
   index: number,
   desiredStart: number,
@@ -330,12 +331,33 @@ export function adjustContiguousStart<T extends NewsBoundaryItem>(
   const next = items.map((item) => ({ ...item }));
   const target = next[index];
   if (!target || !Number.isFinite(desiredStart)) return next;
-  const lowerBound = index > 0 ? next[index - 1]!.start + minLen : 0;
+  const lowerBound = index > 0 ? next[index - 1]!.end : 0;
   const upperBound = target.end - minLen;
   const clamped = Math.max(lowerBound, Math.min(upperBound, desiredStart));
   if (!Number.isFinite(clamped) || clamped >= target.end) return next;
   target.start = clamped;
-  if (index > 0) next[index - 1]!.end = clamped;
+  return next;
+}
+
+// index 기사의 **끝**을 desired로 옮긴다(이웃과 독립). 자기 시작보다 minLen 뒤부터, 다음 기사
+// 시작(마지막이면 seqEnd)까지만 — 겹침 방지. 다음 기사 시작과의 사이는 빈 구간이 될 수 있다.
+export function adjustItemEnd<T extends NewsBoundaryItem>(
+  items: readonly T[],
+  index: number,
+  desiredEnd: number,
+  minLen: number,
+  seqEnd: number,
+): T[] {
+  const next = items.map((item) => ({ ...item }));
+  const target = next[index];
+  if (!target || !Number.isFinite(desiredEnd)) return next;
+  const lowerBound = target.start + minLen;
+  const upperBound = index < next.length - 1
+    ? next[index + 1]!.start
+    : (Number.isFinite(seqEnd) && seqEnd > 0 ? seqEnd : Number.POSITIVE_INFINITY);
+  const clamped = Math.max(lowerBound, Math.min(upperBound, desiredEnd));
+  if (!Number.isFinite(clamped) || clamped <= target.start) return next;
+  target.end = clamped;
   return next;
 }
 

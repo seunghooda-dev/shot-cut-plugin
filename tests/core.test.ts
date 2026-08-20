@@ -3,7 +3,8 @@ import { describe, it } from "node:test";
 
 import {
   PROFILES,
-  adjustContiguousStart,
+  adjustItemEnd,
+  adjustItemStart,
   calculateRelativeScale,
   formatDuration,
   formatTimecodeFrames,
@@ -708,61 +709,94 @@ describe("parseFrameTimecode", () => {
   });
 });
 
-describe("adjustContiguousStart", () => {
+describe("adjustItemStart (independent in-point)", () => {
   const base = () => [
     { start: 0, end: 100, title: "a" },
     { start: 100, end: 200, title: "b" },
     { start: 200, end: 300, title: "c" },
   ];
 
-  it("moves a middle item's start and syncs the previous item's end", () => {
-    const out = adjustContiguousStart(base(), 1, 150);
+  it("moves a middle item's start WITHOUT touching the previous item's end (leaves a gap)", () => {
+    const out = adjustItemStart(base(), 1, 150);
     assert.equal(out[1]!.start, 150);
-    assert.equal(out[0]!.end, 150);
-    assert.equal(out[2]!.start, 200); // 다음 기사는 그대로
-    assert.equal(out[1]!.title, "b"); // title 보존
+    assert.equal(out[0]!.end, 100); // 앞 기사 끝은 그대로 → [100,150]이 빈 구간
+    assert.equal(out[2]!.start, 200);
+    assert.equal(out[1]!.title, "b");
   });
 
   it("does not mutate the input array", () => {
     const input = base();
-    adjustContiguousStart(input, 1, 150);
+    adjustItemStart(input, 1, 150);
     assert.equal(input[1]!.start, 100);
     assert.equal(input[0]!.end, 100);
   });
 
-  it("clamps to the previous start + minLen (cannot cross the previous boundary)", () => {
-    const out = adjustContiguousStart(base(), 2, 50, 1); // 앞 기사 시작 200... 아니라 100(item1)
-    assert.equal(out[2]!.start, 101); // lowerBound = item1.start(100) + 1
-    assert.equal(out[1]!.end, 101);
+  it("clamps to the previous item's END (cannot overlap the previous article)", () => {
+    const out = adjustItemStart(base(), 1, 50, 1); // desired 50 < prev.end 100
+    assert.equal(out[1]!.start, 100);
+    assert.equal(out[0]!.end, 100);
   });
 
   it("clamps to this item's end - minLen (cannot cross its own end)", () => {
-    const out = adjustContiguousStart(base(), 1, 250, 1);
+    const out = adjustItemStart(base(), 1, 250, 1);
     assert.equal(out[1]!.start, 199);
   });
 
-  it("lets the first item move down to zero with no previous end to touch", () => {
-    const out = adjustContiguousStart(base(), 0, -10);
+  it("lets the first item move down to zero", () => {
+    const out = adjustItemStart(base(), 0, -10);
     assert.equal(out[0]!.start, 0);
     assert.equal(out[0]!.end, 100);
   });
 
-  it("leaves values unchanged when clamping would reach/cross the item's own end (inversion guard)", () => {
-    // item 1은 길이 0.4초 — lowerBound(101) > upperBound(99.8)라 clamped=101 >= end(100.8) → 가드가 원본 유지
-    const tiny = [
-      { start: 100, end: 100.4, title: "a" },
-      { start: 100.4, end: 100.8, title: "b" },
-    ];
-    const out = adjustContiguousStart(tiny, 1, 50, 1);
-    assert.equal(out[1]!.start, 100.4);
-    assert.equal(out[0]!.end, 100.4);
+  it("returns an unchanged copy for a non-finite desired value or bad index", () => {
+    assert.deepEqual(adjustItemStart(base(), 1, Number.NaN), base());
+    assert.deepEqual(adjustItemStart(base(), 9, 50), base());
+  });
+});
+
+describe("adjustItemEnd (independent out-point)", () => {
+  const base = () => [
+    { start: 0, end: 100, title: "a" },
+    { start: 100, end: 200, title: "b" },
+    { start: 200, end: 300, title: "c" },
+  ];
+
+  it("moves a middle item's end WITHOUT touching the next item's start (leaves a gap)", () => {
+    const out = adjustItemEnd(base(), 1, 150, 1, 400);
+    assert.equal(out[1]!.end, 150);
+    assert.equal(out[2]!.start, 200); // 다음 기사 시작 그대로 → [150,200]이 빈 구간
+    assert.equal(out[0]!.end, 100);
+  });
+
+  it("does not mutate the input array", () => {
+    const input = base();
+    adjustItemEnd(input, 1, 150, 1, 400);
+    assert.equal(input[1]!.end, 200);
+  });
+
+  it("clamps to the next item's START (cannot overlap the next article)", () => {
+    const out = adjustItemEnd(base(), 1, 250, 1, 400);
+    assert.equal(out[1]!.end, 200);
+  });
+
+  it("clamps to this item's start + minLen (cannot cross its own start)", () => {
+    const out = adjustItemEnd(base(), 1, 50, 1, 400);
+    assert.equal(out[1]!.end, 101);
+  });
+
+  it("clamps the last item's end to seqEnd", () => {
+    const out = adjustItemEnd(base(), 2, 500, 1, 400);
+    assert.equal(out[2]!.end, 400);
+  });
+
+  it("allows the last item's end to extend when seqEnd is unavailable", () => {
+    const out = adjustItemEnd(base(), 2, 500, 1, 0);
+    assert.equal(out[2]!.end, 500);
   });
 
   it("returns an unchanged copy for a non-finite desired value or bad index", () => {
-    const out = adjustContiguousStart(base(), 1, Number.NaN);
-    assert.deepEqual(out, base());
-    const oob = adjustContiguousStart(base(), 9, 50);
-    assert.deepEqual(oob, base());
+    assert.deepEqual(adjustItemEnd(base(), 1, Number.NaN, 1, 400), base());
+    assert.deepEqual(adjustItemEnd(base(), 9, 50, 1, 400), base());
   });
 });
 
