@@ -516,6 +516,8 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /void setSequencePlayerPosition\(Math\.max\(0, seconds\)\)/);
   assert.match(source, /if \(moved\) previewNewsMarkerAt\(moved\.start\);/);
   assert.match(source, /head\.addEventListener\("click", \(\) => previewNewsMarkerAt\(item\.start\)\)/);
+  // AI '연결 테스트'도 키를 저장하므로 뉴스 분할 배너를 갱신해야 한다(2026-08-20 실측 — 종전엔 '저장'·동의 변경에만 갱신이 걸려 배너가 낡은 채 남았다).
+  assert.match(source, /bind\("ai-test-btn", "click", guarded\(async \(\) => \{[\s\S]{0,700}?refreshNewsCutSetupBanner\(\)/);
   assert.match(source, /if \(newsCutCancel \|\| newsCutMarkerExportRunning\) \{[\s\S]{0,160}?분할 또는 내보내기가 진행 중/);
   const bandEventCandidatesLine = /const bandEventCandidates = program === "news8" \? bandEvents : \[\];/;
   assert.match(source, bandEventCandidatesLine);

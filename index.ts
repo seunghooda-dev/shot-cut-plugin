@@ -4989,7 +4989,16 @@ function bindCoreEvents(): void {
     // 키 저장 직후 뉴스 분할 탭 첫 실행 배너를 갱신한다(UX 감사 A-2).
     void refreshNewsCutSetupBanner();
   }, "AI 설정 저장 실패"));
-  bind("ai-test-btn", "click", guarded(() => aiSettingsPanel.test(), "AI 연결 테스트 실패"));
+  bind("ai-test-btn", "click", guarded(async () => {
+    try {
+      await aiSettingsPanel.test();
+    } finally {
+      // 연결 테스트도 키를 저장하므로(test 내부 setApiKey) 뉴스 분할 배너를 갱신한다 — 종전엔
+      // '저장' 클릭·동의 변경에만 갱신이 걸려, 사용자가 '연결 테스트'로 키를 넣으면 배너가
+      // "AI 비전 미준비"로 낡은 채 남았다(2026-08-20 사용자 실측). 실패해도 키는 저장되므로 finally.
+      void refreshNewsCutSetupBanner();
+    }
+  }, "AI 연결 테스트 실패"));
   bind("clear-log-btn", "click", () => activity.clear());
   bind("run-diagnostics-btn", "click", guarded(() => diagnosticsPanel.run(), "시스템 진단 실패"));
   bind("export-diagnostics-btn", "click", guarded(() => diagnosticsPanel.exportJson(), "진단 JSON 저장 실패"));
