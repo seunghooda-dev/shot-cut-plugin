@@ -512,6 +512,10 @@ function assertOperationalSourceContracts(source: string): void {
   // 연속성 셈은 core.ts 순수 함수(adjustContiguousStart·mergeContiguousItem, 단위테스트)에 위임한다.
   assert.match(source, /newsCutMarkerEdits = adjustContiguousStart\(newsCutMarkerEdits, index, seconds, NEWS_MARKER_MIN_LEN\);/);
   assert.match(source, /newsCutMarkerEdits = mergeContiguousItem\(newsCutMarkerEdits, index\);/);
+  // 조정·미리보기 시 재생헤드를 그 시작으로 옮겨 프로그램 모니터에 인점 프레임을 띄운다(2026-08-20 사용자 지시).
+  assert.match(source, /void setSequencePlayerPosition\(Math\.max\(0, seconds\)\)/);
+  assert.match(source, /if \(moved\) previewNewsMarkerAt\(moved\.start\);/);
+  assert.match(source, /head\.addEventListener\("click", \(\) => previewNewsMarkerAt\(item\.start\)\)/);
   assert.match(source, /if \(newsCutCancel \|\| newsCutMarkerExportRunning\) \{[\s\S]{0,160}?분할 또는 내보내기가 진행 중/);
   const bandEventCandidatesLine = /const bandEventCandidates = program === "news8" \? bandEvents : \[\];/;
   assert.match(source, bandEventCandidatesLine);

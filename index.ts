@@ -2737,6 +2737,10 @@ function renderNewsCutMarkerEdits(): void {
     head.className = "news-marker-head";
     const title = item.title ? ` · ${item.title}` : "";
     head.textContent = `기사 ${String(index + 1).padStart(2, "0")} · ${formatDuration(item.start)} → ${formatDuration(item.end)} · (${formatDuration(item.end - item.start)})${title}`;
+    // 제목 줄을 누르면 조정 없이 이 기사 시작을 프로그램 모니터에서 미리본다(인점 확인용, 사용자 지시).
+    head.title = "클릭하면 이 기사 시작 프레임을 프로그램 모니터에서 미리봅니다";
+    head.style.cursor = "pointer";
+    head.addEventListener("click", () => previewNewsMarkerAt(item.start));
     const controls = document.createElement("div");
     controls.className = "news-marker-controls";
     for (const delta of [-5, -1, 1, 5]) {
@@ -2768,11 +2772,21 @@ function renderNewsCutMarkerEdits(): void {
   });
 }
 
+// 마커 조정·미리보기 시 재생헤드를 그 시작으로 옮겨 프로그램 모니터에 인점 프레임을 띄운다
+// (2026-08-20 사용자 지시 — 조정하면서 인점이 앵커샷에 정확히 맞는지 눈으로 확인). 실패해도
+// 조정 자체엔 영향이 없으므로 조용히 삼킨다(활성 시퀀스 없음·경합 등).
+function previewNewsMarkerAt(seconds: number): void {
+  if (!Number.isFinite(seconds)) return;
+  void setSequencePlayerPosition(Math.max(0, seconds)).catch(() => { /* 미리보기 이동 실패는 조정에 영향 없음 */ });
+}
+
 // 시작 시각을 설정한다(연속성 유지) — 셈은 core.ts adjustContiguousStart(순수·단위테스트)에 위임하고,
-// 여기서는 상태 교체와 다시 그리기만 한다. 클램프·역전 가드·앞 기사 끝 동기는 그 함수가 책임진다.
+// 여기서는 상태 교체·다시 그리기·재생헤드 미리보기를 한다. 클램프·역전 가드·앞 기사 끝 동기는 그 함수가 책임진다.
 function setNewsMarkerStart(index: number, seconds: number): void {
   newsCutMarkerEdits = adjustContiguousStart(newsCutMarkerEdits, index, seconds, NEWS_MARKER_MIN_LEN);
   renderNewsCutMarkerEdits();
+  const moved = newsCutMarkerEdits[index];
+  if (moved) previewNewsMarkerAt(moved.start);
 }
 
 function nudgeNewsMarkerStart(index: number, delta: number): void {
