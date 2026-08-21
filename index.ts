@@ -2758,24 +2758,17 @@ function renderNewsCutMarkerEdits(): void {
     { label: "+1S", delta: 1, hint: "1초 앞으로" },
     { label: "+5S", delta: 5, hint: "5초 앞으로" },
   ];
-  // 인점("in")·아웃점("out") 각각의 조정 줄(라벨 + 버튼 6개 + 직접 입력)을 만든다 — 독립 조정.
-  const buildEdgeControls = (index: number, edge: "in" | "out", value: number): HTMLElement => {
-    const controls = document.createElement("div");
-    controls.className = "news-marker-controls";
+  // 인/아웃 각 엣지 = 2줄(2026-08-21 사용자 요청): 윗줄 = 라벨 + 타임코드(라벨 바로 오른쪽) + extra(삭제),
+  // 아랫줄 = 넛지 버튼 6개 한 줄. 넛지는 좁게 만들어 한 줄에 들어간다.
+  const buildEdgeControls = (index: number, edge: "in" | "out", value: number, extra?: HTMLElement): HTMLElement => {
+    const wrap = document.createElement("div");
+    wrap.className = "news-marker-edge";
     const edgeName = edge === "in" ? "시작" : "끝";
+    const top = document.createElement("div");
+    top.className = "news-marker-edge-row";
     const tag = document.createElement("span");
     tag.className = "news-marker-edge-label";
     tag.textContent = edgeName;
-    controls.append(tag);
-    for (const nudge of nudges) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "secondary-button news-marker-nudge";
-      button.textContent = nudge.label;
-      button.title = `기사 ${index + 1} ${edgeName}을 ${nudge.hint}`;
-      button.addEventListener("click", () => (edge === "in" ? nudgeNewsMarkerStart(index, nudge.delta) : nudgeNewsMarkerEnd(index, nudge.delta)));
-      controls.append(button);
-    }
     const entry = document.createElement("input");
     entry.type = "text";
     entry.className = "news-marker-entry";
@@ -2787,8 +2780,22 @@ function renderNewsCutMarkerEdits(): void {
       if (edge === "in") setNewsMarkerStart(index, parsed);
       else setNewsMarkerEnd(index, parsed);
     });
-    controls.append(entry);
-    return controls;
+    // 타임코드를 라벨 바로 오른쪽에 둔다(사용자 요청). extra(삭제)가 있으면 오른쪽 끝.
+    top.append(tag, entry);
+    if (extra) top.append(extra);
+    const nudgeRow = document.createElement("div");
+    nudgeRow.className = "news-marker-nudges";
+    for (const nudge of nudges) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary-button news-marker-nudge";
+      button.textContent = nudge.label;
+      button.title = `기사 ${index + 1} ${edgeName}을 ${nudge.hint}`;
+      button.addEventListener("click", () => (edge === "in" ? nudgeNewsMarkerStart(index, nudge.delta) : nudgeNewsMarkerEnd(index, nudge.delta)));
+      nudgeRow.append(button);
+    }
+    wrap.append(top, nudgeRow);
+    return wrap;
   };
   newsCutMarkerEdits.forEach((item, index) => {
     const row = document.createElement("div");
@@ -2803,16 +2810,14 @@ function renderNewsCutMarkerEdits(): void {
     tail.textContent = ` · (${formatDuration(item.end - item.start)})${item.title ? ` · ${item.title}` : ""}`;
     // 인점(시작)·아웃점(끝)을 각각 클릭하면 그 프레임으로 재생헤드가 이동한다(사용자 지시).
     head.append(label, makeTimeLink(item.start, "인점"), arrow, makeTimeLink(item.end, "아웃점"), tail);
-    const outControls = buildEdgeControls(index, "out", item.end);
-    // 삭제는 '끝' 줄 오른쪽에 붙인다 — 기사(인+아웃 한 쌍)를 통째로 앞 기사에 합친다.
+    // 삭제 버튼은 '끝' 엣지 윗줄 오른쪽에 — 기사(인+아웃 한 쌍)를 통째로 앞 기사에 합친다.
     const del = document.createElement("button");
     del.type = "button";
     del.className = "danger-button news-marker-del";
     del.textContent = "삭제";
     del.title = index === 0 ? "첫 기사 삭제 — 그 구간을 다음 기사에 합칩니다" : "이 기사 삭제 — 앞 기사와 합칩니다";
     del.addEventListener("click", () => deleteNewsMarker(index));
-    outControls.append(del);
-    row.append(head, buildEdgeControls(index, "in", item.start), outControls);
+    row.append(head, buildEdgeControls(index, "in", item.start), buildEdgeControls(index, "out", item.end, del));
     container.append(row);
   });
 }

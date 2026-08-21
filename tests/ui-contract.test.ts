@@ -523,7 +523,7 @@ function assertOperationalSourceContracts(source: string): void {
   assert.match(source, /makeTimeLink\(item\.start, "인점"\)[\s\S]{0,80}?makeTimeLink\(item\.end, "아웃점"\)/);
   assert.match(source, /const frameSec = 1 \/ Math\.max\(1, Math\.round\(newsCutMarkerFps\)\)/);
   assert.match(source, /buildEdgeControls\(index, "in", item\.start\)/);
-  assert.match(source, /buildEdgeControls\(index, "out", item\.end\)/);
+  assert.match(source, /buildEdgeControls\(index, "out", item\.end, del\)/);
   assert.match(source, /parseFrameTimecode\(entry\.value, newsCutMarkerFps, value\)/);
   // AI '연결 테스트'도 키를 저장하므로 뉴스 분할 배너를 갱신해야 한다(2026-08-20 실측 — 종전엔 '저장'·동의 변경에만 갱신이 걸려 배너가 낡은 채 남았다).
   assert.match(source, /bind\("ai-test-btn", "click", guarded\(async \(\) => \{[\s\S]{0,700}?refreshNewsCutSetupBanner\(\)/);

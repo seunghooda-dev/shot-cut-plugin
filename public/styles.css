@@ -4463,35 +4463,53 @@ input[type="color"],
   font-weight: 600;
 }
 
-.news-marker-controls {
+/* 인/아웃 각 엣지 = 2줄: (라벨 + 타임코드) 위, (넛지 6개 한 줄) 아래. 2026-08-21 사용자 요청. */
+.news-marker-edge {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.news-marker-edge-row {
+  display: flex;
   align-items: center;
   gap: 6px;
 }
 
+.news-marker-nudges {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 3px;
+}
+
 .news-marker-nudge {
-  min-width: 26px;
-  min-height: 18px;
-  padding: 0 4px;
-  font-size: 11px;
+  min-width: 20px;
+  min-height: 16px;
+  padding: 0 2px;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
 
 .news-marker-entry {
-  width: 88px;
-  padding: 6px 8px;
+  width: 72px;
+  min-height: 16px;
+  padding: 2px 4px;
   text-align: center;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
 .news-marker-del {
   margin-left: auto;
+  min-width: 34px;
+  min-height: 16px;
+  padding: 0 6px;
+  font-size: 10px;
 }
 
 .news-marker-edge-label {
-  min-width: 30px;
-  font-size: 12px;
+  min-width: 24px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--muted, #9a9a9a);
 }
@@ -4501,14 +4519,14 @@ input[type="color"],
    primary/secondary 기본 스타일 위에 덮어쓴다(파일 끝이라 소스 순서로 우선). */
 .news-cut-mode-auto,
 .news-cut-mode-auto:hover:not(:disabled) {
-  border: 1px solid #5a97e8;
-  background: linear-gradient(180deg, #3f83db, #2f68bd); /* 파랑 = 원클릭(분석→내보내기 자동) */
+  border: 1px solid #6aa6f0;
+  background: #356fc4; /* 파랑 솔리드 = 원클릭 (UXP가 gradient 배경을 안 그려 단색으로) */
   color: #fff;
 }
 
 .news-cut-mode-split,
 .news-cut-mode-split:hover:not(:disabled) {
-  border: 1px solid #cf8a34;
-  background: linear-gradient(180deg, #c17e2b, #9c6120); /* 주황 = 분할만(마커 검토 후 내보내기) */
+  border: 1px solid #e0a04a;
+  background: #b06d1f; /* 주황 솔리드 = 분할만 */
   color: #fff;
 }
