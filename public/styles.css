@@ -4514,19 +4514,36 @@ input[type="color"],
   color: var(--muted, #9a9a9a);
 }
 
-/* 원클릭(전자동) vs 분할만(마커 검토) 모드 색 구분(2026-08-20 사용자 요청) — 얇은 띠·틴트는 눈에
-   안 띄어 버튼 전체를 솔리드 색으로 칠한다. 원클릭=파랑, 분할만=주황(8뉴스·모닝와이드 공통).
-   primary/secondary 기본 스타일 위에 덮어쓴다(파일 끝이라 소스 순서로 우선). */
-.news-cut-mode-auto,
-.news-cut-mode-auto:hover:not(:disabled) {
-  border: 1px solid #6aa6f0;
-  background: #356fc4; /* 파랑 솔리드 = 원클릭 (UXP가 gradient 배경을 안 그려 단색으로) */
-  color: #fff;
+/* 뉴스 분할 모드 버튼 2x2 그리드(2026-08-21 사용자 요청) — 위 행=8뉴스, 아래 행=모닝 / 왼 열=원클릭,
+   오른 열=마커만. 색상=프로그램(8뉴스 파랑·모닝 주황), 채움 vs 외곽선=모드(원클릭 solid·마커만 테두리).
+   primary/secondary-button을 떼고 이 클래스가 배경의 유일한 출처가 되게 한다 — 두 배경 규칙이 경합하면
+   UXP가 배경만 원본을 유지해 색이 안 나온다(실측: border 덮어쓰기는 되는데 background만 안 됐다). */
+.news-cut-mode-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 12px;
 }
-
-.news-cut-mode-split,
-.news-cut-mode-split:hover:not(:disabled) {
-  border: 1px solid #e0a04a;
-  background: #b06d1f; /* 주황 솔리드 = 분할만 */
-  color: #fff;
+.news-cut-mode-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-height: 42px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: filter 120ms ease, transform 80ms ease;
 }
+.news-cut-mode-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.news-cut-mode-btn:active:not(:disabled) { transform: translateY(1px); }
+.news-cut-mode-btn .ncm-title { font-size: 12px; font-weight: 700; }
+.news-cut-mode-btn .ncm-sub { font-size: 10px; opacity: 0.82; }
+/* 8뉴스 = 파랑 */
+.news-cut-mode-btn.is-8news.is-auto { background-color: #2f6fd0; border-color: #2f6fd0; color: #fff; }
+.news-cut-mode-btn.is-8news.is-split { background-color: #17233a; border-color: #5f9be6; color: #cfe0fb; }
+/* 모닝와이드 = 주황 */
+.news-cut-mode-btn.is-mw.is-auto { background-color: #c07321; border-color: #c07321; color: #fff; }
+.news-cut-mode-btn.is-mw.is-split { background-color: #33240f; border-color: #d79a4e; color: #f2d9b4; }
