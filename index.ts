@@ -2751,12 +2751,12 @@ function renderNewsCutMarkerEdits(): void {
   const frameSec = 1 / Math.max(1, Math.round(newsCutMarkerFps));
   // −5s/−1s는 거친 이동, −1f/+1f는 프레임 정밀 이동(전환 컷에 딱 맞추기). 인점·아웃점 각각에 적용된다.
   const nudges: Array<{ label: string; delta: number; hint: string }> = [
-    { label: "-5s", delta: -5, hint: "5초 뒤로" },
-    { label: "-1s", delta: -1, hint: "1초 뒤로" },
-    { label: "-1f", delta: -frameSec, hint: "1프레임 뒤로" },
-    { label: "+1f", delta: frameSec, hint: "1프레임 앞으로" },
-    { label: "+1s", delta: 1, hint: "1초 앞으로" },
-    { label: "+5s", delta: 5, hint: "5초 앞으로" },
+    { label: "-5S", delta: -5, hint: "5초 뒤로" },
+    { label: "-1S", delta: -1, hint: "1초 뒤로" },
+    { label: "-1F", delta: -frameSec, hint: "1프레임 뒤로" },
+    { label: "+1F", delta: frameSec, hint: "1프레임 앞으로" },
+    { label: "+1S", delta: 1, hint: "1초 앞으로" },
+    { label: "+5S", delta: 5, hint: "5초 앞으로" },
   ];
   // 인점("in")·아웃점("out") 각각의 조정 줄(라벨 + 버튼 6개 + 직접 입력)을 만든다 — 독립 조정.
   const buildEdgeControls = (index: number, edge: "in" | "out", value: number): HTMLElement => {

@@ -4471,8 +4471,10 @@ input[type="color"],
 }
 
 .news-marker-nudge {
-  min-width: 48px;
-  padding: 6px 10px;
+  min-width: 26px;
+  min-height: 18px;
+  padding: 0 4px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -4494,17 +4496,19 @@ input[type="color"],
   color: var(--muted, #9a9a9a);
 }
 
-/* 원클릭(전자동) vs 분할만(마커 검토) 모드 색 구분(2026-08-20 사용자 요청) — 얇은 띠는 눈에 안 띄어
-   배경·테두리·글씨색까지 바꿔 확실히 대비시킨다. 원클릭=파랑, 분할만=주황(8뉴스·모닝와이드 공통). */
+/* 원클릭(전자동) vs 분할만(마커 검토) 모드 색 구분(2026-08-20 사용자 요청) — 얇은 띠·틴트는 눈에
+   안 띄어 버튼 전체를 솔리드 색으로 칠한다. 원클릭=파랑, 분할만=주황(8뉴스·모닝와이드 공통).
+   primary/secondary 기본 스타일 위에 덮어쓴다(파일 끝이라 소스 순서로 우선). */
 .news-cut-mode-auto,
 .news-cut-mode-auto:hover:not(:disabled) {
-  border-left: 6px solid #4f96ff; /* 파랑 = 원클릭(분석→내보내기 자동) */
+  border: 1px solid #5a97e8;
+  background: linear-gradient(180deg, #3f83db, #2f68bd); /* 파랑 = 원클릭(분석→내보내기 자동) */
+  color: #fff;
 }
 
 .news-cut-mode-split,
 .news-cut-mode-split:hover:not(:disabled) {
-  border-color: rgba(230, 150, 60, 0.6);
-  border-left: 6px solid #e6963c; /* 주황 = 분할만(마커 검토 후 내보내기) */
-  background: rgba(230, 150, 60, 0.16);
-  color: #f2c48c;
+  border: 1px solid #cf8a34;
+  background: linear-gradient(180deg, #c17e2b, #9c6120); /* 주황 = 분할만(마커 검토 후 내보내기) */
+  color: #fff;
 }
