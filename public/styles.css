@@ -4519,12 +4519,18 @@ input[type="color"],
    primary/secondary-button을 떼고 이 클래스가 배경의 유일한 출처가 되게 한다 — 두 배경 규칙이 경합하면
    UXP가 배경만 원본을 유지해 색이 안 나온다(실측: border 덮어쓰기는 되는데 background만 안 됐다). */
 .news-cut-mode-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* UXP는 display:grid를 0폭으로 붕괴시킨다(§25-b) — flex-wrap으로 2열 구성. width:100% 명시 필수. */
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
   margin-top: 12px;
 }
 .news-cut-mode-btn {
+  flex: 1 1 40%; /* 한 행에 2개(40%면 3개째는 wrap) → grow로 폭 채움 */
+  min-width: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
